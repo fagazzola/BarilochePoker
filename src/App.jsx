@@ -639,7 +639,7 @@ function Empty({ children }) {
 ---------------------------------------------------------------------- */
 function GameTab({ roster, activeGame, setActiveGame, games, setGames }) {
   if (!activeGame) return <NewGameSetup roster={roster} setActiveGame={setActiveGame} />;
-  if (activeGame.finished) return <FinalizedGame game={activeGame} roster={roster} onClose={() => setActiveGame(null)} />;
+  if (activeGame.finished) return <FinalizedGame game={activeGame} roster={roster} onClose={() => setActiveGame(null)} setActiveGame={setActiveGame} setGames={setGames} />;
   return <ActiveGameScreen game={activeGame} setGame={setActiveGame} roster={roster} setGames={setGames} />;
 }
 
@@ -1159,11 +1159,19 @@ function PlayerResultCard({ p, player }) {
     </div>
   );
 }
-function FinalizedGame({ game, roster, onClose }) {
+function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
   const r = useMemo(() => computeSettlement(game, roster), [game, roster]);
   const players = game.playerIds.map((id) => roster.find((p) => p.id === id)).filter(Boolean);
   const numPlayers = players.length || 1;
   const d = game.dinner;
+
+  // La cena no afecta el balance de lotes, así que es seguro seguir editando
+  // quién pagó/con qué método incluso después de haber cerrado la partida.
+  const updateDinner = (patch) => {
+    const updatedGame = { ...game, dinner: { ...game.dinner, ...patch } };
+    setActiveGame(updatedGame);
+    setGames((gs) => gs.map((g) => (g.id === game.id ? updatedGame : g)));
+  };
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -1218,16 +1226,38 @@ function FinalizedGame({ game, roster, onClose }) {
             const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
             const paid = !!d.paid?.[p.id];
             const method = d.paymentMethod?.[p.id] || "fichas";
-            const methodLabel = method === "cash" ? "Cash" : method === "mixto" ? "Combinado" : "Fichas";
             return (
-              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "7px 10px" }}>
-                <span style={{ fontSize: 13, color: C.card, display: "flex", alignItems: "center", gap: 6 }}>
-                  {p.name} {alcohol && <Wine size={12} color={C.virtual} />}
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ ...monoFont, fontSize: 11, color: "rgba(244,234,214,0.5)" }}>{methodLabel}</span>
-                  <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.8)" }}>{money(charge)}</span>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: paid ? C.win : C.loss, ...monoFont }}>{paid ? "PAGADO" : "PENDIENTE"}</span>
+              <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <button onClick={() => updateDinner({ alcohol: { ...d.alcohol, [p.id]: !alcohol } })}
+                    style={{ display: "flex", alignItems: "center", gap: 7, background: "transparent", border: "none", cursor: "pointer", color: C.card, flex: 1, minWidth: 0 }}>
+                    <Avatar player={p} size={22} />
+                    <Wine size={14} color={alcohol ? C.virtual : "rgba(244,234,214,0.3)"} style={{ flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                  </button>
+                  <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)", whiteSpace: "nowrap" }}>{money(charge)}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 7 }}>
+                  <select
+                    value={method}
+                    onChange={(e) => updateDinner({ paymentMethod: { ...d.paymentMethod, [p.id]: e.target.value } })}
+                    style={{ ...inputStyle, appearance: "auto", padding: "5px 8px", fontSize: 12, width: "auto", flex: 1 }}
+                  >
+                    <option value="fichas">Pago con fichas</option>
+                    <option value="cash">Pago con cash</option>
+                    <option value="mixto">Combinado (fichas + cash)</option>
+                  </select>
+                  <button onClick={() => updateDinner({ paid: { ...d.paid, [p.id]: !paid } })}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6, background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
+                      border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "5px 9px",
+                      cursor: "pointer", color: paid ? C.win : "rgba(244,234,214,0.6)", fontSize: 11.5, fontWeight: 700, ...bodyFont, flexShrink: 0,
+                    }}>
+                    <div style={{ width: 14, height: 14, borderRadius: 4, border: `1.5px solid ${paid ? C.win : "rgba(244,234,214,0.4)"}`, background: paid ? C.win : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {paid && <Check size={10} color="#08251a" />}
+                    </div>
+                    {paid ? "Pagado" : "Pendiente"}
+                  </button>
                 </div>
               </div>
             );
