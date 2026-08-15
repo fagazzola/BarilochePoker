@@ -8,8 +8,22 @@ const {
 
 const HEADERS = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
+// La app (src/App.jsx) manda claves como "poker-roster", "poker-games" y
+// "poker-active-game" (definidas en la constante KEYS). Acá se normalizan a
+// los nombres internos que usa este archivo. También se aceptan los nombres
+// cortos ("roster","games","active") para poder probar a mano desde el navegador.
+const KEY_MAP = {
+  "poker-roster": "roster",
+  "poker-games": "games",
+  "poker-active-game": "active",
+  "roster": "roster",
+  "games": "games",
+  "active": "active",
+};
+
 exports.handler = async (event) => {
-  const key = event.queryStringParameters && event.queryStringParameters.key;
+  const rawKey = event.queryStringParameters && event.queryStringParameters.key;
+  const key = KEY_MAP[rawKey];
 
   try {
     if (event.httpMethod === "GET") {
@@ -25,7 +39,7 @@ exports.handler = async (event) => {
         const rows = await getRows("meta");
         return respond(200, { value: rowsToActiveGame(rows) });
       }
-      return respond(400, { error: `key inválida: ${key}` });
+      return respond(400, { error: `key inválida: ${rawKey}` });
     }
 
     if (event.httpMethod === "POST") {
@@ -45,8 +59,6 @@ exports.handler = async (event) => {
           const roster = rowsToRoster(rosterRows);
           await setRows("resultados", buildResultadosRows(value || [], roster));
         } catch (e) {
-          // No queremos que un fallo al regenerar "Resultados" tumbe el guardado
-          // de las partidas en sí — se loguea y se sigue.
           console.error("No se pudo regenerar la hoja Resultados:", e);
         }
         return respond(200, { ok: true });
@@ -55,7 +67,7 @@ exports.handler = async (event) => {
         await setRows("meta", metaToRows(value));
         return respond(200, { ok: true });
       }
-      return respond(400, { error: `key inválida: ${key}` });
+      return respond(400, { error: `key inválida: ${rawKey}` });
     }
 
     return respond(405, { error: "Método no soportado" });
