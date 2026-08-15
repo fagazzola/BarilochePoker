@@ -856,7 +856,7 @@ function ScoreBox({ label, value, tone }) {
   );
 }
 
-function PlayerBuyRow({ player, game, onAdd, onRemove }) function buyBtnStyle(color, subtract, disabled) {
+function buyBtnStyle(color, subtract, disabled) {
   return {
     background: subtract ? "transparent" : color,
     border: `1.5px solid ${color}`,
