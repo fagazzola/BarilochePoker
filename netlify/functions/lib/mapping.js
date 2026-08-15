@@ -79,9 +79,14 @@ function rowsToGames(rows) {
     .filter((g) => g.id);
 }
 
-/* ---------------- Meta (partida activa) ---------------- */
-function metaToRows(activeGame) {
-  return [["active", activeGame ? JSON.stringify(activeGame) : ""]];
+/* ---------------- Meta (partida activa + contraseña de administrador) ---------------- */
+// IMPORTANTE: setRows reescribe la hoja entera, así que siempre hay que
+// incluir la fila de la contraseña al guardar "active", o se perdería.
+function metaToRows(activeGame, adminPassword) {
+  return [
+    ["active", activeGame ? JSON.stringify(activeGame) : ""],
+    ["admin_password", adminPassword || ""],
+  ];
 }
 function rowsToActiveGame(rows) {
   const row = rows.find((r) => String(r[0]) === "active");
@@ -91,6 +96,10 @@ function rowsToActiveGame(rows) {
   } catch {
     return null;
   }
+}
+function rowsToAdminPassword(rows) {
+  const row = rows.find((r) => String(r[0]) === "admin_password");
+  return row ? String(row[1] || "") : "";
 }
 
 /* ---------------- Resultados (espejo legible, se regenera entero) ---------------- */
@@ -129,6 +138,6 @@ function buildResultadosRows(games, roster) {
 module.exports = {
   rosterToRows, rowsToRoster,
   gamesToRows, rowsToGames,
-  metaToRows, rowsToActiveGame,
+  metaToRows, rowsToActiveGame, rowsToAdminPassword,
   buildResultadosRows,
 };
