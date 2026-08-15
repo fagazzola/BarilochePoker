@@ -39,7 +39,7 @@ const bodyFont = { fontFamily: "'Inter', sans-serif" };
 /* ----------------------------------------------------------------------
    STORAGE
 ---------------------------------------------------------------------- */
-const KEYS = { roster: "poker-roster", games: "poker-games", active: "poker-active-game" };
+const KEYS = { roster: "poker-roster", games: "poker-games", active: "poker-active-game", adminPassword: "poker-admin-password" };
 
 // Guardado vía funciones de Netlify -> Microsoft Graph -> Excel (OneDrive).
 // Reemplaza el window.storage propio de los artifacts de Claude, que no
@@ -81,6 +81,22 @@ const round1 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 // (usado al "aterrizar" montos ingresados), ceilTo100 para redondear siempre
 // hacia arriba (usado en cargos repartidos, para no cobrar de menos).
 const roundTo100 = (n) => Math.round((Number(n) || 0) / 100) * 100;
+// Pide la contraseña de administrador (cargada a mano en la hoja "Meta" del
+// Excel) antes de dejar pasar una acción destructiva. No es seguridad real
+// (no hay login), es solo una traba para evitar borrados accidentales.
+function requestAdminPassword(adminPassword, actionLabel) {
+  if (!adminPassword) {
+    alert(`Todavía no hay una contraseña de administrador configurada en el Excel (hoja "Meta", fila con key=admin_password). Agregala ahí para poder ${actionLabel}.`);
+    return false;
+  }
+  const entered = window.prompt(`Contraseña de administrador para ${actionLabel}:`);
+  if (entered === null) return false;
+  if (entered !== adminPassword) {
+    alert("Contraseña incorrecta.");
+    return false;
+  }
+  return true;
+}
 const ceilTo100 = (n) => Math.ceil((Number(n) || 0) / 100) * 100;
 
 /* Icon choices for player avatars */
@@ -221,15 +237,17 @@ export default function PokerLedger() {
   const [games, setGames] = useState([]);
   const [activeGame, setActiveGame] = useState(null);
   const [tab, setTab] = useState("partida");
+  const [adminPassword, setAdminPassword] = useState("");
 
   useEffect(() => {
     (async () => {
-      const [r, g, a] = await Promise.all([
+      const [r, g, a, pw] = await Promise.all([
         loadKey(KEYS.roster, []),
         loadKey(KEYS.games, []),
         loadKey(KEYS.active, null),
+        loadKey(KEYS.adminPassword, ""),
       ]);
-      setRoster(r); setGames(g); setActiveGame(a);
+      setRoster(r); setGames(g); setActiveGame(a); setAdminPassword(pw || "");
       setLoading(false);
     })();
   }, []);
@@ -302,7 +320,7 @@ export default function PokerLedger() {
 
       <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 14px 60px" }}>
         {tab === "jugadores" && (
-          <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} />
+          <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} />
         )}
         {tab === "partida" && (
           <GameTab
@@ -313,7 +331,7 @@ export default function PokerLedger() {
             setGames={setGames}
           />
         )}
-        {tab === "historial" && <HistoryTab games={games} roster={roster} />}
+        {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} />}
       </main>
     </div>
   );
@@ -445,7 +463,7 @@ function Badge({ children, tone }) {
 /* ----------------------------------------------------------------------
    PLAYERS TAB
 ---------------------------------------------------------------------- */
-function PlayersTab({ roster, setRoster, playerStats }) {
+function PlayersTab({ roster, setRoster, playerStats, adminPassword }) {
   const [selId, setSelId] = useState("");
   const [newName, setNewName] = useState("");
   const [newAvatar, setNewAvatar] = useState(null);
@@ -472,6 +490,7 @@ function PlayersTab({ roster, setRoster, playerStats }) {
   };
   const removePlayer = () => {
     if (!sel) return;
+    if (!requestAdminPassword(adminPassword, "eliminar jugadores")) return;
     if (!confirm(`¿Eliminar a ${sel.name} del roster? Sus estadísticas históricas se conservarán en partidas guardadas, pero dejará de aparecer en la lista.`)) return;
     setRoster((r) => r.filter((p) => p.id !== sel.id));
     setSelId("");
@@ -1289,9 +1308,66 @@ function Td({ children, align, bold, tone, signed, value, strong }) {
 /* ----------------------------------------------------------------------
    HISTORY TAB
 ---------------------------------------------------------------------- */
-function HistoryTab({ games, roster }) {
+function SwipeableRow({ children, onDelete }) {
+  const [dragX, setDragX] = useState(0);
+  const [open, setOpen] = useState(false);
+  const startX = useRef(0);
+  const dragging = useRef(false);
+  const OPEN_X = -84;
+
+  const onTouchStart = (e) => {
+    startX.current = e.touches[0].clientX;
+    dragging.current = true;
+  };
+  const onTouchMove = (e) => {
+    if (!dragging.current) return;
+    const delta = e.touches[0].clientX - startX.current;
+    const base = open ? OPEN_X : 0;
+    const next = Math.max(OPEN_X, Math.min(0, base + delta));
+    setDragX(next);
+  };
+  const onTouchEnd = () => {
+    dragging.current = false;
+    if (dragX < OPEN_X / 2) { setDragX(OPEN_X); setOpen(true); }
+    else { setDragX(0); setOpen(false); }
+  };
+
+  return (
+    <div style={{ position: "relative", overflow: "hidden", borderRadius: 14 }}>
+      <div style={{
+        position: "absolute", top: 0, right: 0, bottom: 0, width: 84,
+        display: "flex", alignItems: "center", justifyContent: "center", background: C.loss,
+      }}>
+        <button
+          onClick={() => { onDelete(); setDragX(0); setOpen(false); }}
+          style={{ background: "transparent", border: "none", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer", width: "100%", height: "100%" }}
+        >
+          <Trash2 size={18} />
+          <span style={{ fontSize: 10.5, fontWeight: 700, ...bodyFont }}>Eliminar</span>
+        </button>
+      </div>
+      <div
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onClick={() => { if (open) { setDragX(0); setOpen(false); } }}
+        style={{ transform: `translateX(${dragX}px)`, transition: dragging.current ? "none" : "transform 0.2s ease" }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function HistoryTab({ games, roster, setGames, adminPassword }) {
   const [openId, setOpenId] = useState(null);
   const sorted = [...games].sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  const handleDelete = (g) => {
+    if (!requestAdminPassword(adminPassword, "eliminar partidas")) return;
+    if (!confirm(`¿Eliminar definitivamente la partida del ${g.date}? Esta acción no se puede deshacer.`)) return;
+    setGames((gs) => gs.filter((x) => x.id !== g.id));
+  };
 
   if (sorted.length === 0) {
     return <Panel><Empty>Aún no hay partidas guardadas.</Empty></Panel>;
@@ -1299,32 +1375,37 @@ function HistoryTab({ games, roster }) {
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.45)", textAlign: "center" }}>
+        Deslizá una partida hacia la izquierda para eliminarla (pide contraseña).
+      </div>
       {sorted.map((g) => {
         const open = openId === g.id;
         const results = computeSettlement(g, roster);
         const winner = results.players.slice().sort((a, b) => b.balance - a.balance)[0];
         return (
-          <Panel key={g.id}>
-            <button onClick={() => setOpenId(open ? null : g.id)} style={{ width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ ...displayFont, fontSize: 18, color: C.goldSoft }}>{g.date}</div>
-                  <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)" }}>
-                    {g.playerIds.length} jugadores · lote {money(g.loteValue)} · rake {money(g.rake)}
-                    {winner ? ` · 🏆 ${winner.name}` : ""}
+          <SwipeableRow key={g.id} onDelete={() => handleDelete(g)}>
+            <Panel>
+              <button onClick={() => setOpenId(open ? null : g.id)} style={{ width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ ...displayFont, fontSize: 18, color: C.goldSoft }}>{g.date}</div>
+                    <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)" }}>
+                      {g.playerIds.length} jugadores · lote {money(g.loteValue)} · rake {money(g.rake)}
+                      {winner ? ` · 🏆 ${winner.name}` : ""}
+                    </div>
                   </div>
+                  {open ? <ChevronUp size={16} color={C.goldSoft} /> : <ChevronDown size={16} color={C.goldSoft} />}
                 </div>
-                {open ? <ChevronUp size={16} color={C.goldSoft} /> : <ChevronDown size={16} color={C.goldSoft} />}
-              </div>
-            </button>
-            {open && (
-              <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-                {[...results.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
-                  <PlayerResultCard key={p.playerId} p={p} player={roster.find((pl) => pl.id === p.playerId)} />
-                ))}
-              </div>
-            )}
-          </Panel>
+              </button>
+              {open && (
+                <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+                  {[...results.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
+                    <PlayerResultCard key={p.playerId} p={p} player={roster.find((pl) => pl.id === p.playerId)} />
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </SwipeableRow>
         );
       })}
     </div>
