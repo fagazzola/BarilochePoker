@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Plus, Minus, Trash2, Pencil, Users, UtensilsCrossed, Wine,
   Trophy, ArrowRightLeft, Save, X, Check, ChevronDown, ChevronUp,
@@ -221,9 +221,30 @@ export default function PokerLedger() {
       setLoading(false);
     })();
   }, []);
-  useEffect(() => { if (!loading) saveKey(KEYS.roster, roster); }, [roster, loading]);
-  useEffect(() => { if (!loading) saveKey(KEYS.games, games); }, [games, loading]);
-  useEffect(() => { if (!loading) saveKey(KEYS.active, activeGame); }, [activeGame, loading]);
+  
+  // Evita que, apenas termina la carga inicial, se dispare un guardado con
+  // los datos recién leídos (o con un estado intermedio) y se sobreescriba
+  // el Excel innecesariamente. Solo guardamos ante cambios reales, hechos
+  // por el usuario después de que la carga inicial ya terminó.
+  const skipNextRosterSave = useRef(true);
+  const skipNextGamesSave = useRef(true);
+  const skipNextActiveSave = useRef(true);
+
+  useEffect(() => {
+    if (loading) return;
+    if (skipNextRosterSave.current) { skipNextRosterSave.current = false; return; }
+    saveKey(KEYS.roster, roster);
+  }, [roster, loading]);
+  useEffect(() => {
+    if (loading) return;
+    if (skipNextGamesSave.current) { skipNextGamesSave.current = false; return; }
+    saveKey(KEYS.games, games);
+  }, [games, loading]);
+  useEffect(() => {
+    if (loading) return;
+    if (skipNextActiveSave.current) { skipNextActiveSave.current = false; return; }
+    saveKey(KEYS.active, activeGame);
+  }, [activeGame, loading]);
 
   const playerStats = useCallback(
     (playerId) => {
