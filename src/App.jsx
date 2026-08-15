@@ -79,8 +79,9 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const round1 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /* Icon choices for player avatars */
-const AVATAR_ICONS = ["🂡", "🎲", "🃏", "😎", "🐺", "🦁", "🐯", "🍀", "🔥", "⚡", "🎯", "🥇", "👑", "🍺", "🥂", "🐍"];
-
+const AVATAR_ICONS = ["🂡", "♠️", "♥️", "♦️", "♣️",
+  "😎", "🐺", "🦁", "🐯", "🍀", "🔥", "⚡", "🎯", "🥇", "👑", "🏆",
+  "⚽", "🏀", "🏈", "🍺", "🍻", "🧉", "🍔", "🥩", "🍕", "🌮", "🍗", "🥓"];
 function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -540,6 +541,7 @@ function PlayersTab({ roster, setRoster, playerStats }) {
   );
 }
 function AvatarPicker({ avatar, setAvatar, previewName }) {
+  const [customEmoji, setCustomEmoji] = useState("");
   const onPhoto = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -551,10 +553,16 @@ function AvatarPicker({ avatar, setAvatar, previewName }) {
     }
     e.target.value = "";
   };
+  const useCustomEmoji = () => {
+    const val = customEmoji.trim();
+    if (!val) return;
+    setAvatar({ type: "icon", value: val });
+    setCustomEmoji("");
+  };
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
       <Avatar player={{ name: previewName, avatar }} size={44} />
-      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", maxWidth: 260 }}>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", maxWidth: 280 }}>
         {AVATAR_ICONS.map((ic) => (
           <button key={ic} onClick={() => setAvatar({ type: "icon", value: ic })}
             style={{
@@ -563,6 +571,19 @@ function AvatarPicker({ avatar, setAvatar, previewName }) {
               border: `1px solid ${avatar?.type === "icon" && avatar.value === ic ? C.gold : C.panelLine}`,
             }}>{ic}</button>
         ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <input
+          type="text"
+          inputMode="text"
+          placeholder="😊 tu emoji"
+          value={customEmoji}
+          maxLength={8}
+          onChange={(e) => setCustomEmoji(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && useCustomEmoji()}
+          style={{ ...inputStyle, width: 96, textAlign: "center", fontSize: 17, padding: "6px 6px" }}
+        />
+        <GhostBtn onClick={useCustomEmoji} icon={Check} color={C.win}>Usar</GhostBtn>
       </div>
       <label style={{ cursor: "pointer" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "transparent", border: `1px solid ${C.panelLine}`, borderRadius: 8, padding: "6px 10px", fontSize: 12, color: "rgba(244,234,214,0.75)", ...bodyFont, fontWeight: 600 }}>
@@ -732,11 +753,15 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
 
   const update = (patch) => setGame((g) => ({ ...g, ...patch }));
 
-  const addPurchase = (playerId, type, qty) => {
-    const lotes = Number(qty) || 0;
-    if (lotes <= 0) return;
-    const entry = { id: uid(), playerId, type, lotes, amount: lotes * game.loteValue, ts: Date.now() };
+  const addPurchase = (playerId, type) => {
+    const entry = { id: uid(), playerId, type, lotes: 1, amount: game.loteValue, ts: Date.now() };
     update({ purchases: [...game.purchases, entry] });
+  };
+  const removeLastPurchase = (playerId, type) => {
+    const entries = game.purchases.filter((p) => p.playerId === playerId && p.type === type);
+    if (entries.length === 0) return;
+    const last = entries[entries.length - 1];
+    update({ purchases: game.purchases.filter((p) => p.id !== last.id) });
   };
   const removePurchase = (id) => update({ purchases: game.purchases.filter((p) => p.id !== id) });
 
@@ -800,7 +825,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
         <SectionTitle icon={Banknote}>Compra de lotes por jugador</SectionTitle>
         <div style={{ display: "grid", gap: 10 }}>
           {players.map((p) => (
-            <PlayerBuyRow key={p.id} player={p} game={game} onAdd={addPurchase} onRemove={removePurchase} />
+            <PlayerBuyRow key={p.id} player={p} game={game} onAdd={addPurchase} onRemoveLast={removeLastPurchase} />
           ))}
         </div>
       </Panel>
@@ -831,53 +856,61 @@ function ScoreBox({ label, value, tone }) {
   );
 }
 
-function PlayerBuyRow({ player, game, onAdd, onRemove }) {
-  const [qtyCash, setQtyCash] = useState(1);
-  const [qtyVirtual, setQtyVirtual] = useState(1);
+function PlayerBuyRow({ player, game, onAdd, onRemove }) function buyBtnStyle(color, subtract, disabled) {
+  return {
+    background: subtract ? "transparent" : color,
+    border: `1.5px solid ${color}`,
+    color: subtract ? color : "#fff",
+    borderRadius: 8,
+    padding: "6px 9px",
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.35 : 1,
+    fontWeight: 700,
+    fontSize: 12,
+    ...bodyFont,
+  };
+}
+
+function PlayerBuyRow({ player, game, onAdd, onRemoveLast }) {
   const entries = game.purchases.filter((p) => p.playerId === player.id);
   const cashLotes = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.lotes, 0);
   const virtualLotes = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.lotes, 0);
+  const cashAmount = cashLotes * game.loteValue;
+  const virtualAmount = virtualLotes * game.loteValue;
 
   return (
     <div style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Avatar player={player} size={26} />
-          <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{player.name}</span>
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <Badge tone="cash">{cashLotes} lotes · {money(cashLotes * game.loteValue)}</Badge>
-          <Badge tone="virtual">{virtualLotes} lotes · {money(virtualLotes * game.loteValue)}</Badge>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <Avatar player={player} size={26} />
+        <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{player.name}</span>
       </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input type="number" min="1" style={{ ...inputStyle, width: 56, padding: "6px 8px" }} value={qtyCash} onChange={(e) => setQtyCash(e.target.value)} />
-          <button onClick={() => onAdd(player.id, "cash", qtyCash)} style={{ background: C.cash, border: "none", color: "#fff", borderRadius: 8, padding: "7px 10px", display: "flex", alignItems: "center", gap: 5, cursor: "pointer", fontWeight: 700, fontSize: 12.5 }}>
-            <Plus size={13} /> Cash
-          </button>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input type="number" min="1" style={{ ...inputStyle, width: 56, padding: "6px 8px" }} value={qtyVirtual} onChange={(e) => setQtyVirtual(e.target.value)} />
-          <button onClick={() => onAdd(player.id, "virtual", qtyVirtual)} style={{ background: C.virtual, border: "none", color: "#fff", borderRadius: 8, padding: "7px 10px", display: "flex", alignItems: "center", gap: 5, cursor: "pointer", fontWeight: 700, fontSize: 12.5 }}>
-            <Plus size={13} /> Virtual
-          </button>
-        </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+        <button onClick={() => onAdd(player.id, "cash")} style={buyBtnStyle(C.cash, false)}>
+          <Plus size={12} /> Cash
+        </button>
+        <button onClick={() => onRemoveLast(player.id, "cash")} disabled={cashLotes === 0} style={buyBtnStyle(C.cash, true, cashLotes === 0)}>
+          <Minus size={12} /> Cash
+        </button>
+        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: C.cash, whiteSpace: "nowrap" }}>
+          {cashLotes} lotes · {money(cashAmount)}
+        </span>
       </div>
-      {entries.length > 0 && (
-        <div className="scrollbar-thin" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 9, maxHeight: 70, overflowY: "auto" }}>
-          {entries.slice().reverse().map((e) => (
-            <span key={e.id} onClick={() => onRemove(e.id)} title="Quitar"
-              style={{
-                cursor: "pointer", fontSize: 10.5, ...monoFont, padding: "3px 7px", borderRadius: 6,
-                background: e.type === "cash" ? "rgba(47,174,102,0.18)" : "rgba(139,107,240,0.18)",
-                color: e.type === "cash" ? C.cash : C.virtual, border: `1px solid ${e.type === "cash" ? C.cashDeep : C.virtualDeep}`,
-              }}>
-              {e.lotes}× {money(e.amount)} ✕
-            </span>
-          ))}
-        </div>
-      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button onClick={() => onAdd(player.id, "virtual")} style={buyBtnStyle(C.virtual, false)}>
+          <Plus size={12} /> Virtual
+        </button>
+        <button onClick={() => onRemoveLast(player.id, "virtual")} disabled={virtualLotes === 0} style={buyBtnStyle(C.virtual, true, virtualLotes === 0)}>
+          <Minus size={12} /> Virtual
+        </button>
+        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: C.virtual, whiteSpace: "nowrap" }}>
+          {virtualLotes} lotes · {money(virtualAmount)}
+        </span>
+      </div>
     </div>
   );
 }
