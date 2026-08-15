@@ -2,23 +2,25 @@ const { getRows, setRows } = require("./lib/sheets");
 const {
   rosterToRows, rowsToRoster,
   gamesToRows, rowsToGames,
-  metaToRows, rowsToActiveGame,
+  metaToRows, rowsToActiveGame, rowsToAdminPassword,
   buildResultadosRows,
 } = require("./lib/mapping");
 
 const HEADERS = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-// La app (src/App.jsx) manda claves como "poker-roster", "poker-games" y
-// "poker-active-game" (definidas en la constante KEYS). Acá se normalizan a
-// los nombres internos que usa este archivo. También se aceptan los nombres
-// cortos ("roster","games","active") para poder probar a mano desde el navegador.
+// La app (src/App.jsx) manda claves como "poker-roster", "poker-games",
+// "poker-active-game" y "poker-admin-password" (definidas en la constante
+// KEYS). Acá se normalizan a los nombres internos que usa este archivo.
+// También se aceptan los nombres cortos para poder probar a mano desde el navegador.
 const KEY_MAP = {
   "poker-roster": "roster",
   "poker-games": "games",
   "poker-active-game": "active",
+  "poker-admin-password": "adminPassword",
   "roster": "roster",
   "games": "games",
   "active": "active",
+  "adminPassword": "adminPassword",
 };
 
 exports.handler = async (event) => {
@@ -38,6 +40,13 @@ exports.handler = async (event) => {
       if (key === "active") {
         const rows = await getRows("meta");
         return respond(200, { value: rowsToActiveGame(rows) });
+      }
+      if (key === "adminPassword") {
+        // Contraseña de administrador: se lee de la hoja "Meta" (fila
+        // key=admin_password), la carga el dueño del Excel a mano — la app
+        // nunca la escribe, solo la lee para comparar.
+        const rows = await getRows("meta");
+        return respond(200, { value: rowsToAdminPassword(rows) });
       }
       return respond(400, { error: `key inválida: ${rawKey}` });
     }
@@ -59,14 +68,23 @@ exports.handler = async (event) => {
           const roster = rowsToRoster(rosterRows);
           await setRows("resultados", buildResultadosRows(value || [], roster));
         } catch (e) {
+          // No queremos que un fallo al regenerar "Resultados" tumbe el guardado
+          // de las partidas en sí — se loguea y se sigue.
           console.error("No se pudo regenerar la hoja Resultados:", e);
         }
         return respond(200, { ok: true });
       }
       if (key === "active") {
-        await setRows("meta", metaToRows(value));
+        // Preservar la contraseña de administrador que ya esté cargada en la
+        // hoja Meta, porque setRows reescribe la hoja entera.
+        const existingRows = await getRows("meta");
+        const currentPassword = rowsToAdminPassword(existingRows);
+        await setRows("meta", metaToRows(value, currentPassword));
         return respond(200, { ok: true });
       }
+      // No se expone un POST para "adminPassword": se define a mano en el
+      // Excel a propósito, para no tener que construir una pantalla de
+      // configuración dentro de la app.
       return respond(400, { error: `key inválida: ${rawKey}` });
     }
 
