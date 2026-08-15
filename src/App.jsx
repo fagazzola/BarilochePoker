@@ -79,9 +79,11 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const round1 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /* Icon choices for player avatars */
-const AVATAR_ICONS = ["🂡", "♠️", "♥️", "♦️", "♣️",
+const AVATAR_ICONS = [
+  "🂡", "♠️", "♥️", "♦️", "♣️",
   "😎", "🐺", "🦁", "🐯", "🍀", "🔥", "⚡", "🎯", "🥇", "👑", "🏆",
-  "⚽", "🏀", "🏈", "🍺", "🍻", "🧉", "🍔", "🥩", "🍕", "🌮", "🍗", "🥓"];
+  "⚽", "🏈", "🍺", "🥂", "🍻", "🧉",
+  "🍔", "🥩", "🍕", "🌮", "🍗", "🥓"];
 function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -763,7 +765,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
     const last = entries[entries.length - 1];
     update({ purchases: game.purchases.filter((p) => p.id !== last.id) });
   };
-  const removePurchase = (id) => update({ purchases: game.purchases.filter((p) => p.id !== id) });
 
   const totals = useMemo(() => {
     let cash = 0, virtual = 0;
@@ -856,7 +857,7 @@ function ScoreBox({ label, value, tone }) {
   );
 }
 
-function PlayerBuyRow({ player, game, onAdd, onRemove }) function buyBtnStyle(color, subtract, disabled) {
+function buyBtnStyle(color, subtract, disabled) {
   return {
     background: subtract ? "transparent" : color,
     border: `1.5px solid ${color}`,
