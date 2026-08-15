@@ -77,11 +77,22 @@ const money = (n) =>
 const todayISO = () => new Date().toISOString().slice(0, 10);
 // Redondeo defensivo para evitar arrastres de punto flotante (ej. 0.1+0.2) en los cálculos de liquidación
 const round1 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+// Unidad mínima de valor: $100. roundTo100 para redondear al más cercano
+// (usado al "aterrizar" montos ingresados), ceilTo100 para redondear siempre
+// hacia arriba (usado en cargos repartidos, para no cobrar de menos).
+const roundTo100 = (n) => Math.round((Number(n) || 0) / 100) * 100;
+const ceilTo100 = (n) => Math.ceil((Number(n) || 0) / 100) * 100;
 
 /* Icon choices for player avatars */
-const AVATAR_ICONS = ["🂡", "♠️", "♥️", "♦️", "♣️",
-  "😎", "🐺", "🦁", "🐯", "🍀", "🔥", "⚡", "🎯", "🥇", "👑", "🏆",
-  "⚽", "🏀", "🏈", "🍺", "🍻", "🧉", "🍔", "🥩", "🍕", "🌮", "🍗", "🥓"];
+const AVATAR_ICONS = [
+  "🂡", "🃏", "🎴", "🀄", "🎲",
+  "♠️", "♥️", "♦️", "♣️",
+  "😎", "🐺", "🦁", "🐯", "🐍", "🍀", "🔥", "⚡", "🎯", "🥇", "👑", "🏆",
+  "⚽", "🏀", "🏈", "⚾", "🎾", "🏐", "🏉", "🎱",
+  "🍺", "🥂", "🥃", "🍻", "🧉",
+  "🍔", "🥩", "🍕", "🌮", "🍗", "🥓", "🍤",
+];
+
 function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -222,7 +233,7 @@ export default function PokerLedger() {
       setLoading(false);
     })();
   }, []);
-  
+
   // Evita que, apenas termina la carga inicial, se dispare un guardado con
   // los datos recién leídos (o con un estado intermedio) y se sobreescriba
   // el Excel innecesariamente. Solo guardamos ante cambios reales, hechos
@@ -763,7 +774,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
     const last = entries[entries.length - 1];
     update({ purchases: game.purchases.filter((p) => p.id !== last.id) });
   };
-  const removePurchase = (id) => update({ purchases: game.purchases.filter((p) => p.id !== id) });
 
   const totals = useMemo(() => {
     let cash = 0, virtual = 0;
@@ -836,7 +846,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
             Cena y servicio
           </SectionTitle>
         </button>
-        {dinnerOpen && <DinnerSection game={game} players={players} update={update} />}
+        {dinnerOpen && <DinnerSection game={game} players={players} update={update} onClose={() => setDinnerOpen(false)} />}
       </Panel>
 
       <PrimaryBtn onClick={() => setFinalizing(true)} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
@@ -915,7 +925,7 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast }) {
   );
 }
 
-function DinnerSection({ game, players, update }) {
+function DinnerSection({ game, players, update, onClose }) {
   const d = game.dinner;
   const setD = (patch) => update({ dinner: { ...d, ...patch } });
   const numPlayers = players.length || 1;
@@ -925,13 +935,13 @@ function DinnerSection({ game, players, update }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="Monto total de la cena">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.total} onChange={(e) => setD({ total: Number(e.target.value) || 0 })} />
+            <input type="number" style={inputStyle} value={d.total} onChange={(e) => setD({ total: Number(e.target.value) || 0 })} onBlur={(e) => setD({ total: roundTo100(e.target.value) })} step="100" />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.total)}</span>
           </div>
         </Field>
         <Field label="Servicio de mesero (por jugador)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.waiter} onChange={(e) => setD({ waiter: Number(e.target.value) || 0 })} />
+            <input type="number" style={inputStyle} value={d.waiter} onChange={(e) => setD({ waiter: Number(e.target.value) || 0 })} onBlur={(e) => setD({ waiter: roundTo100(e.target.value) })} step="100" />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.waiter)}</span>
           </div>
         </Field>
@@ -939,7 +949,7 @@ function DinnerSection({ game, players, update }) {
       <div style={{ marginTop: 10 }}>
         <Field label="Cargo extra de alcohol (se suma a la cena de quienes bebieron)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.alcoholFee} onChange={(e) => setD({ alcoholFee: Number(e.target.value) || 0 })} />
+            <input type="number" style={inputStyle} value={d.alcoholFee} onChange={(e) => setD({ alcoholFee: Number(e.target.value) || 0 })} onBlur={(e) => setD({ alcoholFee: roundTo100(e.target.value) })} step="100" />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.alcoholFee)}</span>
           </div>
         </Field>
@@ -947,7 +957,7 @@ function DinnerSection({ game, players, update }) {
       <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
         {players.map((p) => {
           const alcohol = !!d.alcohol[p.id];
-          const charge = d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0);
+          const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
           const paid = !!d.paid?.[p.id];
           const method = d.paymentMethod?.[p.id] || "fichas";
           return (
@@ -989,6 +999,9 @@ function DinnerSection({ game, players, update }) {
       </div>
       <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.45)", marginTop: 8 }}>
         Este cargo de cena es independiente del conteo de lotes y no afecta el balance de la partida.
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <GhostBtn onClick={onClose} icon={ChevronUp} color={C.goldSoft}>Cerrar cena</GhostBtn>
       </div>
     </div>
   );
@@ -1069,7 +1082,8 @@ function FinalizeGame({ game, roster, onBack, onConfirm }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ color: "rgba(244,234,214,0.5)", fontSize: 13 }}>$</span>
                     <input type="number" min="0" style={{ ...inputStyle, width: 110, textAlign: "right" }} placeholder="0"
-                      value={values[p.id]} onChange={(e) => setValues((c) => ({ ...c, [p.id]: e.target.value }))} />
+                      value={values[p.id]} onChange={(e) => setValues((c) => ({ ...c, [p.id]: e.target.value }))}
+                      onBlur={(e) => { if (e.target.value !== "") setValues((c) => ({ ...c, [p.id]: String(roundTo100(e.target.value)) })); }} step="100" />
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, marginTop: 7, marginLeft: 34 }}>
@@ -1119,6 +1133,8 @@ function ResultRow({ label, value, tone, strong }) {
 function PlayerResultCard({ p, player }) {
   const win = p.balance > 0;
   const flat = p.balance === 0;
+  const cashLabel = p.pagoCash > 0 ? "Recibe Cash" : p.pagoCash < 0 ? "Debe Cash" : "Cash";
+  const transferLabel = p.pagoTransfer > 0 ? "Recibe Transfer" : p.pagoTransfer < 0 ? "Debe Transfer" : "Transfer";
   return (
     <div style={{ background: "rgba(0,0,0,0.2)", border: `1px solid ${win ? "rgba(63,191,114,0.35)" : flat ? C.panelLine : "rgba(226,99,79,0.35)"}`, borderRadius: 12, padding: "12px 14px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -1138,8 +1154,8 @@ function PlayerResultCard({ p, player }) {
       <ResultRow label="Total buy-in" value={money(p.totalBuyIn)} />
       <ResultRow label="Cash out (fichas)" value={money(p.cashOut)} />
       <ResultRow label="Balance" value={(p.balance > 0 ? "+" : "") + money(p.balance)} tone={win ? "win" : flat ? undefined : "loss"} strong />
-      <ResultRow label="Pago cash" value={money(p.pagoCash)} tone={p.pagoCash > 0 ? "cash" : undefined} />
-      <ResultRow label="Pago transfer" value={(p.pagoTransfer > 0 ? "+" : "") + money(p.pagoTransfer)} tone={p.pagoTransfer > 0 ? "win" : p.pagoTransfer < 0 ? "loss" : undefined} />
+      <ResultRow label={cashLabel} value={money(Math.abs(p.pagoCash))} tone={p.pagoCash > 0 ? "cash" : undefined} />
+      <ResultRow label={transferLabel} value={money(Math.abs(p.pagoTransfer))} tone={p.pagoTransfer > 0 ? "win" : p.pagoTransfer < 0 ? "loss" : undefined} />
     </div>
   );
 }
@@ -1160,7 +1176,7 @@ function FinalizedGame({ game, roster, onClose }) {
         </div>
 
         <div style={{ display: "grid", gap: 10 }}>
-          {r.players.map((p) => (
+          {[...r.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
             <PlayerResultCard key={p.playerId} p={p} player={players.find((pl) => pl.id === p.playerId)} />
           ))}
         </div>
@@ -1199,7 +1215,7 @@ function FinalizedGame({ game, roster, onClose }) {
         <div style={{ display: "grid", gap: 6 }}>
           {players.map((p) => {
             const alcohol = !!d.alcohol[p.id];
-            const charge = d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0);
+            const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
             const paid = !!d.paid?.[p.id];
             const method = d.paymentMethod?.[p.id] || "fichas";
             const methodLabel = method === "cash" ? "Cash" : method === "mixto" ? "Combinado" : "Fichas";
@@ -1273,7 +1289,7 @@ function HistoryTab({ games, roster }) {
             </button>
             {open && (
               <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-                {results.players.map((p) => (
+                {[...results.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
                   <PlayerResultCard key={p.playerId} p={p} player={roster.find((pl) => pl.id === p.playerId)} />
                 ))}
               </div>
