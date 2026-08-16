@@ -1432,6 +1432,7 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
   // para que la hoja "Resultados" del Excel se regenere con la fórmula de
   // liquidación más reciente, sin tener que reabrir y reingresar cada partida.
   const handleResync = () => {
+    if (!requestAdminPassword(adminPassword, "recalcular y sincronizar la base de datos")) return;
     setSyncing(true);
     setGames((gs) => [...gs]);
     setTimeout(() => setSyncing(false), 1200);
@@ -1445,7 +1446,7 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ display: "flex", justifyContent: "center" }}>
         <GhostBtn onClick={handleResync} icon={ArrowRightLeft} color={C.goldSoft}>
-          {syncing ? "Sincronizando…" : "Recalcular y sincronizar con Excel"}
+          {syncing ? "Sincronizando…" : "Recalcular y sincronizar con la base de datos"}
         </GhostBtn>
       </div>
       <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.45)", textAlign: "center" }}>
