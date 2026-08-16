@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BARILOCHE — Estadísticas</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+  :root {
+    --felt: #0c3527; --feltDeep: #082019; --panel: #123f30; --panelLine: rgba(212,175,55,0.22);
+    --card: #f4ead6; --gold: #d8ad3f; --goldSoft: #f0d888;
+    --cash: #2fae66; --virtual: #f2883c; --win: #3fbf72; --loss: #e2634f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; font-family: 'Inter', sans-serif;
+    background: radial-gradient(ellipse at top, var(--panel) 0%, var(--felt) 45%, var(--feltDeep) 100%);
+    color: var(--card);
+  }
+  .display { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.04em; }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  header {
+    border-bottom: 1px solid var(--panelLine); background: rgba(0,0,0,0.15);
+    position: sticky; top: 0; z-index: 10; backdrop-filter: blur(6px);
+    padding: 14px 16px;
+  }
+  header .title { font-size: 30px; color: var(--gold); line-height: 1; }
+  header .sub { font-size: 12px; color: rgba(240,216,136,0.55); letter-spacing: 0.14em; text-transform: uppercase; margin-left: 10px; }
+  main { max-width: 980px; margin: 0 auto; padding: 18px 14px 60px; }
+  .panel { background: var(--panel); border: 1px solid var(--panelLine); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+  .section-title { font-size: 19px; letter-spacing: 0.06em; color: var(--goldSoft); margin: 0 0 12px; display: flex; align-items: center; justify-content: space-between; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .stat-card { background: rgba(0,0,0,0.22); border-radius: 10px; padding: 10px 8px; text-align: center; }
+  .stat-card .label { font-size: 10px; color: rgba(244,234,214,0.5); text-transform: uppercase; }
+  .stat-card .value { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 18px; color: var(--goldSoft); margin-top: 3px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 6px; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 10.5px; text-transform: uppercase; color: rgba(244,234,214,0.55); cursor: pointer; user-select: none; border-bottom: 1px solid var(--panelLine); }
+  th:hover { color: var(--goldSoft); }
+  th.sorted { color: var(--gold); }
+  tbody tr { border-bottom: 1px solid rgba(255,255,255,0.05); }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  td { font-family: 'IBM Plex Mono', monospace; }
+  td.name { font-family: 'Inter', sans-serif; font-weight: 600; color: var(--card); }
+  .win-text { color: var(--win); } .loss-text { color: var(--loss); }
+  .table-wrap { overflow-x: auto; }
+  .refresh-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  button.refresh {
+    background: linear-gradient(180deg, var(--goldSoft), var(--gold)); color: #241d12; border: none;
+    border-radius: 9px; padding: 9px 16px; font-weight: 700; font-size: 13px; cursor: pointer; font-family: 'Inter', sans-serif;
+  }
+  button.refresh:disabled { opacity: 0.6; cursor: default; }
+  .updated { font-size: 11px; color: rgba(244,234,214,0.45); }
+  .empty { text-align: center; padding: 30px 10px; color: rgba(244,234,214,0.45); font-size: 13.5px; }
+  .error-box { background: rgba(226,99,79,0.12); border: 1px solid var(--loss); border-radius: 8px; padding: 12px; font-size: 13px; }
+  canvas { max-height: 320px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="display title">BARILOCHE</span><span class="sub">estadísticas de jugadores</span>
+</header>
+<main>
+  <div class="refresh-row">
+    <button class="refresh" id="btnRefresh" onclick="loadData()">Actualizar ahora</button>
+    <span class="updated" id="updatedLabel">Cargando…</span>
+  </div>
+
+  <div id="content"></div>
+</main>
+
+<script>
+const API_URL = "https://barilochegenerale.netlify.app/api/store?key=poker-resultados";
+const AUTO_REFRESH_MS = 60000;
+
+const money = (n) => "$" + Math.round(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
+const pct = (n) => Math.round((n || 0) * 100) + "%";
+
+let sortKey = "totalBalance";
+let sortDir = -1; // desc
+let lastStats = [];
+let chart = null;
+
+function computeStats(rows) {
+  const byPlayer = {};
+  rows.forEach((r) => {
+    if (!byPlayer[r.jugador]) {
+      byPlayer[r.jugador] = {
+        jugador: r.jugador, partidas: 0, ganadas: 0,
+        totalBalance: 0, totalBuyIn: 0, totalCashOut: 0,
+        totalPagoCash: 0, totalPagoTransfer: 0,
+        mejor: -Infinity, peor: Infinity,
+      };
+    }
+    const s = byPlayer[r.jugador];
+    s.partidas += 1;
+    if (r.balance > 0) s.ganadas += 1;
+    s.totalBalance += r.balance;
+    s.totalBuyIn += r.totalBuyIn;
+    s.totalCashOut += r.cashOut;
+    s.totalPagoCash += r.pagoCash;
+    s.totalPagoTransfer += r.pagoTransfer;
+    s.mejor = Math.max(s.mejor, r.balance);
+    s.peor = Math.min(s.peor, r.balance);
+  });
+  return Object.values(byPlayer).map((s) => ({
+    ...s,
+    winRate: s.partidas ? s.ganadas / s.partidas : 0,
+    promedio: s.partidas ? s.totalBalance / s.partidas : 0,
+  }));
+}
+
+function renderSummary(rows, stats) {
+  const totalPartidas = new Set(rows.map((r) => r.gameId)).size;
+  const totalJugadores = stats.length;
+  const lider = stats.slice().sort((a, b) => b.totalBalance - a.totalBalance)[0];
+  return `
+    <div class="panel">
+      <div class="cards">
+        <div class="stat-card"><div class="label">Partidas jugadas</div><div class="value">${totalPartidas}</div></div>
+        <div class="stat-card"><div class="label">Jugadores</div><div class="value">${totalJugadores}</div></div>
+        <div class="stat-card"><div class="label">Líder actual</div><div class="value" style="font-size:14px;">${lider ? lider.jugador : "—"}</div></div>
+        <div class="stat-card"><div class="label">Balance del líder</div><div class="value" style="color:${lider && lider.totalBalance >= 0 ? "var(--win)" : "var(--loss)"}">${lider ? money(lider.totalBalance) : "—"}</div></div>
+      </div>
+    </div>`;
+}
+
+const COLUMNS = [
+  { key: "jugador", label: "Jugador", fmt: (v) => v, cls: "name" },
+  { key: "partidas", label: "Partidas", fmt: (v) => v },
+  { key: "ganadas", label: "Ganadas", fmt: (v) => v },
+  { key: "winRate", label: "% Victorias", fmt: pct },
+  { key: "totalBalance", label: "Balance total", fmt: money, signed: true },
+  { key: "promedio", label: "Balance prom.", fmt: money, signed: true },
+  { key: "mejor", label: "Mejor partida", fmt: money, signed: true },
+  { key: "peor", label: "Peor partida", fmt: money, signed: true },
+  { key: "totalPagoCash", label: "Cash recibido", fmt: money },
+  { key: "totalPagoTransfer", label: "Transfer neto", fmt: money, signed: true },
+];
+
+function renderTable(stats) {
+  const sorted = stats.slice().sort((a, b) => (a[sortKey] - b[sortKey]) * sortDir);
+  const head = COLUMNS.map((c) =>
+    `<th class="${c.key === sortKey ? "sorted" : ""}" onclick="setSortKey('${c.key}')">${c.label}${c.key === sortKey ? (sortDir === -1 ? " ↓" : " ↑") : ""}</th>`
+  ).join("");
+  const body = sorted.map((s) => {
+    const cells = COLUMNS.map((c) => {
+      const v = s[c.key];
+      const cls = c.cls || (c.signed ? (v > 0 ? "win-text" : v < 0 ? "loss-text" : "") : "");
+      const text = c.signed && typeof v === "number" ? (v > 0 ? "+" : "") + c.fmt(v) : c.fmt(v);
+      return `<td class="${cls}">${text}</td>`;
+    }).join("");
+    return `<tr>${cells}</tr>`;
+  }).join("");
+  return `
+    <div class="panel">
+      <div class="section-title">Tabla de posiciones</div>
+      <div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    </div>`;
+}
+
+function renderChartPanel() {
+  return `
+    <div class="panel">
+      <div class="section-title">Balance acumulado por jugador</div>
+      <canvas id="chartCanvas"></canvas>
+    </div>`;
+}
+
+function drawChart(stats) {
+  const sorted = stats.slice().sort((a, b) => b.totalBalance - a.totalBalance);
+  const ctx = document.getElementById("chartCanvas");
+  if (!ctx) return;
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: sorted.map((s) => s.jugador),
+      datasets: [{
+        data: sorted.map((s) => s.totalBalance),
+        backgroundColor: sorted.map((s) => (s.totalBalance >= 0 ? "#3fbf72" : "#e2634f")),
+        borderRadius: 6,
+      }],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => money(c.parsed.y) } } },
+      scales: {
+        x: { ticks: { color: "#f4ead6" }, grid: { color: "rgba(255,255,255,0.06)" } },
+        y: { ticks: { color: "#f4ead6", callback: (v) => money(v) }, grid: { color: "rgba(255,255,255,0.06)" } },
+      },
+    },
+  });
+}
+
+function setSortKey(key) {
+  if (sortKey === key) { sortDir *= -1; } else { sortKey = key; sortDir = -1; }
+  render(lastStats, window.__lastRows || []);
+}
+window.setSortKey = setSortKey;
+window.loadData = loadData;
+
+function render(stats, rows) {
+  lastStats = stats;
+  const content = document.getElementById("content");
+  if (!rows.length) {
+    content.innerHTML = `<div class="panel"><div class="empty">Todavía no hay partidas cerradas en el historial.</div></div>`;
+    return;
+  }
+  content.innerHTML = renderSummary(rows, stats) + renderChartPanel() + renderTable(stats);
+  drawChart(stats);
+}
+
+async function loadData() {
+  const btn = document.getElementById("btnRefresh");
+  const label = document.getElementById("updatedLabel");
+  btn.disabled = true;
+  try {
+    const res = await fetch(API_URL);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    const rows = data.value || [];
+    window.__lastRows = rows;
+    const stats = computeStats(rows);
+    render(stats, rows);
+    label.textContent = "Actualizado: " + new Date().toLocaleTimeString("es-MX");
+  } catch (e) {
+    document.getElementById("content").innerHTML =
+      `<div class="panel"><div class="error-box">No se pudo cargar la información (${e.message}). Verificá tu conexión y volvé a intentar.</div></div>`;
+    label.textContent = "Error al actualizar";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+loadData();
+setInterval(loadData, AUTO_REFRESH_MS);
+</script>
+</body>
+</html>
