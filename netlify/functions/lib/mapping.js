@@ -149,9 +149,31 @@ function buildResultadosRows(games, roster) {
   return rows;
 }
 
+// Convierte las filas crudas de la hoja "Resultados" a objetos legibles, para
+// que el dashboard de estadísticas los consuma directo sin tener que
+// recalcular nada.
+function rowsToResultados(rows) {
+  return rows
+    .map((r) => ({
+      gameId: String(r[0] || ""),
+      fecha: normalizeDateCell(r[1]),
+      jugador: String(r[2] || ""),
+      lotesCash: Number(r[3]) || 0,
+      buyInCash: Number(r[4]) || 0,
+      lotesVirtual: Number(r[5]) || 0,
+      buyInVirtual: Number(r[6]) || 0,
+      totalBuyIn: Number(r[7]) || 0,
+      cashOut: Number(r[8]) || 0,
+      pagoCash: Number(r[9]) || 0,
+      pagoTransfer: Number(r[10]) || 0,
+      balance: Number(r[11]) || 0,
+    }))
+    .filter((row) => row.gameId && row.jugador);
+}
+
 module.exports = {
   rosterToRows, rowsToRoster,
   gamesToRows, rowsToGames,
   metaToRows, rowsToActiveGame, rowsToAdminPassword,
-  buildResultadosRows,
+  buildResultadosRows, rowsToResultados,
 };
