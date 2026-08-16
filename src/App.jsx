@@ -791,17 +791,28 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
 
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
 
-  const update = (patch) => setGame((g) => ({ ...g, ...patch }));
+  // update acepta un objeto (mezcla directa) o una función (g) => patch, que
+  // recibe el estado MÁS RECIENTE del juego. Usar la forma función evita
+  // "carreras" cuando se disparan varios cambios rápido seguidos (por
+  // ejemplo, tocar +Cash varias veces, o editar dos campos de la cena
+  // rápido): cada patch se arma sobre el estado real, no sobre una copia
+  // vieja capturada en el momento del render.
+  const update = (patch) =>
+    setGame((g) => ({ ...g, ...(typeof patch === "function" ? patch(g) : patch) }));
 
   const addPurchase = (playerId, type) => {
-    const entry = { id: uid(), playerId, type, lotes: 1, amount: game.loteValue, ts: Date.now() };
-    update({ purchases: [...game.purchases, entry] });
+    update((g) => {
+      const entry = { id: uid(), playerId, type, lotes: 1, amount: g.loteValue, ts: Date.now() };
+      return { purchases: [...g.purchases, entry] };
+    });
   };
   const removeLastPurchase = (playerId, type) => {
-    const entries = game.purchases.filter((p) => p.playerId === playerId && p.type === type);
-    if (entries.length === 0) return;
-    const last = entries[entries.length - 1];
-    update({ purchases: game.purchases.filter((p) => p.id !== last.id) });
+    update((g) => {
+      const entries = g.purchases.filter((p) => p.playerId === playerId && p.type === type);
+      if (entries.length === 0) return {};
+      const last = entries[entries.length - 1];
+      return { purchases: g.purchases.filter((p) => p.id !== last.id) };
+    });
   };
 
   const totals = useMemo(() => {
@@ -959,7 +970,10 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast }) {
 
 function DinnerSection({ game, players, update, onClose }) {
   const d = game.dinner;
-  const setD = (patch) => update({ dinner: { ...d, ...patch } });
+  const setD = (patch) =>
+    update((g) => ({
+      dinner: { ...g.dinner, ...(typeof patch === "function" ? patch(g.dinner) : patch) },
+    }));
   const numPlayers = players.length || 1;
 
   // Costo base por persona (cena repartida + servicio), sin alcohol porque
@@ -1018,7 +1032,7 @@ function DinnerSection({ game, players, update, onClose }) {
           return (
             <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <button onClick={() => setD({ alcohol: { ...d.alcohol, [p.id]: !alcohol } })}
+                <button onClick={() => setD((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: !dd.alcohol[p.id] } }))}
                   style={{ display: "flex", alignItems: "center", gap: 7, background: "transparent", border: "none", cursor: "pointer", color: C.card, flex: 1, minWidth: 0 }}>
                   <Avatar player={p} size={22} />
                   <Wine size={14} color={alcohol ? C.virtual : "rgba(244,234,214,0.3)"} style={{ flexShrink: 0 }} />
@@ -1029,14 +1043,14 @@ function DinnerSection({ game, players, update, onClose }) {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 7 }}>
                 <select
                   value={method}
-                  onChange={(e) => setD({ paymentMethod: { ...d.paymentMethod, [p.id]: e.target.value } })}
+                  onChange={(e) => setD((dd) => ({ paymentMethod: { ...dd.paymentMethod, [p.id]: e.target.value } }))}
                   style={{ ...inputStyle, appearance: "auto", padding: "5px 8px", fontSize: 12, width: "auto", flex: 1 }}
                 >
                   <option value="fichas">Pago con fichas</option>
                   <option value="cash">Pago con cash</option>
                   <option value="mixto">Combinado (fichas + cash)</option>
                 </select>
-                <button onClick={() => setD({ paid: { ...d.paid, [p.id]: !paid } })}
+                <button onClick={() => setD((dd) => ({ paid: { ...dd.paid, [p.id]: !dd.paid?.[p.id] } }))}
                   style={{
                     display: "flex", alignItems: "center", gap: 6, background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
                     border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "5px 9px",
@@ -1234,9 +1248,9 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
   // La cena no afecta el balance de lotes, así que es seguro seguir editando
   // quién pagó/con qué método incluso después de haber cerrado la partida.
   const updateDinner = (patch) => {
-    const updatedGame = { ...game, dinner: { ...game.dinner, ...patch } };
-    setActiveGame(updatedGame);
-    setGames((gs) => gs.map((g) => (g.id === game.id ? updatedGame : g)));
+    const applyPatch = (dinner) => ({ ...dinner, ...(typeof patch === "function" ? patch(dinner) : patch) });
+    setActiveGame((g) => ({ ...g, dinner: applyPatch(g.dinner) }));
+    setGames((gs) => gs.map((x) => (x.id === game.id ? { ...x, dinner: applyPatch(x.dinner) } : x)));
   };
 
   // Vuelve a dejar la partida "en curso" para poder corregir lotes, fichas
@@ -1306,7 +1320,7 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
             return (
               <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <button onClick={() => updateDinner({ alcohol: { ...d.alcohol, [p.id]: !alcohol } })}
+                  <button onClick={() => updateDinner((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: !dd.alcohol[p.id] } }))}
                     style={{ display: "flex", alignItems: "center", gap: 7, background: "transparent", border: "none", cursor: "pointer", color: C.card, flex: 1, minWidth: 0 }}>
                     <Avatar player={p} size={22} />
                     <Wine size={14} color={alcohol ? C.virtual : "rgba(244,234,214,0.3)"} style={{ flexShrink: 0 }} />
@@ -1317,14 +1331,14 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 7 }}>
                   <select
                     value={method}
-                    onChange={(e) => updateDinner({ paymentMethod: { ...d.paymentMethod, [p.id]: e.target.value } })}
+                    onChange={(e) => updateDinner((dd) => ({ paymentMethod: { ...dd.paymentMethod, [p.id]: e.target.value } }))}
                     style={{ ...inputStyle, appearance: "auto", padding: "5px 8px", fontSize: 12, width: "auto", flex: 1 }}
                   >
                     <option value="fichas">Pago con fichas</option>
                     <option value="cash">Pago con cash</option>
                     <option value="mixto">Combinado (fichas + cash)</option>
                   </select>
-                  <button onClick={() => updateDinner({ paid: { ...d.paid, [p.id]: !paid } })}
+                  <button onClick={() => updateDinner((dd) => ({ paid: { ...dd.paid, [p.id]: !dd.paid?.[p.id] } }))}
                     style={{
                       display: "flex", alignItems: "center", gap: 6, background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
                       border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "5px 9px",
