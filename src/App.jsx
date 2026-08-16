@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Plus, Minus, Trash2, Pencil, Users, UtensilsCrossed, Wine,
-  Trophy, ArrowRightLeft, Save, X, Check, ChevronDown, ChevronUp,
+  Trophy, ArrowRightLeft, Save, X, Check, ChevronDown, ChevronUp, ChevronLeft,
   Banknote, Landmark, Flame, History, UserPlus, UserX, UserCheck,
   Play, Square, AlertCircle, Crown, DollarSign, CircleDollarSign, Coins
 } from "lucide-react";
@@ -556,11 +556,8 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword }) {
                   <Avatar player={p} size={30} />
                   <div>
                     <div style={{ color: C.card, fontWeight: 600, fontSize: 14 }}>{p.name}{!p.active && <span style={{ color: C.loss, fontSize: 11, marginLeft: 6 }}>BAJA</span>}</div>
-                    <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 11.5, ...monoFont }}>{st.played} partidas · {st.wins} ganadas</div>
+                    <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 11.5, ...monoFont }}>{st.played} partidas</div>
                   </div>
-                </div>
-                <div style={{ textAlign: "right", ...monoFont, fontWeight: 700, fontSize: 14, color: st.balance > 0 ? C.win : st.balance < 0 ? C.loss : "rgba(244,234,214,0.6)" }}>
-                  {st.balance > 0 ? "+" : ""}{money(st.balance)}
                 </div>
               </div>
             );
@@ -813,7 +810,10 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
           const results = computeSettlement(g2, roster);
           const finished = { ...g2, finished: true, results };
           setGame(finished);
-          setGames((gs) => [...gs, finished]);
+          // Si esta partida ya estaba guardada (por ejemplo, volviste a
+          // editarla desde "Resultados" y la volviste a cerrar), reemplazamos
+          // la entrada vieja en vez de duplicarla.
+          setGames((gs) => [...gs.filter((x) => x.id !== finished.id), finished]);
         }}
       />
     );
@@ -1192,8 +1192,19 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
     setGames((gs) => gs.map((g) => (g.id === game.id ? updatedGame : g)));
   };
 
+  // Vuelve a dejar la partida "en curso" para poder corregir lotes, fichas
+  // de cierre, rake, etc. La sacamos del historial hasta que se vuelva a
+  // cerrar, para no dejar una copia vieja e inconsistente dando vueltas.
+  const handleBack = () => {
+    if (!confirm("¿Volver a editar esta partida? Vas a poder corregir lotes, rake y fichas de cierre, y después cerrarla de nuevo.")) return;
+    setGames((gs) => gs.filter((g) => g.id !== game.id));
+    setActiveGame({ ...game, finished: false });
+  };
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      <GhostBtn onClick={handleBack} icon={ChevronLeft} color={C.goldSoft}>Volver a editar partida</GhostBtn>
+
       <Panel>
         <SectionTitle icon={Trophy}>Resultados de la partida</SectionTitle>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
