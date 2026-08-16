@@ -692,12 +692,12 @@ function NewGameSetup({ roster, setActiveGame }) {
             <input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
           <Field label="Valor del lote">
-            <input type="number" min="0" style={inputStyle} value={loteValue} onChange={(e) => setLoteValue(e.target.value)} />
+            <input type="number" min="0" style={inputStyle} value={loteValue} onChange={(e) => setLoteValue(e.target.value)} onFocus={(e) => e.target.select()} />
           </Field>
         </div>
         <div style={{ marginTop: 10 }}>
           <Field label="Rake (se puede ajustar después)">
-            <input type="number" min="0" style={inputStyle} value={rake} onChange={(e) => setRake(e.target.value)} />
+            <input type="number" min="0" style={inputStyle} value={rake} onChange={(e) => setRake(e.target.value)} onFocus={(e) => e.target.select()} />
           </Field>
         </div>
       </Panel>
@@ -845,8 +845,8 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
           <ScoreBox label="Rake" value={money(game.rake)} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
-          <Field label="Valor de lote"><input type="number" style={inputStyle} value={game.loteValue} onChange={(e) => setLote(e.target.value)} /></Field>
-          <Field label="Rake"><input type="number" style={inputStyle} value={game.rake} onChange={(e) => setRake(e.target.value)} /></Field>
+          <Field label="Valor de lote"><input type="number" style={inputStyle} value={game.loteValue} onChange={(e) => setLote(e.target.value)} onFocus={(e) => e.target.select()} /></Field>
+          <Field label="Rake"><input type="number" style={inputStyle} value={game.rake} onChange={(e) => setRake(e.target.value)} onFocus={(e) => e.target.select()} /></Field>
         </div>
       </Panel>
 
@@ -949,18 +949,28 @@ function DinnerSection({ game, players, update, onClose }) {
   const setD = (patch) => update({ dinner: { ...d, ...patch } });
   const numPlayers = players.length || 1;
 
+  const nominalTotal = players.reduce((s, p) => {
+    const alcohol = !!d.alcohol[p.id];
+    return s + (d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+  }, 0);
+  const totalRecaudado = players.reduce((s, p) => {
+    const alcohol = !!d.alcohol[p.id];
+    return s + ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+  }, 0);
+  const redondeoExtra = round1(totalRecaudado - nominalTotal);
+
   return (
     <div style={{ marginTop: 6 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="Monto total de la cena">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.total} onChange={(e) => setD({ total: Number(e.target.value) || 0 })} onBlur={(e) => setD({ total: roundTo100(e.target.value) })} step="100" />
+            <input type="number" style={inputStyle} value={d.total} onChange={(e) => setD({ total: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} onBlur={(e) => setD({ total: roundTo100(e.target.value) })} step="100" />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.total)}</span>
           </div>
         </Field>
         <Field label="Servicio de mesero (por jugador)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.waiter} onChange={(e) => setD({ waiter: Number(e.target.value) || 0 })} onBlur={(e) => setD({ waiter: roundTo100(e.target.value) })} step="100" />
+            <input type="number" style={inputStyle} value={d.waiter} onChange={(e) => setD({ waiter: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.waiter)}</span>
           </div>
         </Field>
@@ -968,10 +978,20 @@ function DinnerSection({ game, players, update, onClose }) {
       <div style={{ marginTop: 10 }}>
         <Field label="Cargo extra de alcohol (se suma a la cena de quienes bebieron)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.alcoholFee} onChange={(e) => setD({ alcoholFee: Number(e.target.value) || 0 })} onBlur={(e) => setD({ alcoholFee: roundTo100(e.target.value) })} step="100" />
+            <input type="number" style={inputStyle} value={d.alcoholFee} onChange={(e) => setD({ alcoholFee: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} onBlur={(e) => setD({ alcoholFee: roundTo100(e.target.value) })} step="100" />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.alcoholFee)}</span>
           </div>
         </Field>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+        <ScoreBox label="Nominal (sin redondeo)" value={money(nominalTotal)} />
+        <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "8px 6px", textAlign: "center" }}>
+          <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase" }}>Total recabado</div>
+          <div style={{ ...monoFont, fontWeight: 700, fontSize: 14.5, color: C.goldSoft }}>{money(totalRecaudado)}</div>
+          <div style={{ fontSize: 9.5, ...monoFont, color: "rgba(244,234,214,0.45)" }}>
+            {redondeoExtra > 0 ? `+${money(redondeoExtra)} de redondeo` : "sin redondeo extra"}
+          </div>
+        </div>
       </div>
       <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
         {players.map((p) => {
@@ -1053,6 +1073,9 @@ function FinalizeGame({ game, roster, onBack, onConfirm }) {
   const diff = totalFinalValue - targetTotal;
 
   const ready = players.every((p) => values[p.id] === "" || !isNaN(Number(values[p.id])));
+  // Regla de la app: no se puede cerrar la partida si lo entregado (fichas +
+  // rake) no cuadra exactamente contra el total comprado (cash + virtual).
+  const canConfirm = ready && enteredCount > 0 && runningDiff === 0;
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -1102,6 +1125,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm }) {
                     <span style={{ color: "rgba(244,234,214,0.5)", fontSize: 13 }}>$</span>
                     <input type="number" min="0" style={{ ...inputStyle, width: 110, textAlign: "right" }} placeholder="0"
                       value={values[p.id]} onChange={(e) => setValues((c) => ({ ...c, [p.id]: e.target.value }))}
+                      onFocus={(e) => e.target.select()}
                       onBlur={(e) => { if (e.target.value !== "") setValues((c) => ({ ...c, [p.id]: String(roundTo100(e.target.value)) })); }} step="100" />
                   </div>
                 </div>
@@ -1116,11 +1140,11 @@ function FinalizeGame({ game, roster, onBack, onConfirm }) {
             );
           })}
         </div>
-        {ready && Math.abs(diff) > 0 && (
+        {ready && enteredCount > 0 && runningDiff !== 0 && (
           <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginTop: 12, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
             <AlertCircle size={15} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ fontSize: 12, color: "rgba(244,234,214,0.85)" }}>
-              El valor total entregado, incluyendo el rake ({money(totalFinalValue)}), no coincide con el total general (cash + virtual: {money(targetTotal)}). Diferencia: {money(diff)}. Puedes continuar, pero revisa el conteo.
+              El valor total entregado, incluyendo el rake ({money(totalFinalValue)}), no coincide con el total general (cash + virtual: {money(targetTotal)}). Diferencia: {money(runningDiff)}. <strong>No se puede cerrar la partida hasta que el total cuadre exactamente</strong> — ajustá los montos de cierre.
             </div>
           </div>
         )}
@@ -1128,7 +1152,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm }) {
       <div style={{ display: "flex", gap: 10 }}>
         <GhostBtn onClick={onBack}>Volver</GhostBtn>
         <PrimaryBtn
-          disabled={!ready}
+          disabled={!canConfirm}
           onClick={() => onConfirm(Object.fromEntries(players.map((p) => [p.id, Number(values[p.id]) || 0])))}
           icon={Trophy} style={{ flex: 1, padding: "12px 16px" }}
         >
