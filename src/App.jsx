@@ -1476,6 +1476,34 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
                   {[...results.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
                     <PlayerResultCard key={p.playerId} p={p} player={roster.find((pl) => pl.id === p.playerId)} />
                   ))}
+
+                  <div style={{ marginTop: 6 }}>
+                    <SectionTitle icon={Banknote}>Reparto de efectivo</SectionTitle>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {results.players.filter((p) => p.pagoCash > 0).map((p) => (
+                        <div key={p.playerId} style={{ display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
+                          <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
+                          <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)} · {billsLabel(billsFor(p.pagoCash))}</span>
+                        </div>
+                      ))}
+                      {results.players.every((p) => p.pagoCash === 0) && <Empty>No hay efectivo para repartir.</Empty>}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 6 }}>
+                    <SectionTitle icon={ArrowRightLeft}>Transferencias sugeridas</SectionTitle>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {results.transfers.length === 0 && <Empty>No se requieren transferencias.</Empty>}
+                      {results.transfers.map((t, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "9px 12px" }}>
+                          <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{t.from}</span>
+                          <ArrowRightLeft size={13} color={C.gold} />
+                          <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{t.to}</span>
+                          <span style={{ marginLeft: "auto", ...monoFont, color: C.gold, fontWeight: 700 }}>{money(t.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </Panel>
