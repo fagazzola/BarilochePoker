@@ -3,7 +3,7 @@ const {
   rosterToRows, rowsToRoster,
   gamesToRows, rowsToGames,
   metaToRows, rowsToActiveGame, rowsToAdminPassword,
-  buildResultadosRows,
+  buildResultadosRows, rowsToResultados,
 } = require("./lib/mapping");
 
 const HEADERS = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
@@ -17,10 +17,12 @@ const KEY_MAP = {
   "poker-games": "games",
   "poker-active-game": "active",
   "poker-admin-password": "adminPassword",
+  "poker-resultados": "resultados",
   "roster": "roster",
   "games": "games",
   "active": "active",
   "adminPassword": "adminPassword",
+  "resultados": "resultados",
 };
 
 exports.handler = async (event) => {
@@ -47,6 +49,12 @@ exports.handler = async (event) => {
         // nunca la escribe, solo la lee para comparar.
         const rows = await getRows("meta");
         return respond(200, { value: rowsToAdminPassword(rows) });
+      }
+      if (key === "resultados") {
+        // Solo lectura: para el dashboard de estadísticas. Nunca se escribe
+        // acá — la hoja "Resultados" siempre se regenera desde "games".
+        const rows = await getRows("resultados");
+        return respond(200, { value: rowsToResultados(rows) });
       }
       return respond(400, { error: `key inválida: ${rawKey}` });
     }
@@ -82,9 +90,8 @@ exports.handler = async (event) => {
         await setRows("meta", metaToRows(value, currentPassword));
         return respond(200, { ok: true });
       }
-      // No se expone un POST para "adminPassword": se define a mano en el
-      // Excel a propósito, para no tener que construir una pantalla de
-      // configuración dentro de la app.
+      // No se expone un POST para "adminPassword" ni "resultados": la primera
+      // se define a mano en el Excel, la segunda se regenera sola desde "games".
       return respond(400, { error: `key inválida: ${rawKey}` });
     }
 
