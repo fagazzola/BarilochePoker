@@ -1065,7 +1065,14 @@ function DinnerSection({ game, players, update, onClose }) {
 /* ----- Finalize: enter chips returned per player ----- */
 function FinalizeGame({ game, roster, onBack, onConfirm }) {
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
-  const [values, setValues] = useState(() => Object.fromEntries(players.map((p) => [p.id, ""])));
+  const [values, setValues] = useState(() =>
+    Object.fromEntries(
+      players.map((p) => {
+        const existing = game.finalChips ? game.finalChips[p.id] : undefined;
+        return [p.id, existing !== undefined && existing !== null ? String(existing) : ""];
+      })
+    )
+  );
 
   const buyIns = useMemo(() => {
     const map = {};
@@ -1412,6 +1419,7 @@ function SwipeableRow({ children, onDelete }) {
 
 function HistoryTab({ games, roster, setGames, adminPassword }) {
   const [openId, setOpenId] = useState(null);
+  const [syncing, setSyncing] = useState(false);
   const sorted = [...games].sort((a, b) => (a.date < b.date ? 1 : -1));
 
   const handleDelete = (g) => {
@@ -1420,12 +1428,26 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
     setGames((gs) => gs.filter((x) => x.id !== g.id));
   };
 
+  // Fuerza un reguardado de todas las partidas sin cambiar ningún dato — sirve
+  // para que la hoja "Resultados" del Excel se regenere con la fórmula de
+  // liquidación más reciente, sin tener que reabrir y reingresar cada partida.
+  const handleResync = () => {
+    setSyncing(true);
+    setGames((gs) => [...gs]);
+    setTimeout(() => setSyncing(false), 1200);
+  };
+
   if (sorted.length === 0) {
     return <Panel><Empty>Aún no hay partidas guardadas.</Empty></Panel>;
   }
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <GhostBtn onClick={handleResync} icon={ArrowRightLeft} color={C.goldSoft}>
+          {syncing ? "Sincronizando…" : "Recalcular y sincronizar con Excel"}
+        </GhostBtn>
+      </div>
       <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.45)", textAlign: "center" }}>
         Deslizá una partida hacia la izquierda para eliminarla (pide contraseña).
       </div>
