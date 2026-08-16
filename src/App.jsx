@@ -78,7 +78,7 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 // Redondeo defensivo para evitar arrastres de punto flotante (ej. 0.1+0.2) en los cálculos de liquidación
 const round1 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 // Unidad mínima de valor: $100. roundTo100 para redondear al más cercano
-// (usado al "aterrizar" montos ingresados), ceilTo100 para redondear siempre
+// (usado al "aterrizar" montos ingresados), ceilTo50 para redondear siempre
 // hacia arriba (usado en cargos repartidos, para no cobrar de menos).
 const roundTo100 = (n) => Math.round((Number(n) || 0) / 100) * 100;
 // Pide la contraseña de administrador (cargada a mano en la hoja "Meta" del
@@ -97,7 +97,7 @@ function requestAdminPassword(adminPassword, actionLabel) {
   }
   return true;
 }
-const ceilTo100 = (n) => Math.ceil((Number(n) || 0) / 100) * 100;
+const ceilTo50 = (n) => Math.ceil((Number(n) || 0) / 50) * 50;
 
 /* Icon choices for player avatars */
 const AVATAR_ICONS = [
@@ -955,7 +955,7 @@ function DinnerSection({ game, players, update, onClose }) {
   }, 0);
   const totalRecaudado = players.reduce((s, p) => {
     const alcohol = !!d.alcohol[p.id];
-    return s + ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+    return s + ceilTo50(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
   }, 0);
   const redondeoExtra = round1(totalRecaudado - nominalTotal);
 
@@ -996,7 +996,7 @@ function DinnerSection({ game, players, update, onClose }) {
       <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
         {players.map((p) => {
           const alcohol = !!d.alcohol[p.id];
-          const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+          const charge = ceilTo50(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
           const paid = !!d.paid?.[p.id];
           const method = d.paymentMethod?.[p.id] || "fichas";
           return (
@@ -1277,7 +1277,7 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
         <div style={{ display: "grid", gap: 6 }}>
           {players.map((p) => {
             const alcohol = !!d.alcohol[p.id];
-            const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+            const charge = ceilTo50(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
             const paid = !!d.paid?.[p.id];
             const method = d.paymentMethod?.[p.id] || "fichas";
             return (
