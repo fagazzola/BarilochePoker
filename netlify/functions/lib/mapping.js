@@ -5,6 +5,20 @@ const { computeSettlement } = require("./settlement");
 // guardado; los íconos (emoji) no tienen este problema.
 const MAX_CELL_CHARS = 30000;
 
+// Excel a veces "reconoce" un texto tipo 2026-08-14 como una fecha real y lo
+// guarda internamente como su número de serie (días desde el 30/12/1899).
+// Si eso pasa, Graph API nos devuelve ese número en vez del texto. Esta
+// función lo detecta y lo reconstruye de vuelta a YYYY-MM-DD.
+function normalizeDateCell(val) {
+  if (typeof val === "number" && isFinite(val)) {
+    const utcDays = Math.floor(val - 25569); // 25569 = días entre 1900-01-01 y 1970-01-01 (con el bug de Excel)
+    const ms = utcDays * 86400 * 1000;
+    const d = new Date(ms);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  return String(val || "");
+}
+
 /* ---------------- Jugadores ---------------- */
 function rosterToRows(roster) {
   return (roster || []).map((p) => {
@@ -64,7 +78,7 @@ function rowsToGames(rows) {
       try { playerIds = JSON.parse(r[5] || "[]"); } catch { playerIds = []; }
       return {
         id: String(r[0] || ""),
-        date: String(r[1] || ""),
+        date: normalizeDateCell(r[1]),
         loteValue: Number(r[2]) || 0,
         rake: Number(r[3]) || 0,
         hostId: String(r[4] || ""),
