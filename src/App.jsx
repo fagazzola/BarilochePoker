@@ -97,7 +97,7 @@ function requestAdminPassword(adminPassword, actionLabel) {
   }
   return true;
 }
-const ceilTo100 = (n) => Math.ceil((Number(n) || 0) / 100) * 100;
+const ceilTo100 = (n) => Math.ceil((Number(n) || 0) / 50) * 50;
 
 /* Icon choices for player avatars */
 const AVATAR_ICONS = [
