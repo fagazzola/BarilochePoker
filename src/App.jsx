@@ -827,7 +827,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
   if (finalizing) {
     return (
       <FinalizeGame
-        game={game} roster={roster}
+        game={game} roster={roster} update={update}
         onBack={() => setFinalizing(false)}
         onConfirm={(finalChips) => {
           const g2 = { ...game, finalChips };
@@ -1077,7 +1077,7 @@ function DinnerSection({ game, players, update, onClose }) {
 }
 
 /* ----- Finalize: enter chips returned per player ----- */
-function FinalizeGame({ game, roster, onBack, onConfirm }) {
+function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
   const [values, setValues] = useState(() =>
     Object.fromEntries(
@@ -1087,6 +1087,18 @@ function FinalizeGame({ game, roster, onBack, onConfirm }) {
       })
     )
   );
+
+  // Al volver a la pantalla anterior, guardamos lo ya tipeado en la propia
+  // partida (aunque no esté completo ni cuadre todavía) para no perderlo si
+  // se vuelve a entrar más tarde a cerrar la partida.
+  const handleBack = () => {
+    const draft = {};
+    players.forEach((p) => {
+      if (values[p.id] !== "") draft[p.id] = Number(values[p.id]) || 0;
+    });
+    update({ finalChips: draft });
+    onBack();
+  };
 
   const buyIns = useMemo(() => {
     const map = {};
@@ -1187,7 +1199,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm }) {
         )}
       </Panel>
       <div style={{ display: "flex", gap: 10 }}>
-        <GhostBtn onClick={onBack}>Volver</GhostBtn>
+        <GhostBtn onClick={handleBack}>Volver</GhostBtn>
         <PrimaryBtn
           disabled={!canConfirm}
           onClick={() => onConfirm(Object.fromEntries(players.map((p) => [p.id, Number(values[p.id]) || 0])))}
@@ -1268,6 +1280,9 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
 
       <Panel>
         <SectionTitle icon={Trophy}>Resultados de la partida</SectionTitle>
+        <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", display: "flex", alignItems: "center", gap: 4, marginBottom: 10, marginTop: -4 }}>
+          <Crown size={12} color={C.gold} /> Operó: {roster.find((pl) => pl.id === game.hostId)?.name || "—"}
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
           <ScoreBox label="Rake" value={money(r.rake)} />
           <ScoreBox label="Total buy-in cash" value={money(r.players.reduce((s, p) => s + p.cashAmount, 0))} tone="cash" />
@@ -1480,6 +1495,9 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
                     <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)" }}>
                       {g.playerIds.length} jugadores · lote {money(g.loteValue)} · rake {money(g.rake)}
                       {winner ? ` · 🏆 ${winner.name}` : ""}
+                    </div>
+                    <div style={{ fontSize: 11, color: "rgba(244,234,214,0.4)", marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
+                      <Crown size={11} color={C.gold} /> Operó: {roster.find((r) => r.id === g.hostId)?.name || "—"}
                     </div>
                   </div>
                   {open ? <ChevronUp size={16} color={C.goldSoft} /> : <ChevronDown size={16} color={C.goldSoft} />}
