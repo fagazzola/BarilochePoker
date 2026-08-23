@@ -1306,24 +1306,28 @@ function ChampionBanner({ winner, player }) {
   if (!winner) return null;
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 10,
+      display: "flex", flexDirection: "column", gap: 8,
       background: "linear-gradient(135deg, rgba(255,205,90,0.18), rgba(255,205,90,0.05))",
       border: `1px solid ${C.gold}`, borderRadius: 12,
       padding: "10px 14px", margin: "6px 0 12px",
     }}>
-      <Trophy size={48} color={C.gold} style={{ flexShrink: 0 }} />
-      {player ? <Avatar player={player} size={30} /> : null}
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(244,234,214,0.55)", fontWeight: 700 }}>
-          Próximos postres, cortesía de:
-        </div>
-        <div style={{ ...displayFont, fontSize: 22, color: C.gold, letterSpacing: "0.02em", lineHeight: 1.1 }}>
+      <div style={{
+        fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase",
+        color: "rgba(244,234,214,0.55)", fontWeight: 700,
+        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+      }}>
+        Próximos postres, cortesía de:
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Trophy size={48} color={C.gold} style={{ flexShrink: 0 }} />
+        {player ? <Avatar player={player} size={30} /> : null}
+        <div style={{ ...displayFont, fontSize: 22, color: C.gold, letterSpacing: "0.02em", lineHeight: 1.1, minWidth: 0 }}>
           {winner.name}
         </div>
+        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 15, fontWeight: 800, color: C.win }}>
+          {(winner.balance > 0 ? "+" : "") + money(winner.balance)}
+        </span>
       </div>
-      <span style={{ marginLeft: "auto", ...monoFont, fontSize: 15, fontWeight: 800, color: C.win }}>
-        {(winner.balance > 0 ? "+" : "") + money(winner.balance)}
-      </span>
     </div>
   );
 }
