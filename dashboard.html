@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BARILOCHE — Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+
+  :root{
+    --felt:#0c3527; --felt-deep:#082019; --panel:#123f30; --panel-line:rgba(212,175,55,0.22);
+    --panel-line-soft:rgba(212,175,55,0.12);
+    --card:#f4ead6; --card-dim:#e7dabd; --ink:#241d12; --ink-soft:#5c5240;
+    --gold:#d8ad3f; --gold-soft:#f0d888;
+    --cash:#2fae66; --cash-deep:#1d7d49;
+    --virtual:#f2883c; --virtual-deep:#c96a26;
+    --win:#3fbf72; --loss:#e2634f;
+    --text-primary:#f4ead6; --text-secondary:rgba(244,234,214,0.62); --text-muted:rgba(244,234,214,0.42);
+    --grid-line:rgba(244,234,214,0.09); --axis-line:rgba(244,234,214,0.22);
+    /* validated categorical (dark, adjacent-pair CVD safe against the felt panel surface) */
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+    --s6:#3fae3f; --s7:#9085e9; --s8:#e66767; --s9:#0fa0c2;
+    --display: 'Bebas Neue', 'Arial Narrow', sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    --body: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: radial-gradient(ellipse at top, var(--panel) 0%, var(--felt) 45%, var(--felt-deep) 100%);
+    background-attachment: fixed;
+    font-family: var(--body);
+    color: var(--text-primary);
+    min-height:100vh;
+  }
+  ::selection{ background: var(--gold); color: var(--ink); }
+  ::-webkit-scrollbar{ width:7px; height:7px; }
+  ::-webkit-scrollbar-thumb{ background: var(--panel-line); border-radius:4px; }
+  ::-webkit-scrollbar-track{ background: transparent; }
+  button, select, input { font-family: var(--body); }
+  button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 4px;
+  }
+  @media (prefers-reduced-motion: reduce){ *{ animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; } }
+
+  .wrap{ max-width: 1180px; margin: 0 auto; padding: 0 16px 70px; }
+
+  header.top{
+    border-bottom: 1px solid var(--panel-line); background: rgba(0,0,0,0.16);
+    position: sticky; top:0; z-index: 30; backdrop-filter: blur(6px);
+  }
+  .top-inner{ max-width: 1180px; margin: 0 auto; padding: 14px 16px; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+  .brand{ display:flex; align-items:baseline; gap:10px; }
+  .brand .name{ font-family: var(--display); font-size: 28px; color: var(--gold); letter-spacing: 0.04em; line-height:1; }
+  .brand .sub{ font-size: 12px; color: rgba(240,216,136,0.55); letter-spacing:0.1em; text-transform: uppercase; }
+  .back-link{
+    display:inline-flex; align-items:center; gap:6px; background: transparent; border: 1px solid var(--panel-line);
+    color: var(--text-secondary); border-radius: 8px; padding: 7px 12px; font-size: 12.5px; font-weight:600; cursor:pointer;
+  }
+  .back-link:hover{ color: var(--gold-soft); border-color: var(--gold); }
+
+  .hero{ padding: 20px 0 4px; }
+  .hero h1{ font-family: var(--display); font-size: 32px; letter-spacing: 0.03em; color: var(--gold-soft); margin: 0 0 4px; text-wrap: balance; }
+  .hero p{ margin:0 0 8px; color: var(--text-secondary); font-size: 13.5px; max-width: 68ch; }
+  .hero .caveat{
+    display:flex; gap:8px; align-items:flex-start; background: rgba(0,0,0,0.18); border: 1px dashed var(--panel-line);
+    border-radius: 10px; padding: 9px 12px; font-size: 12px; color: var(--text-muted); max-width: 68ch; margin-top: 10px;
+  }
+
+  .panel{
+    background: var(--panel); border: 1px solid var(--panel-line); border-radius: 14px;
+    padding: 18px; margin-top: 16px;
+  }
+  .panel-title{ display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .panel-title h2{ font-family: var(--display); font-size: 20px; letter-spacing: 0.05em; color: var(--gold-soft); margin:0; }
+  .panel-title .hint{ font-size: 11.5px; color: var(--text-muted); }
+
+  /* -------- filter panel -------- */
+  .filter-row{ display:flex; align-items:flex-end; gap: 12px; flex-wrap: wrap; }
+  .filter-field{ display:flex; flex-direction:column; gap:5px; }
+  .filter-field label{ font-size: 10.5px; text-transform:uppercase; letter-spacing:0.05em; color: var(--text-muted); }
+  .seg{ display:flex; background: rgba(0,0,0,0.24); border-radius: 9px; padding: 3px; gap:2px; }
+  .seg button{
+    border:none; background:transparent; color: var(--text-secondary); padding: 7px 12px; border-radius:7px;
+    font-size: 12.5px; font-weight:600; cursor:pointer;
+  }
+  .seg button.active{ background: var(--gold); color: var(--ink); }
+  .filter-input{
+    background: rgba(0,0,0,0.28); border: 1px solid var(--panel-line); border-radius: 8px; color: var(--card);
+    padding: 8px 10px; font-size: 13px; font-weight:600;
+  }
+  .filter-count{ margin-left:auto; font-size: 12px; color: var(--text-muted); font-family: var(--mono); align-self:center; }
+
+  .kpi-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .kpi{ background: rgba(0,0,0,0.22); border-radius: 11px; padding: 12px 12px; }
+  .kpi .lbl{ font-size: 10.5px; text-transform: uppercase; letter-spacing:0.05em; color: var(--text-muted); margin-bottom:6px; }
+  .kpi .val{ font-family: var(--mono); font-weight:700; font-size: 19px; color: var(--card); font-variant-numeric: tabular-nums; }
+  .kpi .sub{ font-size: 10.5px; color: var(--text-muted); margin-top:3px; font-family: var(--mono); }
+
+  table.data{ width:100%; border-collapse: collapse; font-size: 13px; }
+  table.data th{ text-align:right; font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; color: var(--text-muted); font-weight:600; padding: 0 8px 9px; white-space:nowrap; }
+  table.data th:first-child, table.data td:first-child{ text-align:left; }
+  table.data th.sortable{ cursor:pointer; user-select:none; }
+  table.data th.sortable:hover{ color: var(--gold-soft); }
+  table.data th .arrow{ display:inline-block; margin-left:3px; opacity:0.7; }
+  table.data td{ padding: 9px 8px; font-family: var(--mono); font-variant-numeric: tabular-nums; color: rgba(244,234,214,0.86); border-top: 1px solid rgba(255,255,255,0.06); white-space:nowrap; }
+  table.data tr:hover td{ background: rgba(255,255,255,0.03); }
+  .player-cell{ display:flex; align-items:center; gap:8px; font-family: var(--body); font-weight:600; color: var(--card); }
+  .avatar{ width:24px; height:24px; border-radius:99px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background: var(--gold); color: var(--ink); font-weight:800; font-size: 11px; font-family: var(--body); }
+  .pos{ color: var(--win); } .neg{ color: var(--loss); } .zero{ color: rgba(244,234,214,0.55); }
+  .streak-pill{ display:inline-flex; align-items:center; gap:4px; padding: 2px 8px; border-radius: 99px; font-size:11px; font-weight:700; font-family: var(--mono); }
+  .streak-win{ background: rgba(63,191,114,0.16); color: var(--win); }
+  .streak-loss{ background: rgba(226,99,79,0.16); color: var(--loss); }
+  .streak-none{ background: rgba(255,255,255,0.06); color: var(--text-muted); }
+
+  .table-scroll{ overflow-x:auto; }
+
+  .chart-wrap{ position:relative; }
+  .legend{ display:flex; flex-wrap:wrap; gap: 10px 16px; margin-bottom: 10px; }
+  .legend-item{ display:flex; align-items:center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .legend-swatch{ width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+  .legend-line{ width:14px; height:2px; border-radius:2px; flex-shrink:0; }
+
+  .tooltip{
+    position:absolute; pointer-events:none; background: var(--felt-deep); border:1px solid var(--panel-line);
+    border-radius: 8px; padding: 8px 10px; font-size: 11.5px; color: var(--card); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    opacity:0; transition: opacity 0.1s ease; z-index: 20; min-width: 120px;
+  }
+  .tooltip .t-date{ font-family: var(--mono); color: var(--gold-soft); font-weight:700; margin-bottom:5px; font-size:11px; }
+  .tooltip .t-row{ display:flex; align-items:center; gap:6px; justify-content:space-between; margin-top:2px; }
+  .tooltip .t-swatch{ width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+  .tooltip .t-val{ font-family: var(--mono); font-weight:700; margin-left: auto; font-variant-numeric: tabular-nums; }
+
+  .toggle-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  .ghost-btn{
+    display:inline-flex; align-items:center; gap:6px; background: transparent; color: rgba(244,234,214,0.75);
+    border: 1px solid var(--panel-line); border-radius: 8px; padding: 6px 11px; font-weight:600; font-size: 12px; cursor:pointer;
+  }
+  .ghost-btn.active{ background: rgba(216,173,63,0.16); color: var(--gold-soft); border-color: var(--gold); }
+  .controls-row{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom: 12px; }
+
+  .h2h-selects{ display:flex; align-items:center; gap: 10px; flex-wrap:wrap; margin-bottom: 14px; }
+  select.h2h{
+    background: rgba(0,0,0,0.28); border: 1px solid var(--panel-line); border-radius: 8px; color: var(--card);
+    padding: 8px 10px; font-size: 13.5px; font-weight:600;
+  }
+  .vs{ font-family: var(--display); color: var(--gold); font-size: 18px; }
+
+  .h2h-summary{ display:grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items:center; margin-bottom: 16px; }
+  .h2h-side{ text-align:center; background: rgba(0,0,0,0.2); border-radius: 12px; padding: 14px 10px; }
+  .h2h-side .nm{ font-family: var(--display); font-size: 20px; color: var(--card); letter-spacing:0.03em; }
+  .h2h-side .wins{ font-family: var(--mono); font-size: 26px; font-weight:800; margin-top: 4px; }
+  .h2h-side .lbl{ font-size: 10.5px; text-transform:uppercase; color: var(--text-muted); letter-spacing:0.05em; margin-top:2px; }
+  .h2h-mid{ text-align:center; font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
+
+  /* -------- records -------- */
+  .record-row{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  .record-row:last-child{ margin-bottom:0; }
+  .record-row.full{ grid-template-columns: 1fr; }
+  .record-card{
+    border-radius: 10px; padding: 10px 12px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-line-soft);
+    display:flex; align-items:center; gap: 12px;
+  }
+  .record-card.win{ border-color: rgba(63,191,114,0.35); }
+  .record-card.loss{ border-color: rgba(226,99,79,0.35); }
+  .record-card .amt{ font-family: var(--mono); font-weight:800; font-size: 19px; white-space:nowrap; }
+  .record-card .info{ min-width:0; }
+  .record-card .kicker{ font-size: 10px; text-transform:uppercase; letter-spacing:0.05em; color: var(--text-muted); }
+  .record-card .who{ font-family: var(--body); font-weight:700; font-size: 13px; color: var(--card); }
+  .record-card .when{ font-size: 10.5px; color: var(--text-muted); font-family: var(--mono); }
+
+  .empty{ text-align:center; padding: 26px 10px; color: var(--text-muted); font-size: 13px; }
+  .note{ font-size: 11px; color: var(--text-muted); margin-top: 10px; line-height:1.5; }
+
+  svg.chart text{ font-family: var(--mono); fill: var(--text-muted); font-size: 10.5px; }
+  svg.chart .axis-line{ stroke: var(--axis-line); stroke-width:1; }
+  svg.chart .grid-line{ stroke: var(--grid-line); stroke-width:1; }
+
+  .mini-chart-title{ font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color: var(--text-muted); margin: 16px 0 6px; }
+
+  /* -------- password gate -------- */
+  #gate{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  #gate .box{ max-width:360px; width:100%; background:var(--panel); border:1px solid var(--panel-line); border-radius:14px; padding:24px; text-align:center; }
+  #gate h1{ font-family:var(--display); font-size:26px; color:var(--gold); margin:0 0 6px; }
+  #gate p{ font-size:12.5px; color:var(--text-secondary); margin:0 0 16px; }
+  #gate input{ width:100%; background:rgba(0,0,0,0.28); border:1px solid var(--panel-line); border-radius:8px; color:var(--card); padding:10px 12px; font-size:15px; text-align:center; margin-bottom:10px; }
+  #gate button{ width:100%; background:linear-gradient(180deg, var(--gold-soft), var(--gold)); color:var(--ink); border:none; border-radius:9px; padding:10px 16px; font-weight:700; font-size:14px; cursor:pointer; }
+  #gate .err{ color:var(--loss); font-size:12px; margin-top:10px; min-height:14px; }
+  #app{ display:none; }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="box">
+    <h1>BARILOCHE</h1>
+    <p>Dashboard del organizador — ingresá la contraseña de administrador para ver las estadísticas.</p>
+    <input type="password" id="gate-input" placeholder="Contraseña" autocomplete="off" />
+    <button id="gate-btn">Entrar</button>
+    <div class="err" id="gate-err"></div>
+  </div>
+</div>
+
+<div id="app">
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <span class="name">BARILOCHE</span>
+      <span class="sub">dashboard del organizador</span>
+    </div>
+    <a class="back-link" href="/" style="text-decoration:none;">‹ Volver a la partida</a>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="hero">
+    <h1>Estadísticas históricas</h1>
+    <p>Pantalla independiente para quien organiza las noches de poker — no forma parte de la navegación principal de la app, así los jugadores no quedan expuestos a rachas o comparativas que no pidieron ver.</p>
+    <div class="caveat">⚠️ Vista pensada para el host. Evita proyectarla completa en la mesa: mostrar rachas negativas en público puede desanimar a que alguien vuelva a jugar.</div>
+  </div>
+
+  <section class="panel" id="panel-filter">
+    <div class="panel-title"><h2>Periodo</h2></div>
+    <div class="filter-row">
+      <div class="filter-field">
+        <label>Ver</label>
+        <div class="seg" id="mode-seg">
+          <button data-mode="all" class="active">Todo</button>
+          <button data-mode="range">Rango de fechas</button>
+          <button data-mode="month">Mes</button>
+          <button data-mode="year">Año</button>
+        </div>
+      </div>
+      <div class="filter-field" id="field-range-from" style="display:none;">
+        <label>Desde</label>
+        <input type="date" class="filter-input" id="input-from">
+      </div>
+      <div class="filter-field" id="field-range-to" style="display:none;">
+        <label>Hasta</label>
+        <input type="date" class="filter-input" id="input-to">
+      </div>
+      <div class="filter-field" id="field-month" style="display:none;">
+        <label>Mes</label>
+        <input type="month" class="filter-input" id="input-month">
+      </div>
+      <div class="filter-field" id="field-year" style="display:none;">
+        <label>Año</label>
+        <select class="filter-input" id="input-year"></select>
+      </div>
+      <div class="filter-count" id="filter-count"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-kpi">
+    <div class="panel-title"><h2>Resumen general</h2></div>
+    <div class="kpi-grid" id="kpi-grid"></div>
+  </section>
+
+  <section class="panel" id="panel-ranking">
+    <div class="panel-title">
+      <h2>Ranking histórico</h2>
+      <span class="hint">Click en una columna para ordenar</span>
+    </div>
+    <div class="table-scroll"><table class="data" id="ranking-table"></table></div>
+  </section>
+
+  <section class="panel" id="panel-evolution">
+    <div class="panel-title"><h2>Evolución</h2></div>
+    <div class="controls-row">
+      <div class="seg" id="metric-seg">
+        <button data-metric="balance" class="active">Balance acumulado</button>
+        <button data-metric="winpct">% de victorias</button>
+        <button data-metric="avg">Prom. por noche</button>
+      </div>
+      <div class="toggle-row">
+        <button class="ghost-btn active" data-view="chart" id="evo-btn-chart">Gráfico</button>
+        <button class="ghost-btn" data-view="table" id="evo-btn-table">Tabla</button>
+      </div>
+    </div>
+    <div id="evo-legend" class="legend"></div>
+    <div class="chart-wrap" id="evo-chart-wrap"></div>
+    <div class="table-scroll" id="evo-table-wrap" style="display:none;"></div>
+    <div class="note" id="evo-note"></div>
+  </section>
+
+  <section class="panel" id="panel-volume">
+    <div class="panel-title"><h2>Volumen por partida</h2></div>
+    <div id="volume-legend" class="legend"></div>
+    <div class="chart-wrap" id="volume-chart-wrap"></div>
+    <div class="mini-chart-title">Jugadores en la mesa</div>
+    <div class="chart-wrap" id="count-chart-wrap"></div>
+  </section>
+
+  <section class="panel" id="panel-h2h">
+    <div class="panel-title"><h2>Cabeza a cabeza</h2></div>
+    <div class="h2h-selects">
+      <select class="h2h" id="h2h-a"></select>
+      <span class="vs">VS</span>
+      <select class="h2h" id="h2h-b"></select>
+    </div>
+    <div id="h2h-body"></div>
+  </section>
+
+  <section class="panel" id="panel-records">
+    <div class="panel-title"><h2>Récords históricos</h2></div>
+    <div id="record-grid"></div>
+  </section>
+</div>
+</div>
+
+<script>
+/* ============================================================
+   LIVE DATA — carga el roster y las partidas reales desde el
+   mismo backend de Excel que usa la app (vía Microsoft Graph),
+   a través de las funciones de Netlify (/api/store).
+============================================================ */
+const API_BASE = "/api/store";
+
+async function fetchKey(key) {
+  const res = await fetch(`${API_BASE}?key=${encodeURIComponent(key)}`);
+  if (!res.ok) throw new Error(`No se pudo leer "${key}" (HTTP ${res.status})`);
+  const data = await res.json();
+  return data.value;
+}
+
+async function initDashboard() {
+  "use strict";
+  try {
+
+  const SERIES_COLORS = ["--s1","--s2","--s3","--s4","--s5","--s6","--s7","--s8","--s9"];
+  const rootStyle = getComputedStyle(document.documentElement);
+  function seriesColor(i){ return rootStyle.getPropertyValue(SERIES_COLORS[i % SERIES_COLORS.length]).trim(); }
+  function cssVar(name){ return rootStyle.getPropertyValue(name).trim(); }
+
+  function money(n){ return "$" + Math.round(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
+  function moneySigned(n){ const r = Math.round(n||0); return (r>0?"+":"") + money(r); }
+  function initials(name){ return (name || "?").slice(0,1).toUpperCase(); }
+
+  // Portón de contraseña: se compara contra la fila "admin_password" de la
+  // hoja Meta (la misma que usa la app para acciones destructivas). Si no
+  // hay contraseña configurada en el Excel, se deja pasar directo.
+  const adminPassword = await fetchKey("poker-admin-password").catch(() => "");
+  if (adminPassword) {
+    const ok = await new Promise((resolve) => {
+      const gate = document.getElementById("gate");
+      const input = document.getElementById("gate-input");
+      const err = document.getElementById("gate-err");
+      const btn = document.getElementById("gate-btn");
+      const tryEnter = () => {
+        if (input.value === adminPassword) resolve(true);
+        else { err.textContent = "Contraseña incorrecta."; input.value = ""; input.focus(); }
+      };
+      btn.addEventListener("click", tryEnter);
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") tryEnter(); });
+      input.focus();
+    });
+    if (!ok) return;
+  }
+  document.getElementById("gate").style.display = "none";
+  document.getElementById("app").style.display = "block";
+
+  const [rosterRaw, gamesRaw] = await Promise.all([
+    fetchKey("poker-roster"),
+    fetchKey("poker-games"),
+  ]);
+  const roster = rosterRaw || [];
+  const allGames = (gamesRaw || [])
+    .filter((g) => g.finished)
+    .map((g) => {
+      // Precalcula buyIns por jugador (mismo shape que usan los charts de volumen).
+      const buyIns = {};
+      (g.playerIds || []).forEach((pid) => {
+        const cash = (g.purchases || []).filter((pu) => pu.playerId === pid && pu.type === "cash").reduce((s, pu) => s + pu.amount, 0);
+        const virtual = (g.purchases || []).filter((pu) => pu.playerId === pid && pu.type === "virtual").reduce((s, pu) => s + pu.amount, 0);
+        buyIns[pid] = { cash, virtual, total: cash + virtual };
+      });
+      return { ...g, buyIns };
+    })
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  if (!roster.length) {
+    document.getElementById("app").innerHTML = `<div style="max-width:640px;margin:60px auto;text-align:center;color:var(--text-muted);font-size:14px;">No hay jugadores cargados todavía en el Excel.</div>`;
+    return;
+  }
+
+  // round1 y la lógica de liquidación son una copia exacta de
+  // netlify/functions/lib/settlement.js, para que el dashboard muestre
+  // números idénticos a los que la app ya calculó al cerrar cada partida.
+  function round1(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
+  function computeSettlementFull(game, rosterList) {
+    const players = (game.playerIds || []).map((pid) => {
+      const p = rosterList.find((r) => r.id === pid);
+      const purchases = (game.purchases || []).filter((pu) => pu.playerId === pid);
+      const cashAmount = purchases.filter((pu) => pu.type === "cash").reduce((s, pu) => s + pu.amount, 0);
+      const virtualAmount = purchases.filter((pu) => pu.type === "virtual").reduce((s, pu) => s + pu.amount, 0);
+      const totalBuyIn = cashAmount + virtualAmount;
+      const cashOut = Number((game.finalChips || {})[pid]) || 0;
+      const balance = round1(cashOut - totalBuyIn);
+      const netClaim = round1(cashOut - virtualAmount);
+      let pagoCash = 0, pagoTransfer = 0;
+      if (netClaim > 0) { pagoCash = round1(Math.min(cashAmount, netClaim)); pagoTransfer = round1(netClaim - pagoCash); }
+      else { pagoCash = 0; pagoTransfer = netClaim; }
+      return { playerId: pid, name: p ? p.name : "?", cashAmount, virtualAmount, totalBuyIn, cashOut, balance, pagoCash, pagoTransfer };
+    });
+    const totalCashAll = players.reduce((s, p) => s + p.cashAmount, 0);
+    const rake = Math.min(game.rake || 0, totalCashAll);
+    const cashPool = round1(totalCashAll - rake);
+    let leftoverCash = round1(cashPool - players.reduce((s, p) => s + p.pagoCash, 0));
+    if (leftoverCash > 0) {
+      const byBalanceDesc = players.filter((p) => p.balance > 0).sort((a, b) => b.balance - a.balance);
+      for (const w of byBalanceDesc) {
+        if (leftoverCash <= 0) break;
+        const shift = round1(Math.min(leftoverCash, w.pagoTransfer));
+        if (shift > 0) { w.pagoCash = round1(w.pagoCash + shift); w.pagoTransfer = round1(w.pagoTransfer - shift); leftoverCash = round1(leftoverCash - shift); }
+      }
+    }
+    return { players, rake, totalCashAll };
+  }
+
+  function settle(game) {
+    return computeSettlementFull(game, roster).players;
+  }
+
+  /* ============================================================
+     AGGREGATION — recomputed for any filtered subset of games
+  ============================================================ */
+  function computeAggregates(gameList) {
+    const sorted = gameList.slice().sort((a, b) => a.date < b.date ? -1 : 1);
+    const perPlayer = {};
+    roster.forEach(p => { perPlayer[p.id] = {
+      id: p.id, name: p.name, played: 0, wins: 0, losses: 0, balance: 0, cashIn: 0, virtualIn: 0,
+      best: -Infinity, bestDate: null, worst: Infinity, worstDate: null, hosted: 0,
+      maxCashOut: -Infinity, maxCashOutDate: null, history: [],
+    }; });
+
+    sorted.forEach((g) => {
+      const results = settle(g);
+      if (g.hostId) perPlayer[g.hostId].hosted++;
+      results.forEach((r) => {
+        const st = perPlayer[r.playerId];
+        st.played++; st.balance += r.balance;
+        st.cashIn += r.cashAmount; st.virtualIn += r.virtualAmount;
+        if (r.balance > 0) st.wins++; else if (r.balance < 0) st.losses++;
+        if (r.balance > st.best) { st.best = r.balance; st.bestDate = g.date; }
+        if (r.balance < st.worst) { st.worst = r.balance; st.worstDate = g.date; }
+        if (r.cashOut > st.maxCashOut) { st.maxCashOut = r.cashOut; st.maxCashOutDate = g.date; }
+        st.history.push({ date: g.date, gameBalance: r.balance });
+      });
+    });
+
+    Object.values(perPlayer).forEach((st) => {
+      let cum = 0, wins = 0, played = 0;
+      let curType = null, curLen = 0, bestWinStreak = 0, bestLossStreak = 0;
+      st.history.forEach((h) => {
+        played++; cum += h.gameBalance; if (h.gameBalance > 0) wins++;
+        h.cumulativeBalance = cum;
+        h.cumulativeWinPct = played ? (wins / played) * 100 : 0;
+        h.cumulativeAvgBalance = played ? cum / played : 0;
+        const t = h.gameBalance > 0 ? "win" : h.gameBalance < 0 ? "loss" : "flat";
+        if (t === "flat") { curType = null; curLen = 0; }
+        else if (t === curType) { curLen++; } else { curType = t; curLen = 1; }
+        if (curType === "win") bestWinStreak = Math.max(bestWinStreak, curLen);
+        if (curType === "loss") bestLossStreak = Math.max(bestLossStreak, curLen);
+      });
+      st.bestWinStreak = bestWinStreak; st.bestLossStreak = bestLossStreak;
+      let curT = null, curL = 0;
+      for (let i = st.history.length - 1; i >= 0; i--) {
+        const b = st.history[i].gameBalance;
+        const t = b > 0 ? "win" : b < 0 ? "loss" : "flat";
+        if (t === "flat") break;
+        if (curT === null) { curT = t; curL = 1; } else if (t === curT) curL++; else break;
+      }
+      st.streakType = curT; st.streakLen = curL;
+    });
+
+    const players = Object.values(perPlayer).filter(p => p.played > 0);
+    const dates = sorted.map(g => g.date);
+    return { players, perPlayer, dates, games: sorted };
+  }
+
+  /* ============================================================
+     CHART HELPERS (hand-rolled SVG, self-contained)
+  ============================================================ */
+  const NS = "http://www.w3.org/2000/svg";
+  function svgEl(tag, attrs) {
+    const el = document.createElementNS(NS, tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+  function niceMax(v) {
+    if (v <= 0) return 100;
+    const mag = Math.pow(10, Math.floor(Math.log10(v)));
+    const norm = v / mag;
+    const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+    return step * mag;
+  }
+  function fmtShort(n) {
+    const a = Math.abs(n);
+    if (a >= 1000) return (n / 1000).toFixed(a >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k";
+    return String(Math.round(n));
+  }
+
+  /* -------- Multi-series line chart with gap support -------- */
+  function renderLineChart(container, seriesList, dates, opts) {
+    opts = opts || {};
+    const fmt = opts.format || money;
+    container.innerHTML = "";
+    if (!dates.length || !seriesList.length) { container.innerHTML = `<div class="empty">No hay datos para este periodo.</div>`; return; }
+    const width = Math.max(container.clientWidth || 900, 600);
+    const height = 320;
+    const margin = { top: 16, right: 14, bottom: 28, left: 46 };
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+
+    let yMax = -Infinity, yMin = Infinity;
+    seriesList.forEach(s => s.points.forEach(p => { if (p.y != null) { yMax = Math.max(yMax, p.y); yMin = Math.min(yMin, p.y); } }));
+    if (!isFinite(yMax)) { yMax = 100; yMin = 0; }
+    if (opts.fixedDomain) { yMin = opts.fixedDomain[0]; yMax = opts.fixedDomain[1]; }
+    else {
+      yMax = niceMax(Math.max(yMax, 100));
+      yMin = yMin < 0 ? -niceMax(Math.max(-yMin, 100)) : 0;
+    }
+
+    const n = dates.length;
+    const x = (i) => margin.left + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+    const y = (v) => margin.top + innerH - ((v - yMin) / (yMax - yMin)) * innerH;
+
+    const svg = svgEl("svg", { class: "chart", width: "100%", height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Evolución por jugador" });
+
+    const ticks = 5;
+    for (let t = 0; t <= ticks; t++) {
+      const v = yMin + (t / ticks) * (yMax - yMin);
+      const yy = y(v);
+      svg.appendChild(svgEl("line", { class: "grid-line", x1: margin.left, x2: width - margin.right, y1: yy, y2: yy }));
+      const lbl = svgEl("text", { x: margin.left - 8, y: yy + 3, "text-anchor": "end" });
+      lbl.textContent = opts.tickFormat ? opts.tickFormat(v) : fmtShort(v);
+      svg.appendChild(lbl);
+    }
+    if (yMin < 0 && yMax > 0) {
+      svg.appendChild(svgEl("line", { class: "axis-line", x1: margin.left, x2: width - margin.right, y1: y(0), y2: y(0) }));
+    }
+    const xTickEvery = Math.max(1, Math.ceil(n / 8));
+    dates.forEach((d, i) => {
+      if (i % xTickEvery !== 0 && i !== n - 1) return;
+      const lbl = svgEl("text", { x: x(i), y: height - 8, "text-anchor": "middle" });
+      lbl.textContent = d.slice(5);
+      svg.appendChild(lbl);
+    });
+
+    seriesList.forEach((s) => {
+      let d = "", drawing = false, lastIdx = -1;
+      s.points.forEach((p, i) => {
+        if (p.y == null) { drawing = false; return; }
+        d += (!drawing ? "M" : "L") + ` ${x(i).toFixed(1)} ${y(p.y).toFixed(1)} `;
+        drawing = true; lastIdx = i;
+      });
+      if (d) svg.appendChild(svgEl("path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+      if (lastIdx >= 0) {
+        const lastY = s.points[lastIdx].y;
+        svg.appendChild(svgEl("circle", { cx: x(lastIdx), cy: y(lastY), r: 3.5, fill: s.color }));
+        const endLbl = svgEl("text", { x: x(lastIdx) + 6, y: y(lastY) + 3, "text-anchor": "start", "font-weight": 700 });
+        endLbl.textContent = s.name;
+        endLbl.setAttribute("fill", s.color);
+        svg.appendChild(endLbl);
+      }
+    });
+
+    const crosshair = svgEl("line", { class: "axis-line", x1: 0, x2: 0, y1: margin.top, y2: margin.top + innerH, opacity: 0 });
+    svg.appendChild(crosshair);
+    const hitRect = svgEl("rect", { x: margin.left, y: margin.top, width: innerW, height: innerH, fill: "transparent" });
+    svg.appendChild(hitRect);
+
+    container.style.position = "relative";
+    container.appendChild(svg);
+    const tooltip = document.createElement("div");
+    tooltip.className = "tooltip";
+    container.appendChild(tooltip);
+
+    hitRect.addEventListener("mousemove", (e) => {
+      const rect = svg.getBoundingClientRect();
+      const scale = width / rect.width;
+      const mx = (e.clientX - rect.left) * scale;
+      let idx = Math.round(((mx - margin.left) / innerW) * (n - 1));
+      idx = Math.max(0, Math.min(n - 1, idx));
+      crosshair.setAttribute("x1", x(idx)); crosshair.setAttribute("x2", x(idx)); crosshair.setAttribute("opacity", 1);
+      const rows = seriesList.filter(s => s.points[idx].y != null).map(s => `<div class="t-row"><span class="t-swatch" style="background:${s.color}"></span>${s.name}<span class="t-val">${fmt(s.points[idx].y)}</span></div>`).join("");
+      tooltip.innerHTML = `<div class="t-date">${dates[idx]}</div>${rows || '<div class="t-row" style="color:var(--text-muted)">Sin partidas aún</div>'}`;
+      tooltip.style.opacity = 1;
+      const cRect = container.getBoundingClientRect();
+      let left = (e.clientX - cRect.left) + 14;
+      if (left + 190 > cRect.width) left = (e.clientX - cRect.left) - 200;
+      tooltip.style.left = left + "px";
+      tooltip.style.top = "6px";
+    });
+    hitRect.addEventListener("mouseleave", () => { tooltip.style.opacity = 0; crosshair.setAttribute("opacity", 0); });
+  }
+
+  /* -------- Grouped bar chart (n money series, shared $ axis) -------- */
+  function renderGroupedBars(container, dates, series) {
+    container.innerHTML = "";
+    if (!dates.length) { container.innerHTML = `<div class="empty">No hay datos para este periodo.</div>`; return; }
+    const width = Math.max(container.clientWidth || 560, 420);
+    const height = 260;
+    const margin = { top: 14, right: 10, bottom: 26, left: 42 };
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+    const n = dates.length;
+    const groupW = innerW / n;
+    const barGap = 2;
+    const barW = Math.max(2, (groupW - barGap * (series.length + 1)) / series.length);
+
+    let yMax = 0;
+    for (let i = 0; i < n; i++) series.forEach(s => yMax = Math.max(yMax, s.values[i]));
+    yMax = niceMax(yMax || 100);
+    const y = (v) => margin.top + innerH - (v / yMax) * innerH;
+
+    const svg = svgEl("svg", { class: "chart", width: "100%", height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Volumen por partida" });
+    const ticks = 4;
+    for (let t = 0; t <= ticks; t++) {
+      const v = (t / ticks) * yMax;
+      const yy = y(v);
+      svg.appendChild(svgEl("line", { class: "grid-line", x1: margin.left, x2: width - margin.right, y1: yy, y2: yy }));
+      const lbl = svgEl("text", { x: margin.left - 8, y: yy + 3, "text-anchor": "end" });
+      lbl.textContent = fmtShort(v);
+      svg.appendChild(lbl);
+    }
+    svg.appendChild(svgEl("line", { class: "axis-line", x1: margin.left, x2: width - margin.right, y1: y(0), y2: y(0) }));
+
+    const xTickEvery = Math.max(1, Math.ceil(n / 6));
+    const bars = [];
+    for (let i = 0; i < n; i++) {
+      const gx = margin.left + i * groupW;
+      if (i % xTickEvery === 0 || i === n - 1) {
+        const lbl = svgEl("text", { x: gx + groupW / 2, y: height - 8, "text-anchor": "middle" });
+        lbl.textContent = dates[i].slice(5);
+        svg.appendChild(lbl);
+      }
+      series.forEach((s, si) => {
+        const v = s.values[i];
+        const bx = gx + barGap + si * (barW + barGap);
+        const byTop = y(v);
+        const r = svgEl("rect", { x: bx, y: byTop, width: barW, height: Math.max(0, y(0) - byTop), rx: 2, fill: s.color, opacity: 0.92 });
+        svg.appendChild(r);
+        bars.push({ el: r, idx: i });
+      });
+    }
+
+    container.style.position = "relative";
+    container.appendChild(svg);
+    const tooltip = document.createElement("div");
+    tooltip.className = "tooltip";
+    container.appendChild(tooltip);
+
+    function showTooltip(i, evt) {
+      const rows = series.map(s => `<div class="t-row"><span class="t-swatch" style="background:${s.color}"></span>${s.name}<span class="t-val">${money(s.values[i])}</span></div>`).join("");
+      tooltip.innerHTML = `<div class="t-date">${dates[i]}</div>${rows}`;
+      tooltip.style.opacity = 1;
+      const cRect = container.getBoundingClientRect();
+      let left = (evt.clientX - cRect.left) + 14;
+      if (left + 180 > cRect.width) left = (evt.clientX - cRect.left) - 190;
+      tooltip.style.left = left + "px";
+      tooltip.style.top = "6px";
+    }
+    bars.forEach(b => {
+      b.el.addEventListener("mousemove", (e) => showTooltip(b.idx, e));
+      b.el.addEventListener("mouseleave", () => { tooltip.style.opacity = 0; });
+    });
+  }
+
+  /* -------- Single-series count bar chart (e.g. players per game) -------- */
+  function renderCountBars(container, dates, values, color, unitLabel) {
+    container.innerHTML = "";
+    if (!dates.length) { container.innerHTML = `<div class="empty">No hay datos para este periodo.</div>`; return; }
+    const width = Math.max(container.clientWidth || 560, 420);
+    const height = 130;
+    const margin = { top: 10, right: 10, bottom: 24, left: 30 };
+    const innerW = width - margin.left - margin.right;
+    const innerH = height - margin.top - margin.bottom;
+    const n = dates.length;
+    const barGap = 3;
+    const barW = Math.max(2, innerW / n - barGap);
+    let yMax = Math.max(1, ...values);
+    yMax = Math.ceil(yMax) + (yMax % 1 === 0 ? 1 : 0);
+    const y = (v) => margin.top + innerH - (v / yMax) * innerH;
+
+    const svg = svgEl("svg", { class: "chart", width: "100%", height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": unitLabel });
+    [0, Math.round(yMax / 2), yMax].forEach((v) => {
+      const yy = y(v);
+      svg.appendChild(svgEl("line", { class: "grid-line", x1: margin.left, x2: width - margin.right, y1: yy, y2: yy }));
+      const lbl = svgEl("text", { x: margin.left - 6, y: yy + 3, "text-anchor": "end" });
+      lbl.textContent = v;
+      svg.appendChild(lbl);
+    });
+    const xTickEvery = Math.max(1, Math.ceil(n / 8));
+    const bars = [];
+    for (let i = 0; i < n; i++) {
+      const gx = margin.left + i * (innerW / n);
+      if (i % xTickEvery === 0 || i === n - 1) {
+        const lbl = svgEl("text", { x: gx + (innerW / n) / 2, y: height - 6, "text-anchor": "middle" });
+        lbl.textContent = dates[i].slice(5);
+        svg.appendChild(lbl);
+      }
+      const v = values[i];
+      const byTop = y(v);
+      const r = svgEl("rect", { x: gx + barGap / 2, y: byTop, width: barW, height: Math.max(0, y(0) - byTop), rx: 2, fill: color });
+      svg.appendChild(r);
+      bars.push({ el: r, idx: i });
+    }
+    container.style.position = "relative";
+    container.appendChild(svg);
+    const tooltip = document.createElement("div");
+    tooltip.className = "tooltip";
+    container.appendChild(tooltip);
+    bars.forEach(b => {
+      b.el.addEventListener("mousemove", (e) => {
+        tooltip.innerHTML = `<div class="t-date">${dates[b.idx]}</div><div class="t-row">${unitLabel}<span class="t-val">${values[b.idx]}</span></div>`;
+        tooltip.style.opacity = 1;
+        const cRect = container.getBoundingClientRect();
+        let left = (e.clientX - cRect.left) + 14;
+        if (left + 160 > cRect.width) left = (e.clientX - cRect.left) - 170;
+        tooltip.style.left = left + "px"; tooltip.style.top = "4px";
+      });
+      b.el.addEventListener("mouseleave", () => { tooltip.style.opacity = 0; });
+    });
+  }
+
+  /* ============================================================
+     STATE + FILTER
+  ============================================================ */
+  const years = Array.from(new Set(allGames.map(g => g.date.slice(0, 4)))).sort();
+  const yearSelect = document.getElementById("input-year");
+  years.forEach(y => yearSelect.appendChild(new Option(y, y)));
+
+  const state = { mode: "all", from: "", to: "", month: "", year: years[years.length - 1] || "", evoMetric: "balance", evoView: "chart" };
+
+  function filteredGames() {
+    if (state.mode === "all") return allGames;
+    if (state.mode === "range") return allGames.filter(g => (!state.from || g.date >= state.from) && (!state.to || g.date <= state.to));
+    if (state.mode === "month") return state.month ? allGames.filter(g => g.date.slice(0, 7) === state.month) : allGames;
+    if (state.mode === "year") return state.year ? allGames.filter(g => g.date.slice(0, 4) === state.year) : allGames;
+    return allGames;
+  }
+
+  document.querySelectorAll("#mode-seg button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.mode = btn.dataset.mode;
+      document.querySelectorAll("#mode-seg button").forEach(b => b.classList.toggle("active", b === btn));
+      document.getElementById("field-range-from").style.display = state.mode === "range" ? "" : "none";
+      document.getElementById("field-range-to").style.display = state.mode === "range" ? "" : "none";
+      document.getElementById("field-month").style.display = state.mode === "month" ? "" : "none";
+      document.getElementById("field-year").style.display = state.mode === "year" ? "" : "none";
+      renderAll();
+    });
+  });
+  document.getElementById("input-from").addEventListener("change", (e) => { state.from = e.target.value; renderAll(); });
+  document.getElementById("input-to").addEventListener("change", (e) => { state.to = e.target.value; renderAll(); });
+  document.getElementById("input-month").addEventListener("change", (e) => { state.month = e.target.value; renderAll(); });
+  yearSelect.value = state.year;
+  yearSelect.addEventListener("change", (e) => { state.year = e.target.value; renderAll(); });
+
+  document.querySelectorAll("#metric-seg button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.evoMetric = btn.dataset.metric;
+      document.querySelectorAll("#metric-seg button").forEach(b => b.classList.toggle("active", b === btn));
+      renderEvolution(window.__agg);
+    });
+  });
+  document.getElementById("evo-btn-chart").addEventListener("click", (e) => {
+    state.evoView = "chart";
+    e.target.classList.add("active"); document.getElementById("evo-btn-table").classList.remove("active");
+    renderEvolution(window.__agg);
+  });
+  document.getElementById("evo-btn-table").addEventListener("click", (e) => {
+    state.evoView = "table";
+    e.target.classList.add("active"); document.getElementById("evo-btn-chart").classList.remove("active");
+    renderEvolution(window.__agg);
+  });
+
+  const selA = document.getElementById("h2h-a");
+  const selB = document.getElementById("h2h-b");
+  let h2hSelection = { a: null, b: null };
+  selA.addEventListener("change", () => { h2hSelection.a = selA.value; renderH2H(window.__agg); });
+  selB.addEventListener("change", () => { h2hSelection.b = selB.value; renderH2H(window.__agg); });
+
+  /* ============================================================
+     RENDER FUNCTIONS
+  ============================================================ */
+  function renderKPIs(agg, games) {
+    const n = games.length;
+    const totalRake = games.reduce((s, g) => s + g.rake, 0);
+    const totalCash = games.reduce((s, g) => s + Object.values(g.buyIns).reduce((a, b) => a + b.cash, 0), 0);
+    const totalVirtual = games.reduce((s, g) => s + Object.values(g.buyIns).reduce((a, b) => a + b.virtual, 0), 0);
+    const avgCashOut = n ? games.reduce((s, g) => s + Object.values(g.finalChips).reduce((a, b) => a + b, 0), 0) / n : 0;
+    const avgPlayers = n ? games.reduce((s, g) => s + g.playerIds.length, 0) / n : 0;
+    const kpis = [
+      { lbl: "Partidas jugadas", val: n, sub: n ? `${games[0].date} → ${games[n-1].date}` : "sin datos" },
+      { lbl: "Jugadores promedio / noche", val: avgPlayers.toFixed(1), sub: "asistencia promedio" },
+      { lbl: "Cash out promedio", val: money(avgCashOut), sub: "fichas entregadas / partida" },
+      { lbl: "Rake acumulado", val: money(totalRake), sub: "retenido por la casa" },
+      { lbl: "Total cash", val: money(totalCash), sub: "buy-in en efectivo" },
+      { lbl: "Promedio cash / noche", val: money(n ? totalCash / n : 0), sub: "por partida" },
+      { lbl: "Total virtual", val: money(totalVirtual), sub: "buy-in a crédito" },
+      { lbl: "Promedio virtual / noche", val: money(n ? totalVirtual / n : 0), sub: "por partida" },
+    ];
+    document.getElementById("kpi-grid").innerHTML = kpis.map(k => `
+      <div class="kpi"><div class="lbl">${k.lbl}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>
+    `).join("");
+  }
+
+  const rankCols = [
+    { key: "name", label: "Jugador", align: "left" },
+    { key: "played", label: "PJ" },
+    { key: "wins", label: "Ganadas" },
+    { key: "winPct", label: "% Vict." },
+    { key: "balance", label: "Balance" },
+    { key: "avgBalance", label: "Prom/noche" },
+    { key: "best", label: "Mejor noche" },
+    { key: "worst", label: "Peor noche" },
+    { key: "hosted", label: "# Anfitrión" },
+    { key: "streakSort", label: "Racha" },
+  ];
+  let sortKey = "balance", sortDir = -1;
+  function renderRanking(agg) {
+    const rows = agg.players.map(p => ({
+      ...p, winPct: p.played ? (p.wins / p.played) * 100 : 0, avgBalance: p.played ? p.balance / p.played : 0,
+      streakSort: p.streakType === "win" ? p.streakLen : p.streakType === "loss" ? -p.streakLen : 0,
+    }));
+    const table = document.getElementById("ranking-table");
+    if (!rows.length) { table.innerHTML = ""; table.parentElement.innerHTML = `<div class="empty">No hay partidas en este periodo.</div>`; return; }
+    const sorted = rows.slice().sort((a, b) => {
+      let av = a[sortKey], bv = b[sortKey];
+      if (typeof av === "string") return sortDir * av.localeCompare(bv);
+      return sortDir * (av - bv);
+    });
+    const thead = `<thead><tr>${rankCols.map(c => `
+      <th class="sortable" data-key="${c.key}" style="${c.align === 'left' ? 'text-align:left' : ''}">${c.label}${sortKey === c.key ? `<span class="arrow">${sortDir === 1 ? "▲" : "▼"}</span>` : ""}</th>
+    `).join("")}</tr></thead>`;
+    const tbody = "<tbody>" + sorted.map((p) => {
+      const balCls = p.balance > 0 ? "pos" : p.balance < 0 ? "neg" : "zero";
+      const avgCls = p.avgBalance > 0 ? "pos" : p.avgBalance < 0 ? "neg" : "zero";
+      const bestCls = p.best > 0 ? "pos" : "zero";
+      const worstCls = p.worst < 0 ? "neg" : "zero";
+      const streakLbl = p.streakType === "win" ? `${p.streakLen}V` : p.streakType === "loss" ? `${p.streakLen}P` : "—";
+      const streakCls = p.streakType === "win" ? "streak-win" : p.streakType === "loss" ? "streak-loss" : "streak-none";
+      return `<tr>
+        <td><div class="player-cell"><span class="avatar">${initials(p.name)}</span>${p.name}</div></td>
+        <td>${p.played}</td>
+        <td>${p.wins}</td>
+        <td>${p.winPct.toFixed(0)}%</td>
+        <td class="${balCls}">${moneySigned(p.balance)}</td>
+        <td class="${avgCls}">${moneySigned(p.avgBalance)}</td>
+        <td class="${bestCls}">${moneySigned(p.best)}</td>
+        <td class="${worstCls}">${moneySigned(p.worst)}</td>
+        <td>${p.hosted}</td>
+        <td><span class="streak-pill ${streakCls}">${streakLbl}</span></td>
+      </tr>`;
+    }).join("") + "</tbody>";
+    table.parentElement.innerHTML = `<table class="data" id="ranking-table">${thead}${tbody}</table>`;
+    document.querySelectorAll("#ranking-table th.sortable").forEach(th => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.key;
+        if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+        renderRanking(agg);
+      });
+    });
+  }
+
+  const METRIC_DEFS = {
+    balance: { label: "Balance acumulado", field: "cumulativeBalance", format: money, tickFormat: fmtShort, fixedDomain: null },
+    winpct: { label: "% de victorias", field: "cumulativeWinPct", format: (v) => v.toFixed(0) + "%", tickFormat: (v) => v.toFixed(0) + "%", fixedDomain: [0, 100] },
+    avg: { label: "Prom. por noche", field: "cumulativeAvgBalance", format: money, tickFormat: fmtShort, fixedDomain: null },
+  };
+  function renderEvolution(agg) {
+    const def = METRIC_DEFS[state.evoMetric];
+    const dates = agg.dates;
+    const seriesAll = agg.players.map((p) => {
+      const map = {};
+      p.history.forEach(h => map[h.date] = h[def.field]);
+      let started = false, running = null;
+      const points = dates.map(d => {
+        if (map[d] !== undefined) { started = true; running = map[d]; }
+        return { y: started ? running : null };
+      });
+      return { name: p.name, points, lastVal: running };
+    }).sort((a, b) => (b.lastVal ?? -Infinity) - (a.lastVal ?? -Infinity));
+    const series = seriesAll.map((s, i) => ({ ...s, color: seriesColor(i) }));
+
+    document.getElementById("evo-legend").innerHTML = series.map(s => `
+      <div class="legend-item"><span class="legend-line" style="background:${s.color}"></span>${s.name}</div>
+    `).join("");
+    document.getElementById("evo-note").textContent = state.evoMetric === "winpct"
+      ? "Porcentaje de victorias acumulado hasta cada partida jugada."
+      : state.evoMetric === "avg"
+      ? "Balance promedio por noche jugada, acumulado hasta cada partida."
+      : "Balance acumulado (fichas entregadas vs. buy-in) de cada jugador, partida a partida.";
+
+    const chartWrap = document.getElementById("evo-chart-wrap");
+    const tableWrap = document.getElementById("evo-table-wrap");
+    if (state.evoView === "chart") {
+      chartWrap.style.display = ""; tableWrap.style.display = "none";
+      renderLineChart(chartWrap, series, dates, { format: def.format, tickFormat: def.tickFormat, fixedDomain: def.fixedDomain });
+    } else {
+      chartWrap.style.display = "none"; tableWrap.style.display = "";
+      if (!dates.length) { tableWrap.innerHTML = `<div class="empty">No hay partidas en este periodo.</div>`; }
+      else {
+        const header = `<thead><tr><th style="text-align:left">Fecha</th>${series.map(s => `<th>${s.name}</th>`).join("")}</tr></thead>`;
+        const rows = dates.map((d, i) => `<tr><td style="text-align:left;font-family:var(--body);color:var(--card)">${d}</td>${series.map(s => {
+          const v = s.points[i].y;
+          if (v == null) return `<td class="zero">—</td>`;
+          const cls = v > 0 ? "pos" : v < 0 ? "neg" : "zero";
+          return `<td class="${cls}">${def.format(v)}</td>`;
+        }).join("")}</tr>`).join("");
+        tableWrap.innerHTML = `<table class="data">${header}<tbody>${rows}</tbody></table>`;
+      }
+    }
+  }
+  window.addEventListener("resize", () => { if (state.evoView === "chart" && window.__agg) renderEvolution(window.__agg); });
+
+  function renderVolume(agg) {
+    const dates = agg.dates, games = agg.games;
+    const cashColor = cssVar("--cash"), virtualColor = cssVar("--virtual"), goldColor = cssVar("--gold");
+    const volSeries = [
+      { name: "Cash", color: cashColor, values: games.map(g => Object.values(g.buyIns).reduce((s, b) => s + b.cash, 0)) },
+      { name: "Virtual", color: virtualColor, values: games.map(g => Object.values(g.buyIns).reduce((s, b) => s + b.virtual, 0)) },
+    ];
+    document.getElementById("volume-legend").innerHTML = volSeries.map(s => `
+      <div class="legend-item"><span class="legend-swatch" style="background:${s.color}"></span>${s.name}</div>
+    `).join("");
+    renderGroupedBars(document.getElementById("volume-chart-wrap"), dates, volSeries);
+    renderCountBars(document.getElementById("count-chart-wrap"), dates, games.map(g => g.playerIds.length), goldColor, "Jugadores");
+  }
+  window.addEventListener("resize", () => { if (window.__agg) renderVolume(window.__agg); });
+
+  function computeH2H(games, idA, idB) {
+    const common = games.filter(g => g.playerIds.includes(idA) && g.playerIds.includes(idB));
+    let winsA = 0, winsB = 0, ties = 0, netA = 0;
+    const rows = common.map(g => {
+      const res = settle(g);
+      const ra = res.find(r => r.playerId === idA);
+      const rb = res.find(r => r.playerId === idB);
+      if (ra.balance > rb.balance) winsA++; else if (rb.balance > ra.balance) winsB++; else ties++;
+      netA += ra.balance - rb.balance;
+      return { date: g.date, ba: ra.balance, bb: rb.balance };
+    });
+    return { common: common.length, winsA, winsB, ties, netA, rows };
+  }
+  function renderH2H(agg) {
+    const sortedPlayers = agg.players.slice().sort((a, b) => a.name.localeCompare(b.name));
+    if (!h2hSelection.a || !sortedPlayers.find(p => p.id === h2hSelection.a)) h2hSelection.a = sortedPlayers[0]?.id || null;
+    if (!h2hSelection.b || !sortedPlayers.find(p => p.id === h2hSelection.b)) h2hSelection.b = sortedPlayers[1]?.id || sortedPlayers[0]?.id || null;
+    selA.innerHTML = ""; selB.innerHTML = "";
+    sortedPlayers.forEach(p => { selA.appendChild(new Option(p.name, p.id)); selB.appendChild(new Option(p.name, p.id)); });
+    selA.value = h2hSelection.a; selB.value = h2hSelection.b;
+
+    const body = document.getElementById("h2h-body");
+    if (sortedPlayers.length < 2) { body.innerHTML = `<div class="empty">Se necesitan al menos dos jugadores con partidas en este periodo.</div>`; return; }
+    const idA = h2hSelection.a, idB = h2hSelection.b;
+    if (idA === idB) { body.innerHTML = `<div class="empty">Selecciona dos jugadores distintos para comparar.</div>`; return; }
+    const pa = agg.perPlayer[idA], pb = agg.perPlayer[idB];
+    const h = computeH2H(agg.games, idA, idB);
+    if (h.common === 0) { body.innerHTML = `<div class="empty">${pa.name} y ${pb.name} no coincidieron en este periodo.</div>`; return; }
+    const netCls = h.netA > 0 ? "pos" : h.netA < 0 ? "neg" : "zero";
+    const rowsHtml = h.rows.map(r => {
+      const diff = r.ba - r.bb;
+      const cls = diff > 0 ? "pos" : diff < 0 ? "neg" : "zero";
+      return `<tr>
+        <td style="text-align:left;font-family:var(--body);color:var(--card)">${r.date}</td>
+        <td class="${r.ba > 0 ? 'pos' : r.ba < 0 ? 'neg' : 'zero'}">${moneySigned(r.ba)}</td>
+        <td class="${r.bb > 0 ? 'pos' : r.bb < 0 ? 'neg' : 'zero'}">${moneySigned(r.bb)}</td>
+        <td class="${cls}">${moneySigned(diff)}</td>
+      </tr>`;
+    }).join("");
+    body.innerHTML = `
+      <div class="h2h-summary">
+        <div class="h2h-side"><div class="nm">${pa.name}</div><div class="wins pos">${h.winsA}</div><div class="lbl">noches arriba</div></div>
+        <div class="h2h-mid">${h.common} partidas juntos${h.ties ? `<br>${h.ties} empate(s)` : ""}<br><br>
+          <span style="font-size:15px;">Neto ${pa.name}:</span><br>
+          <span class="${netCls}" style="font-family:var(--mono);font-weight:800;font-size:18px;">${moneySigned(h.netA)}</span>
+        </div>
+        <div class="h2h-side"><div class="nm">${pb.name}</div><div class="wins pos">${h.winsB}</div><div class="lbl">noches arriba</div></div>
+      </div>
+      <div class="table-scroll">
+        <table class="data">
+          <thead><tr><th style="text-align:left">Fecha</th><th>${pa.name}</th><th>${pb.name}</th><th>Diferencia</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function recordRow(kicker, amtHtml, who, when, tone) {
+    return `<div class="record-card ${tone || ''}">
+      <div class="amt ${tone === 'win' ? 'pos' : tone === 'loss' ? 'neg' : ''}">${amtHtml}</div>
+      <div class="info"><div class="kicker">${kicker}</div><div class="who">${who}</div><div class="when">${when}</div></div>
+    </div>`;
+  }
+  function renderRecords(agg) {
+    const grid = document.getElementById("record-grid");
+    if (!agg.players.length) { grid.innerHTML = `<div class="empty">No hay partidas en este periodo.</div>`; return; }
+    const bestNight = agg.players.slice().sort((a, b) => b.best - a.best)[0];
+    const worstNight = agg.players.slice().sort((a, b) => a.worst - b.worst)[0];
+    const bestStreakP = agg.players.slice().sort((a, b) => b.bestWinStreak - a.bestWinStreak)[0];
+    const worstStreakP = agg.players.slice().sort((a, b) => b.bestLossStreak - a.bestLossStreak)[0];
+    const maxCashOutP = agg.players.slice().sort((a, b) => b.maxCashOut - a.maxCashOut)[0];
+
+    grid.innerHTML = `
+      <div class="record-row">
+        ${recordRow("Mejor noche (balance)", moneySigned(bestNight.best), bestNight.name, bestNight.bestDate, "win")}
+        ${recordRow("Peor noche (balance)", moneySigned(worstNight.worst), worstNight.name, worstNight.worstDate, "loss")}
+      </div>
+      <div class="record-row">
+        ${recordRow("Mejor racha", bestStreakP.bestWinStreak ? bestStreakP.bestWinStreak + "V" : "—", bestStreakP.bestWinStreak ? bestStreakP.name : "sin rachas ganadoras", "", "win")}
+        ${recordRow("Peor racha", worstStreakP.bestLossStreak ? worstStreakP.bestLossStreak + "P" : "—", worstStreakP.bestLossStreak ? worstStreakP.name : "sin rachas perdedoras", "", "loss")}
+      </div>
+      <div class="record-row full">
+        ${recordRow("Mayor cash out registrado", money(maxCashOutP.maxCashOut), maxCashOutP.name, maxCashOutP.maxCashOutDate)}
+      </div>`;
+  }
+
+  function renderAll() {
+    const games = filteredGames();
+    const agg = computeAggregates(games);
+    window.__agg = agg;
+    document.getElementById("filter-count").textContent = `${games.length} partida${games.length === 1 ? "" : "s"} en el periodo`;
+    renderKPIs(agg, agg.games);
+    renderRanking(agg);
+    renderEvolution(agg);
+    renderVolume(agg);
+    renderH2H(agg);
+    renderRecords(agg);
+  }
+  renderAll();
+
+  } catch (err) {
+    console.error("Bariloche dashboard error:", err);
+    document.getElementById("gate").style.display = "none";
+    const box = document.createElement("div");
+    box.style.cssText = "max-width:640px;margin:60px auto;padding:14px 16px;border:1px solid #e2634f;border-radius:10px;background:rgba(226,99,79,0.12);color:#f4ead6;font-family:monospace;font-size:12.5px;white-space:pre-wrap;";
+    box.textContent = "El dashboard no pudo terminar de cargar:\n" + (err && err.message ? err.message : String(err));
+    document.body.appendChild(box);
+  }
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initDashboard);
+} else {
+  initDashboard();
+}
+</script>
+</body>
+</html>
