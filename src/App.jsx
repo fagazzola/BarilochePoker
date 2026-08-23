@@ -694,7 +694,7 @@ function NewGameSetup({ roster, setActiveGame }) {
   const active = roster.filter((p) => p.active);
   const [date, setDate] = useState(todayISO());
   const [loteValue, setLoteValue] = useState(500);
-  const [rake, setRake] = useState(0);
+  const [rake, setRake] = useState(1000);
   const [selected, setSelected] = useState([]);
   const [hostId, setHostId] = useState("");
 
@@ -1231,6 +1231,31 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
 }
 
 /* ----- Finalized game: results table + transfers + save/close ----- */
+function ChampionBanner({ winner, player }) {
+  if (!winner) return null;
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10,
+      background: "linear-gradient(135deg, rgba(255,205,90,0.18), rgba(255,205,90,0.05))",
+      border: `1px solid ${C.gold}`, borderRadius: 12,
+      padding: "10px 14px", margin: "6px 0 12px",
+    }}>
+      <Trophy size={24} color={C.gold} style={{ flexShrink: 0 }} />
+      {player ? <Avatar player={player} size={30} /> : null}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(244,234,214,0.55)", fontWeight: 700 }}>
+          Campeón de la noche
+        </div>
+        <div style={{ ...displayFont, fontSize: 22, color: C.gold, letterSpacing: "0.02em", lineHeight: 1.1 }}>
+          {winner.name}
+        </div>
+      </div>
+      <span style={{ marginLeft: "auto", ...monoFont, fontSize: 15, fontWeight: 800, color: C.win }}>
+        {(winner.balance > 0 ? "+" : "") + money(winner.balance)}
+      </span>
+    </div>
+  );
+}
 function ResultRow({ label, value, tone, strong }) {
   const color = tone === "cash" ? C.cash : tone === "virtual" ? C.virtual : tone === "win" ? C.win : tone === "loss" ? C.loss : "rgba(244,234,214,0.85)";
   return (
@@ -1274,6 +1299,8 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
   const players = game.playerIds.map((id) => roster.find((p) => p.id === id)).filter(Boolean);
   const numPlayers = players.length || 1;
   const d = game.dinner;
+  const winner = [...r.players].sort((a, b) => b.balance - a.balance)[0];
+  const winnerPlayer = players.find((pl) => pl.id === winner?.playerId);
 
   // La cena no afecta el balance de lotes, así que es seguro seguir editando
   // quién pagó/con qué método incluso después de haber cerrado la partida.
@@ -1298,9 +1325,11 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
 
       <Panel>
         <SectionTitle icon={Trophy}>Resultados de la partida</SectionTitle>
-        <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", display: "flex", alignItems: "center", gap: 4, marginBottom: 10, marginTop: -4 }}>
+        <div style={{ ...displayFont, fontSize: 18, color: C.goldSoft, marginTop: -4 }}>{game.date}</div>
+        <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", display: "flex", alignItems: "center", gap: 4, marginBottom: 4, marginTop: 2 }}>
           <Crown size={12} color={C.gold} /> Operó: {roster.find((pl) => pl.id === game.hostId)?.name || "—"}
         </div>
+        <ChampionBanner winner={winner} player={winnerPlayer} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
           <ScoreBox label="Rake" value={money(r.rake)} />
           <ScoreBox label="Total buy-in cash" value={money(r.players.reduce((s, p) => s + p.cashAmount, 0))} tone="cash" />
@@ -1512,7 +1541,6 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
                     <div style={{ ...displayFont, fontSize: 18, color: C.goldSoft }}>{g.date}</div>
                     <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)" }}>
                       {g.playerIds.length} jugadores · lote {money(g.loteValue)} · rake {money(g.rake)}
-                      {winner ? ` · 🏆 ${winner.name}` : ""}
                     </div>
                     <div style={{ fontSize: 11, color: "rgba(244,234,214,0.4)", marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
                       <Crown size={11} color={C.gold} /> Operó: {roster.find((r) => r.id === g.hostId)?.name || "—"}
@@ -1521,6 +1549,7 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
                   {open ? <ChevronUp size={16} color={C.goldSoft} /> : <ChevronDown size={16} color={C.goldSoft} />}
                 </div>
               </button>
+              <ChampionBanner winner={winner} player={roster.find((pl) => pl.id === winner?.playerId)} />
               {open && (
                 <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
                   {[...results.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
