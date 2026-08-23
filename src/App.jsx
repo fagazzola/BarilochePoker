@@ -693,8 +693,8 @@ function GameTab({ roster, activeGame, setActiveGame, games, setGames }) {
 function NewGameSetup({ roster, setActiveGame }) {
   const active = roster.filter((p) => p.active);
   const [date, setDate] = useState(todayISO());
-  const [loteValue, setLoteValue] = useState(500);
-  const [rake, setRake] = useState(1000);
+  const [loteValue, setLoteValue] = useState(1000);
+  const [rake, setRake] = useState(1500);
   const [selected, setSelected] = useState([]);
   const [hostId, setHostId] = useState("");
 
