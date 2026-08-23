@@ -1315,7 +1315,7 @@ function ChampionBanner({ winner, player }) {
       {player ? <Avatar player={player} size={30} /> : null}
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(244,234,214,0.55)", fontWeight: 700 }}>
-          Campeón de la noche
+          Próximos postres, cortesía de:
         </div>
         <div style={{ ...displayFont, fontSize: 22, color: C.gold, letterSpacing: "0.02em", lineHeight: 1.1 }}>
           {winner.name}
