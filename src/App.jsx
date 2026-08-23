@@ -85,18 +85,87 @@ const roundTo100 = (n) => Math.round((Number(n) || 0) / 100) * 100;
 // Pide la contraseña de administrador (cargada a mano en la hoja "Meta" del
 // Excel) antes de dejar pasar una acción destructiva. No es seguridad real
 // (no hay login), es solo una traba para evitar borrados accidentales.
+// La UI es un modal propio (ver <AdminPasswordModal/>, montado una sola vez
+// en la raíz de la app) con input enmascarado tipo password — a diferencia
+// de window.prompt(), que no se puede estilizar ni ocultar el texto tipeado.
+let _showAdminPasswordModal = null;
 function requestAdminPassword(adminPassword, actionLabel) {
-  if (!adminPassword) {
-    alert(`Todavía no hay una contraseña de administrador configurada en el Excel (hoja "Meta", fila con key=admin_password). Agregala ahí para poder ${actionLabel}.`);
-    return false;
-  }
-  const entered = window.prompt(`Contraseña de administrador para ${actionLabel}:`);
-  if (entered === null) return false;
-  if (entered !== adminPassword) {
-    alert("Contraseña incorrecta.");
-    return false;
-  }
-  return true;
+  return new Promise((resolve) => {
+    if (!adminPassword) {
+      alert(`Todavía no hay una contraseña de administrador configurada en el Excel (hoja "Meta", fila con key=admin_password). Agregala ahí para poder ${actionLabel}.`);
+      resolve(false);
+      return;
+    }
+    if (!_showAdminPasswordModal) {
+      resolve(false);
+      return;
+    }
+    _showAdminPasswordModal(actionLabel, (entered) => {
+      if (entered === null) { resolve(false); return; }
+      if (entered !== adminPassword) {
+        alert("Contraseña incorrecta.");
+        resolve(false);
+        return;
+      }
+      resolve(true);
+    });
+  });
+}
+function AdminPasswordModal() {
+  const [pending, setPending] = useState(null); // { actionLabel, onSubmit }
+  const [value, setValue] = useState("");
+
+  useEffect(() => {
+    _showAdminPasswordModal = (actionLabel, onSubmit) => {
+      setValue("");
+      setPending({ actionLabel, onSubmit });
+    };
+    return () => { _showAdminPasswordModal = null; };
+  }, []);
+
+  if (!pending) return null;
+  const submit = (entered) => {
+    const cb = pending.onSubmit;
+    setPending(null);
+    cb(entered);
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1000, padding: 16,
+      }}
+      onClick={() => submit(null)}
+    >
+      <div
+        style={{
+          background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14,
+          padding: 20, width: "min(340px, 100%)", boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ ...displayFont, fontSize: 17, color: C.card, marginBottom: 4 }}>Contraseña de administrador</div>
+        <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 14 }}>Para {pending.actionLabel}:</div>
+        <input
+          type="password"
+          autoFocus
+          style={inputStyle}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit(value);
+            if (e.key === "Escape") submit(null);
+          }}
+        />
+        <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+          <GhostBtn onClick={() => submit(null)}>Cancelar</GhostBtn>
+          <PrimaryBtn onClick={() => submit(value)}>Confirmar</PrimaryBtn>
+        </div>
+      </div>
+    </div>
+  );
 }
 const ceilTo100 = (n) => Math.ceil((Number(n) || 0) / 50) * 50;
 
@@ -347,6 +416,8 @@ export default function PokerLedger() {
         )}
         {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} />}
       </main>
+
+      <AdminPasswordModal />
     </div>
   );
 }
@@ -519,9 +590,9 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword }) {
     if (!sel) return;
     setRoster((r) => r.map((p) => (p.id === sel.id ? { ...p, active: !p.active } : p)));
   };
-  const removePlayer = () => {
+  const removePlayer = async () => {
     if (!sel) return;
-    if (!requestAdminPassword(adminPassword, "eliminar jugadores")) return;
+    if (!(await requestAdminPassword(adminPassword, "eliminar jugadores"))) return;
     if (!confirm(`¿Eliminar a ${sel.name} del roster? Sus estadísticas históricas se conservarán en partidas guardadas, pero dejará de aparecer en la lista.`)) return;
     setRoster((r) => r.filter((p) => p.id !== sel.id));
     setSelId("");
@@ -1498,8 +1569,8 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
   const [syncing, setSyncing] = useState(false);
   const sorted = [...games].sort((a, b) => (a.date < b.date ? 1 : -1));
 
-  const handleDelete = (g) => {
-    if (!requestAdminPassword(adminPassword, "eliminar partidas")) return;
+  const handleDelete = async (g) => {
+    if (!(await requestAdminPassword(adminPassword, "eliminar partidas"))) return;
     if (!confirm(`¿Eliminar definitivamente la partida del ${g.date}? Esta acción no se puede deshacer.`)) return;
     setGames((gs) => gs.filter((x) => x.id !== g.id));
   };
@@ -1507,8 +1578,8 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
   // Fuerza un reguardado de todas las partidas sin cambiar ningún dato — sirve
   // para que la hoja "Resultados" del Excel se regenere con la fórmula de
   // liquidación más reciente, sin tener que reabrir y reingresar cada partida.
-  const handleResync = () => {
-    if (!requestAdminPassword(adminPassword, "recalcular y sincronizar la base de datos")) return;
+  const handleResync = async () => {
+    if (!(await requestAdminPassword(adminPassword, "recalcular y sincronizar la base de datos"))) return;
     setSyncing(true);
     setGames((gs) => [...gs]);
     setTimeout(() => setSyncing(false), 1200);
