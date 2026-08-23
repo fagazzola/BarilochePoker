@@ -3,7 +3,8 @@ import {
   Plus, Minus, Trash2, Pencil, Users, UtensilsCrossed, Wine,
   Trophy, ArrowRightLeft, Save, X, Check, ChevronDown, ChevronUp, ChevronLeft,
   Banknote, Landmark, Flame, History, UserPlus, UserX, UserCheck,
-  Play, Square, AlertCircle, Crown, DollarSign, CircleDollarSign, Coins
+  Play, Square, AlertCircle, Crown, DollarSign, CircleDollarSign, Coins,
+  BarChart3
 } from "lucide-react";
 
 /* ----------------------------------------------------------------------
@@ -362,11 +363,28 @@ function Header({ tab, setTab, hasActive }) {
   return (
     <header style={{ borderBottom: `1px solid ${C.panelLine}`, background: "rgba(0,0,0,0.15)", position: "sticky", top: 0, zIndex: 20, backdropFilter: "blur(6px)" }}>
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "14px 14px 0" }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-          <span style={{ ...displayFont, fontSize: 30, color: C.gold, lineHeight: 1 }}>BARILOCHE</span>
-          <span style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
-            registro de poker
-          </span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+            <span style={{ ...displayFont, fontSize: 30, color: C.gold, lineHeight: 1 }}>BARILOCHE</span>
+            <span style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+              registro de poker
+            </span>
+          </div>
+          {/* Página aparte para el organizador: no es un tab más, así los
+              jugadores no se topan de casualidad con rachas o comparativas. */}
+          <a
+            href="/dashboard.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Dashboard del organizador"
+            style={{
+              display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
+              border: `1px solid ${C.panelLine}`, borderRadius: 8, padding: "6px 10px",
+              color: "rgba(244,234,214,0.65)", fontSize: 12, fontWeight: 600, ...bodyFont,
+            }}
+          >
+            <BarChart3 size={13} /> Organizador
+          </a>
         </div>
         <div style={{ display: "flex", gap: 4, marginTop: 12 }}>
           {tabs.map((t) => {
