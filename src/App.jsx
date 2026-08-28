@@ -169,6 +169,65 @@ function AdminPasswordModal() {
 }
 const ceilTo100 = (n) => Math.ceil((Number(n) || 0) / 50) * 50;
 
+// Confirmación con el look de la app, para reemplazar el confirm() nativo del
+// navegador (que no se puede estilizar) en acciones destructivas.
+let _showConfirmModal = null;
+function requestConfirm({ title, message, confirmLabel = "Confirmar", cancelLabel = "Cancelar", danger = true }) {
+  return new Promise((resolve) => {
+    if (!_showConfirmModal) { resolve(false); return; }
+    _showConfirmModal({ title, message, confirmLabel, cancelLabel, danger }, resolve);
+  });
+}
+function ConfirmModal() {
+  const [pending, setPending] = useState(null); // { opts, onSubmit }
+
+  useEffect(() => {
+    _showConfirmModal = (opts, onSubmit) => setPending({ opts, onSubmit });
+    return () => { _showConfirmModal = null; };
+  }, []);
+
+  if (!pending) return null;
+  const { opts, onSubmit } = pending;
+  const submit = (result) => {
+    setPending(null);
+    onSubmit(result);
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1000, padding: 16,
+      }}
+      onClick={() => submit(false)}
+    >
+      <div
+        style={{
+          background: C.panel, border: `1px solid ${opts.danger ? "rgba(226,99,79,0.5)" : C.panelLine}`, borderRadius: 14,
+          padding: 20, width: "min(360px, 100%)", boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          {opts.danger && <AlertCircle size={18} color={C.loss} />}
+          <div style={{ ...displayFont, fontSize: 19, color: C.card }}>{opts.title}</div>
+        </div>
+        <div style={{ fontSize: 13.5, color: "rgba(244,234,214,0.75)", lineHeight: 1.5, marginBottom: 18 }}>{opts.message}</div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <GhostBtn onClick={() => submit(false)}>{opts.cancelLabel}</GhostBtn>
+          <PrimaryBtn
+            onClick={() => submit(true)}
+            style={opts.danger ? { background: `linear-gradient(180deg, #e2634f, #c94d3b)`, color: "#fff" } : undefined}
+          >
+            {opts.confirmLabel}
+          </PrimaryBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* Icon choices for player avatars */
 const AVATAR_ICONS = [
   "🂡", "🃏", "🎴", "🀄", "🎲",
@@ -435,6 +494,7 @@ export default function PokerLedger() {
       </main>
 
       <AdminPasswordModal />
+      <ConfirmModal />
     </div>
   );
 }
@@ -1088,7 +1148,18 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
               <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Configuración de la partida</div>
               <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont }}>{game.date}</div>
             </div>
-            <GhostBtn icon={X} color={C.loss} onClick={() => { if (confirm("¿Cancelar esta partida? Se perderá el progreso.")) setGame(null); }}>
+            <GhostBtn
+              icon={X} color={C.loss}
+              onClick={async () => {
+                const ok = await requestConfirm({
+                  title: "¿Cancelar esta partida?",
+                  message: "Se va a perder todo el progreso de esta partida (lotes comprados, cena, configuración). Esta acción no se puede deshacer.",
+                  confirmLabel: "Sí, cancelar partida",
+                  cancelLabel: "Seguir jugando",
+                });
+                if (ok) setGame(null);
+              }}
+            >
               Cancelar partida
             </GhostBtn>
           </div>
@@ -1439,8 +1510,17 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   // rake) no cuadra exactamente contra el total comprado (cash + virtual).
   const canConfirm = ready && enteredCount > 0 && runningDiff === 0;
 
+  const cuadra = runningDiff === 0;
+  const pendingLabel = enteredCount === 0
+    ? "Ingresa los montos de cierre"
+    : cuadra
+      ? "Cuadra ✓"
+      : runningDiff > 0
+        ? `Sobran ${money(runningDiff)}`
+        : `Faltan ${money(-runningDiff)}`;
+
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div style={{ display: "grid", gap: 16, paddingBottom: 74 }}>
       <Panel>
         <SectionTitle icon={Trophy}>Entrega de fichas</SectionTitle>
         <div style={{ color: "rgba(244,234,214,0.6)", fontSize: 12.5, marginBottom: 10 }}>
@@ -1457,9 +1537,6 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
             <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase" }}>Ingresado</div>
             <div style={{ ...monoFont, fontWeight: 700, fontSize: 14.5, color: enteredCount === 0 ? C.goldSoft : runningDiff === 0 ? C.win : C.loss }}>
               {money(totalFinalValue)}
-            </div>
-            <div style={{ fontSize: 9.5, ...monoFont, color: "rgba(244,234,214,0.45)" }}>
-              {enteredCount === 0 ? "—" : runningDiff === 0 ? "cuadra ✓" : (runningDiff > 0 ? "+" : "") + money(runningDiff)}
             </div>
           </div>
         </div>
@@ -1506,20 +1583,40 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
           <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginTop: 12, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
             <AlertCircle size={15} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ fontSize: 12, color: "rgba(244,234,214,0.85)" }}>
-              El valor total entregado, incluyendo el rake ({money(totalFinalValue)}), no coincide con el total general (cash + virtual: {money(targetTotal)}). Diferencia: {money(runningDiff)}. <strong>No se puede cerrar la partida hasta que el total cuadre exactamente</strong> — ajustá los montos de cierre.
+              <strong>No se puede cerrar la partida hasta que el total cuadre exactamente</strong> — ajustá los montos de cierre.
             </div>
           </div>
         )}
       </Panel>
-      <div style={{ display: "flex", gap: 10 }}>
-        <GhostBtn onClick={handleBack}>Volver</GhostBtn>
-        <PrimaryBtn
-          disabled={!canConfirm}
-          onClick={() => onConfirm(Object.fromEntries(players.map((p) => [p.id, Number(values[p.id]) || 0])))}
-          icon={Trophy} style={{ flex: 1, padding: "12px 16px" }}
-        >
-          Calcular resultados
-        </PrimaryBtn>
+
+      {/* Barra fija: siempre visible mientras bajás por la lista de jugadores,
+          para ver de un vistazo cuánto falta o sobra sin tener que volver a
+          scrollear hasta arriba. */}
+      <div style={{
+        position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 40,
+        background: "rgba(8,32,25,0.97)", borderTop: `1px solid ${cuadra ? C.win : enteredCount === 0 ? C.panelLine : C.loss}`,
+        backdropFilter: "blur(6px)", padding: "10px 14px calc(10px + env(safe-area-inset-bottom, 0px))",
+      }}>
+        <div style={{ maxWidth: 980, margin: "0 auto", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Pendiente para cuadrar</div>
+            <div style={{
+              ...displayFont, fontSize: 22, lineHeight: 1.1,
+              color: enteredCount === 0 ? C.goldSoft : cuadra ? C.win : C.loss,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {pendingLabel}
+            </div>
+          </div>
+          <GhostBtn onClick={handleBack} style={{ flexShrink: 0 }}>Volver</GhostBtn>
+          <PrimaryBtn
+            disabled={!canConfirm}
+            onClick={() => onConfirm(Object.fromEntries(players.map((p) => [p.id, Number(values[p.id]) || 0])))}
+            icon={Trophy} style={{ flexShrink: 0, padding: "12px 16px" }}
+          >
+            Calcular
+          </PrimaryBtn>
+        </div>
       </div>
     </div>
   );
