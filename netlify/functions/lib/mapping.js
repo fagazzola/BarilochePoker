@@ -64,8 +64,10 @@ function gamesToRows(games) {
     g.finished ? "SI" : "NO",
     JSON.stringify({
       purchases: g.purchases || [],
-      dinner: g.dinner || { total: 0, waiter: 0, alcoholFee: 0, alcohol: {}, paid: {}, paymentMethod: {} },
+      dinner: g.dinner || { total: 0, sidesFee: 0, waiter: 0, alcoholFee: 0, alcohol: {}, paid: {}, paymentMethod: {} },
       finalChips: g.finalChips || {},
+      startedAt: g.startedAt || null,
+      dinnerSetupDone: !!g.dinnerSetupDone,
     }),
   ]);
 }
@@ -85,8 +87,10 @@ function rowsToGames(rows) {
         playerIds,
         finished: String(r[6] || "").toUpperCase() === "SI",
         purchases: detalle.purchases || [],
-        dinner: detalle.dinner || { total: 0, waiter: 0, alcoholFee: 0, alcohol: {}, paid: {}, paymentMethod: {} },
+        dinner: detalle.dinner || { total: 0, sidesFee: 0, waiter: 0, alcoholFee: 0, alcohol: {}, paid: {}, paymentMethod: {} },
         finalChips: detalle.finalChips || {},
+        startedAt: detalle.startedAt || null,
+        dinnerSetupDone: !!detalle.dinnerSetupDone,
         results: null,
       };
     })
