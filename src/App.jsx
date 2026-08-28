@@ -787,7 +787,7 @@ function NewGameSetup({ roster, setActiveGame }) {
   const active = roster.filter((p) => p.active);
   const [date, setDate] = useState(todayISO());
   const [loteValue, setLoteValue] = useState(1000);
-  const RAKE_FIJO = 1000; // el rake queda fijo para todas las partidas
+  const RAKE_FIJO = 1500; // el rake queda fijo para todas las partidas
   const [selected, setSelected] = useState([]);
   const [hostId, setHostId] = useState("");
 
@@ -906,16 +906,30 @@ function useTicker(intervalMs) {
   }, [intervalMs]);
 }
 function formatElapsed(ms) {
-  const totalSec = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
+  const totalMin = Math.max(0, Math.floor(ms / 60000));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
   const pad = (n) => String(n).padStart(2, "0");
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  return `${pad(h)}:${pad(m)}`;
 }
 function formatClock(ts) {
   if (!ts) return "—";
-  return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+  return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+// Recuadro combinado: Rake y Número de jugadores juntos en una sola tarjeta.
+function RakeAndPlayersBox({ rake, playerCount }) {
+  return (
+    <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "8px 6px", display: "flex" }}>
+      <div style={{ flex: 1, textAlign: "center", borderRight: `1px solid ${C.panelLine}` }}>
+        <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase" }}>Rake</div>
+        <div style={{ ...monoFont, fontWeight: 700, fontSize: 14.5, color: C.goldSoft }}>{money(rake)}</div>
+      </div>
+      <div style={{ flex: 1, textAlign: "center" }}>
+        <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase" }}>Jugadores</div>
+        <div style={{ ...monoFont, fontWeight: 700, fontSize: 14.5, color: C.goldSoft }}>{playerCount}</div>
+      </div>
+    </div>
+  );
 }
 function GameStatusBlock({ game, players, totals }) {
   useTicker(1000);
@@ -932,9 +946,8 @@ function GameStatusBlock({ game, players, totals }) {
   return (
     <Panel>
       <SectionTitle icon={Activity}>Estatus de la jugada</SectionTitle>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 10 }}>
-        <ScoreBox label="Rake" value={money(game.rake)} />
-        <ScoreBox label="Jugadores" value={players.length} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 10 }}>
+        <RakeAndPlayersBox rake={game.rake} playerCount={players.length} />
         <ScoreBox label="Hora inicio" value={formatClock(game.startedAt)} />
         <ScoreBox label="Tiempo jugado" value={elapsed == null ? "—" : formatElapsed(elapsed)} />
       </div>
@@ -943,28 +956,31 @@ function GameStatusBlock({ game, players, totals }) {
         <ScoreBox label="Total virtual" value={money(totals.virtual)} tone="virtual" />
         <ScoreBox label="Lotes prom./jugador" value={lotesProm} />
       </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 6, fontSize: 10, color: "rgba(244,234,214,0.4)", justifyContent: "flex-end" }}>
+        <span>cash</span><span>virtual</span><span>total</span>
+      </div>
       <div style={{ display: "grid", gap: 6 }}>
         {perPlayer.map((row) => (
-          <div key={row.player.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "7px 10px" }}>
-            <Avatar player={row.player} size={22} />
-            <span style={{ color: C.card, fontWeight: 600, fontSize: 13, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.player.name}</span>
-            <span style={{ ...monoFont, fontSize: 11.5, color: C.cash, flexShrink: 0 }}>{money(row.cash)}</span>
-            <span style={{ ...monoFont, fontSize: 11.5, color: C.virtual, flexShrink: 0 }}>{money(row.virtual)}</span>
-            <span style={{ ...monoFont, fontSize: 12.5, color: C.goldSoft, fontWeight: 700, flexShrink: 0, width: 64, textAlign: "right" }}>{money(row.total)}</span>
+          <div key={row.player.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+              <Avatar player={row.player} size={22} />
+              <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.player.name}</span>
+            </div>
+            <div style={{ display: "flex", gap: 14 }}>
+              <span style={{ ...monoFont, fontSize: 12.5, color: C.cash, fontWeight: 700 }}>{money(row.cash)}</span>
+              <span style={{ ...monoFont, fontSize: 12.5, color: C.virtual, fontWeight: 700 }}>{money(row.virtual)}</span>
+              <span style={{ ...monoFont, fontSize: 12.5, color: C.goldSoft, fontWeight: 800 }}>{money(row.total)}</span>
+            </div>
           </div>
         ))}
-      </div>
-      <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 10, color: "rgba(244,234,214,0.4)", justifyContent: "flex-end" }}>
-        <span>cash</span><span>virtual</span><span>total</span>
       </div>
     </Panel>
   );
 }
 
 function ActiveGameScreen({ game, setGame, roster, setGames }) {
-  const [dinnerOpen, setDinnerOpen] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
-  const [view, setView] = useState("purchase"); // "config" | "purchase"
+  const [view, setView] = useState("purchase"); // "config" | "purchase" | "dinner"
 
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
   const availableToAdd = roster.filter((p) => p.active && !game.playerIds.includes(p.id));
@@ -998,6 +1014,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
     game.purchases.forEach((p) => { if (p.type === "cash") cash += p.amount; else virtual += p.amount; });
     return { cash, virtual };
   }, [game.purchases]);
+  const unpaidCount = players.filter((p) => !game.dinner.paid?.[p.id]).length;
 
   const setRake = (v) => update({ rake: Number(v) || 0 });
   const setLote = (v) => update({ loteValue: Number(v) || 0 });
@@ -1038,6 +1055,23 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
           setGames((gs) => [...gs.filter((x) => x.id !== finished.id), finished]);
         }}
       />
+    );
+  }
+
+  if (view === "dinner") {
+    return (
+      <div style={{ display: "grid", gap: 16 }}>
+        <GameStatusBlock game={game} players={players} totals={totals} />
+        <Panel>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 4 }}>
+            <SectionTitle icon={UtensilsCrossed}>Cena y servicio</SectionTitle>
+          </div>
+          <DinnerSection game={game} players={players} update={update} />
+        </Panel>
+        <GhostBtn icon={ChevronLeft} onClick={() => setView("purchase")}>
+          Volver a compra de lotes
+        </GhostBtn>
+      </div>
     );
   }
 
@@ -1127,9 +1161,14 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
               )}
             </div>
           </div>
-          <GhostBtn icon={Settings} onClick={() => setView("config")}>
-            Configuración
-          </GhostBtn>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <GhostBtn icon={UtensilsCrossed} onClick={() => setView("dinner")} color={unpaidCount > 0 ? C.loss : undefined}>
+              Cena y servicio{unpaidCount > 0 ? ` (${unpaidCount} sin pagar)` : ""}
+            </GhostBtn>
+            <GhostBtn icon={Settings} onClick={() => setView("config")}>
+              Configuración
+            </GhostBtn>
+          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 14 }}>
           <ScoreBox label="Lote" value={money(game.loteValue)} />
@@ -1143,18 +1182,13 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
         <SectionTitle icon={Banknote}>Compra de lotes por jugador</SectionTitle>
         <div style={{ display: "grid", gap: 10 }}>
           {players.map((p) => (
-            <PlayerBuyRow key={p.id} player={p} game={game} onAdd={addPurchase} onRemoveLast={removeLastPurchase} />
+            <PlayerBuyRow
+              key={p.id} player={p} game={game} onAdd={addPurchase} onRemoveLast={removeLastPurchase}
+              dinnerPaid={!!game.dinner.paid?.[p.id]}
+              onGoToDinner={() => setView("dinner")}
+            />
           ))}
         </div>
-      </Panel>
-
-      <Panel>
-        <button onClick={() => setDinnerOpen((o) => !o)} style={{ width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-          <SectionTitle icon={UtensilsCrossed} right={dinnerOpen ? <ChevronUp size={16} color={C.goldSoft} /> : <ChevronDown size={16} color={C.goldSoft} />}>
-            Cena y servicio
-          </SectionTitle>
-        </button>
-        {dinnerOpen && <DinnerSection game={game} players={players} update={update} onClose={() => setDinnerOpen(false)} />}
       </Panel>
 
       <PrimaryBtn onClick={() => setFinalizing(true)} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
@@ -1192,12 +1226,13 @@ function buyBtnStyle(color, subtract, disabled) {
   };
 }
 
-function PlayerBuyRow({ player, game, onAdd, onRemoveLast }) {
+function PlayerBuyRow({ player, game, onAdd, onRemoveLast, dinnerPaid, onGoToDinner }) {
   const entries = game.purchases.filter((p) => p.playerId === player.id);
   const cashLotes = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.lotes, 0);
   const virtualLotes = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.lotes, 0);
   const cashAmount = cashLotes * game.loteValue;
   const virtualAmount = virtualLotes * game.loteValue;
+  const blocked = !dinnerPaid;
 
   return (
     <div style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: 12 }}>
@@ -1206,8 +1241,22 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast }) {
         <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{player.name}</span>
       </div>
 
+      {blocked && (
+        <button
+          onClick={onGoToDinner}
+          style={{
+            display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left",
+            background: "rgba(226,99,79,0.14)", border: `1px solid ${C.loss}`, borderRadius: 8,
+            padding: "8px 10px", marginBottom: 10, cursor: "pointer", color: "#f0c9c2", fontSize: 12, ...bodyFont,
+          }}
+        >
+          <UtensilsCrossed size={14} color={C.loss} style={{ flexShrink: 0 }} />
+          Falta confirmar el pago de la cena de {player.name} para poder comprar lotes. Toca para ir a Cena y servicio.
+        </button>
+      )}
+
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-        <button onClick={() => onAdd(player.id, "cash")} style={buyBtnStyle(C.cash, false)}>
+        <button onClick={() => onAdd(player.id, "cash")} disabled={blocked} style={buyBtnStyle(C.cash, false, blocked)}>
           <Plus size={12} /> Cash
         </button>
         <button onClick={() => onRemoveLast(player.id, "cash")} disabled={cashLotes === 0} style={buyBtnStyle(C.cash, true, cashLotes === 0)}>
@@ -1219,7 +1268,7 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast }) {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <button onClick={() => onAdd(player.id, "virtual")} style={buyBtnStyle(C.virtual, false)}>
+        <button onClick={() => onAdd(player.id, "virtual")} disabled={blocked} style={buyBtnStyle(C.virtual, false, blocked)}>
           <Plus size={12} /> Virtual
         </button>
         <button onClick={() => onRemoveLast(player.id, "virtual")} disabled={virtualLotes === 0} style={buyBtnStyle(C.virtual, true, virtualLotes === 0)}>
@@ -1233,7 +1282,7 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast }) {
   );
 }
 
-function DinnerSection({ game, players, update, onClose }) {
+function DinnerSection({ game, players, update }) {
   const d = game.dinner;
   const setD = (patch) =>
     update((g) => ({
@@ -1293,7 +1342,6 @@ function DinnerSection({ game, players, update, onClose }) {
           const alcohol = !!d.alcohol[p.id];
           const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
           const paid = !!d.paid?.[p.id];
-          const method = d.paymentMethod?.[p.id] || "fichas";
           return (
             <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -1305,26 +1353,18 @@ function DinnerSection({ game, players, update, onClose }) {
                 </button>
                 <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)", whiteSpace: "nowrap" }}>{money(charge)}</span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 7 }}>
-                <select
-                  value={method}
-                  onChange={(e) => setD((dd) => ({ paymentMethod: { ...dd.paymentMethod, [p.id]: e.target.value } }))}
-                  style={{ ...inputStyle, appearance: "auto", padding: "5px 8px", fontSize: 12, width: "auto", flex: 1 }}
-                >
-                  <option value="fichas">Pago con fichas</option>
-                  <option value="cash">Pago con cash</option>
-                  <option value="mixto">Combinado (fichas + cash)</option>
-                </select>
+              <div style={{ marginTop: 7 }}>
                 <button onClick={() => setD((dd) => ({ paid: { ...dd.paid, [p.id]: !dd.paid?.[p.id] } }))}
                   style={{
-                    display: "flex", alignItems: "center", gap: 6, background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
-                    border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "5px 9px",
-                    cursor: "pointer", color: paid ? C.win : "rgba(244,234,214,0.6)", fontSize: 11.5, fontWeight: 700, ...bodyFont, flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
+                    background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
+                    border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "8px 9px",
+                    cursor: "pointer", color: paid ? C.win : "rgba(244,234,214,0.6)", fontSize: 12.5, fontWeight: 700, ...bodyFont,
                   }}>
-                  <div style={{ width: 14, height: 14, borderRadius: 4, border: `1.5px solid ${paid ? C.win : "rgba(244,234,214,0.4)"}`, background: paid ? C.win : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    {paid && <Check size={10} color="#08251a" />}
+                  <div style={{ width: 15, height: 15, borderRadius: 4, border: `1.5px solid ${paid ? C.win : "rgba(244,234,214,0.4)"}`, background: paid ? C.win : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {paid && <Check size={11} color="#08251a" />}
                   </div>
-                  Pagado
+                  {paid ? "Pagado" : "Confirmar pagado"}
                 </button>
               </div>
             </div>
@@ -1332,10 +1372,7 @@ function DinnerSection({ game, players, update, onClose }) {
         })}
       </div>
       <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.45)", marginTop: 8 }}>
-        Este cargo de cena es independiente del conteo de lotes y no afecta el balance de la partida.
-      </div>
-      <div style={{ marginTop: 12 }}>
-        <GhostBtn onClick={onClose} icon={ChevronUp} color={C.goldSoft}>Cerrar cena</GhostBtn>
+        Este cargo de cena es independiente del conteo de lotes y no afecta el balance de la partida. Un jugador no puede comprar lotes hasta confirmar que pagó la cena.
       </div>
     </div>
   );
@@ -1629,7 +1666,6 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
             const alcohol = !!d.alcohol[p.id];
             const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
             const paid = !!d.paid?.[p.id];
-            const method = d.paymentMethod?.[p.id] || "fichas";
             return (
               <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -1641,26 +1677,18 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
                   </button>
                   <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)", whiteSpace: "nowrap" }}>{money(charge)}</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 7 }}>
-                  <select
-                    value={method}
-                    onChange={(e) => updateDinner((dd) => ({ paymentMethod: { ...dd.paymentMethod, [p.id]: e.target.value } }))}
-                    style={{ ...inputStyle, appearance: "auto", padding: "5px 8px", fontSize: 12, width: "auto", flex: 1 }}
-                  >
-                    <option value="fichas">Pago con fichas</option>
-                    <option value="cash">Pago con cash</option>
-                    <option value="mixto">Combinado (fichas + cash)</option>
-                  </select>
+                <div style={{ marginTop: 7 }}>
                   <button onClick={() => updateDinner((dd) => ({ paid: { ...dd.paid, [p.id]: !dd.paid?.[p.id] } }))}
                     style={{
-                      display: "flex", alignItems: "center", gap: 6, background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
-                      border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "5px 9px",
-                      cursor: "pointer", color: paid ? C.win : "rgba(244,234,214,0.6)", fontSize: 11.5, fontWeight: 700, ...bodyFont, flexShrink: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
+                      background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
+                      border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "8px 9px",
+                      cursor: "pointer", color: paid ? C.win : "rgba(244,234,214,0.6)", fontSize: 12.5, fontWeight: 700, ...bodyFont,
                     }}>
-                    <div style={{ width: 14, height: 14, borderRadius: 4, border: `1.5px solid ${paid ? C.win : "rgba(244,234,214,0.4)"}`, background: paid ? C.win : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {paid && <Check size={10} color="#08251a" />}
+                    <div style={{ width: 15, height: 15, borderRadius: 4, border: `1.5px solid ${paid ? C.win : "rgba(244,234,214,0.4)"}`, background: paid ? C.win : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {paid && <Check size={11} color="#08251a" />}
                     </div>
-                    {paid ? "Pagado" : "Pendiente"}
+                    {paid ? "Pagado" : "Confirmar pagado"}
                   </button>
                 </div>
               </div>
