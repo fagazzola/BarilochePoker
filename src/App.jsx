@@ -802,7 +802,8 @@ function NewGameSetup({ roster, setActiveGame }) {
       id: uid(), date, loteValue: Number(loteValue), rake: RAKE_FIJO,
       playerIds: selected, hostId, startedAt: Date.now(),
       purchases: [],
-      dinner: { total: 0, waiter: 0, alcoholFee: 0, alcohol: {}, paid: {}, paymentMethod: {} },
+      dinner: { total: 0, sidesFee: 50, waiter: 50, alcoholFee: 50, alcohol: {}, paid: {}, paymentMethod: {} },
+      dinnerSetupDone: false, // fuerza a pasar por la pantalla de cena antes de comprar lotes, una sola vez
       finalChips: {}, finished: false, results: null,
     });
   };
@@ -980,7 +981,7 @@ function GameStatusBlock({ game, players, totals }) {
 
 function ActiveGameScreen({ game, setGame, roster, setGames }) {
   const [finalizing, setFinalizing] = useState(false);
-  const [view, setView] = useState("purchase"); // "config" | "purchase" | "dinner"
+  const [view, setView] = useState(() => (game.dinnerSetupDone ? "purchase" : "dinner")); // "config" | "purchase" | "dinner"
 
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
   const availableToAdd = roster.filter((p) => p.active && !game.playerIds.includes(p.id));
@@ -1059,6 +1060,10 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
   }
 
   if (view === "dinner") {
+    const goToPurchase = () => {
+      update({ dinnerSetupDone: true });
+      setView("purchase");
+    };
     return (
       <div style={{ display: "grid", gap: 16 }}>
         <GameStatusBlock game={game} players={players} totals={totals} />
@@ -1068,9 +1073,9 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
           </div>
           <DinnerSection game={game} players={players} update={update} />
         </Panel>
-        <GhostBtn icon={ChevronLeft} onClick={() => setView("purchase")}>
-          Volver a compra de lotes
-        </GhostBtn>
+        <PrimaryBtn onClick={goToPurchase} icon={Banknote} style={{ padding: "13px 18px", fontSize: 15 }}>
+          {game.dinnerSetupDone ? "Volver a compra de lotes" : "Continuar a compra de lotes"}
+        </PrimaryBtn>
       </div>
     );
   }
@@ -1284,22 +1289,24 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast, dinnerPaid, onGoToDin
 
 function DinnerSection({ game, players, update }) {
   const d = game.dinner;
+  const sidesFee = d.sidesFee || 0; // compatibilidad con partidas viejas sin este campo
   const setD = (patch) =>
     update((g) => ({
       dinner: { ...g.dinner, ...(typeof patch === "function" ? patch(g.dinner) : patch) },
     }));
   const numPlayers = players.length || 1;
 
-  // Costo base por persona (cena repartida + servicio), sin alcohol porque
-  // ese varía según quién bebió. Es el número que se muestra como referencia.
-  const costoPorPersona = d.total / numPlayers + d.waiter;
+  // Costo base por persona (cena repartida + guarniciones + servicio), sin
+  // alcohol porque ese varía según quién bebió. Es el número que se muestra
+  // como referencia.
+  const costoPorPersona = d.total / numPlayers + sidesFee + d.waiter;
   const nominalTotal = players.reduce((s, p) => {
     const alcohol = !!d.alcohol[p.id];
-    return s + (d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+    return s + (d.total / numPlayers + sidesFee + d.waiter + (alcohol ? d.alcoholFee : 0));
   }, 0);
   const totalRecaudado = players.reduce((s, p) => {
     const alcohol = !!d.alcohol[p.id];
-    return s + ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+    return s + ceilTo100(d.total / numPlayers + sidesFee + d.waiter + (alcohol ? d.alcoholFee : 0));
   }, 0);
   const redondeoExtra = round1(totalRecaudado - nominalTotal);
 
@@ -1312,15 +1319,21 @@ function DinnerSection({ game, players, update }) {
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.total)}</span>
           </div>
         </Field>
+        <Field label="Guarniciones y complementos (por jugador)">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="number" style={inputStyle} value={sidesFee} onChange={(e) => setD({ sidesFee: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} onBlur={(e) => setD({ sidesFee: roundTo100(e.target.value) })} step="100" />
+            <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(sidesFee)}</span>
+          </div>
+        </Field>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
         <Field label="Servicio de mesero (por jugador)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <input type="number" style={inputStyle} value={d.waiter} onChange={(e) => setD({ waiter: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.waiter)}</span>
           </div>
         </Field>
-      </div>
-      <div style={{ marginTop: 10 }}>
-        <Field label="Cargo extra de alcohol (se suma a la cena de quienes bebieron)">
+        <Field label="Cargo extra de alcohol (a quienes bebieron)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <input type="number" style={inputStyle} value={d.alcoholFee} onChange={(e) => setD({ alcoholFee: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} onBlur={(e) => setD({ alcoholFee: roundTo100(e.target.value) })} step="100" />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.alcoholFee)}</span>
@@ -1340,7 +1353,7 @@ function DinnerSection({ game, players, update }) {
       <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
         {players.map((p) => {
           const alcohol = !!d.alcohol[p.id];
-          const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+          const charge = ceilTo100(d.total / numPlayers + sidesFee + d.waiter + (alcohol ? d.alcoholFee : 0));
           const paid = !!d.paid?.[p.id];
           return (
             <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
@@ -1587,6 +1600,7 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
   const players = game.playerIds.map((id) => roster.find((p) => p.id === id)).filter(Boolean);
   const numPlayers = players.length || 1;
   const d = game.dinner;
+  const sidesFee = d.sidesFee || 0;
   const winner = [...r.players].sort((a, b) => b.balance - a.balance)[0];
   const winnerPlayer = players.find((pl) => pl.id === winner?.playerId);
 
@@ -1664,7 +1678,7 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
         <div style={{ display: "grid", gap: 6 }}>
           {players.map((p) => {
             const alcohol = !!d.alcohol[p.id];
-            const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+            const charge = ceilTo100(d.total / numPlayers + sidesFee + d.waiter + (alcohol ? d.alcoholFee : 0));
             const paid = !!d.paid?.[p.id];
             return (
               <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
