@@ -4,7 +4,7 @@ import {
   Trophy, ArrowRightLeft, Save, X, Check, ChevronDown, ChevronUp, ChevronLeft,
   Banknote, Landmark, Flame, History, UserPlus, UserX, UserCheck,
   Play, Square, AlertCircle, Crown, DollarSign, CircleDollarSign, Coins,
-  BarChart3
+  BarChart3, Activity, Settings
 } from "lucide-react";
 
 /* ----------------------------------------------------------------------
@@ -322,6 +322,13 @@ export default function PokerLedger() {
   const [tab, setTab] = useState("partida");
   const [adminPassword, setAdminPassword] = useState("");
 
+  // Si hay una partida en curso, la pestaña "Jugadores" queda oculta (no se debe
+  // editar el roster a mitad de una partida); si alguien estaba justo ahí cuando
+  // arrancó una partida, lo mandamos de vuelta a la pestaña de la partida.
+  useEffect(() => {
+    if (activeGame && !activeGame.finished && tab === "jugadores") setTab("partida");
+  }, [activeGame, tab]);
+
   useEffect(() => {
     (async () => {
       const [r, g, a, pw] = await Promise.all([
@@ -399,10 +406,20 @@ export default function PokerLedger() {
         .scrollbar-thin::-webkit-scrollbar-thumb { background: ${C.panelLine}; border-radius: 3px; }
       `}</style>
 
-      <Header tab={tab} setTab={setTab} hasActive={!!activeGame} />
+      <Header tab={tab} setTab={setTab} hasActive={!!activeGame && !activeGame.finished} />
 
       <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 14px 60px" }}>
-        {tab === "jugadores" && (
+        {!!activeGame && !activeGame.finished && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, marginBottom: 14,
+            background: "rgba(216,173,63,0.14)", border: `1px solid ${C.gold}`,
+            borderRadius: 10, padding: "9px 12px",
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: 99, background: C.win, flexShrink: 0, boxShadow: "0 0 0 3px rgba(63,191,114,0.25)" }} />
+            <span style={{ ...displayFont, fontSize: 15, color: C.goldSoft, letterSpacing: "0.04em" }}>Jugada en Curso</span>
+          </div>
+        )}
+        {tab === "jugadores" && !(!!activeGame && !activeGame.finished) && (
           <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} />
         )}
         {tab === "partida" && (
@@ -426,11 +443,16 @@ export default function PokerLedger() {
    HEADER / TABS
 ---------------------------------------------------------------------- */
 function Header({ tab, setTab, hasActive }) {
-  const tabs = [
-    { id: "partida", label: "Partida", icon: Flame },
-    { id: "jugadores", label: "Jugadores", icon: Users },
-    { id: "historial", label: "Historial", icon: History },
-  ];
+  const tabs = hasActive
+    ? [
+        { id: "partida", label: "Estatus jugada", icon: Activity },
+        { id: "historial", label: "Información histórica", icon: History },
+      ]
+    : [
+        { id: "partida", label: "Partida", icon: Flame },
+        { id: "jugadores", label: "Jugadores", icon: Users },
+        { id: "historial", label: "Historial", icon: History },
+      ];
   return (
     <header style={{ borderBottom: `1px solid ${C.panelLine}`, background: "rgba(0,0,0,0.15)", position: "sticky", top: 0, zIndex: 20, backdropFilter: "blur(6px)" }}>
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "14px 14px 0" }}>
@@ -765,7 +787,7 @@ function NewGameSetup({ roster, setActiveGame }) {
   const active = roster.filter((p) => p.active);
   const [date, setDate] = useState(todayISO());
   const [loteValue, setLoteValue] = useState(1000);
-  const [rake, setRake] = useState(1500);
+  const RAKE_FIJO = 1000; // el rake queda fijo para todas las partidas
   const [selected, setSelected] = useState([]);
   const [hostId, setHostId] = useState("");
 
@@ -777,8 +799,8 @@ function NewGameSetup({ roster, setActiveGame }) {
   const start = () => {
     if (selected.length < 2 || !loteValue || !hostId) return;
     setActiveGame({
-      id: uid(), date, loteValue: Number(loteValue), rake: Number(rake) || 0,
-      playerIds: selected, hostId,
+      id: uid(), date, loteValue: Number(loteValue), rake: RAKE_FIJO,
+      playerIds: selected, hostId, startedAt: Date.now(),
       purchases: [],
       dinner: { total: 0, waiter: 0, alcoholFee: 0, alcohol: {}, paid: {}, paymentMethod: {} },
       finalChips: {}, finished: false, results: null,
@@ -798,8 +820,10 @@ function NewGameSetup({ roster, setActiveGame }) {
           </Field>
         </div>
         <div style={{ marginTop: 10 }}>
-          <Field label="Rake (se puede ajustar después)">
-            <input type="number" min="0" style={inputStyle} value={rake} onChange={(e) => setRake(e.target.value)} onFocus={(e) => e.target.select()} />
+          <Field label="Rake 🔒">
+            <div style={{ ...inputStyle, display: "flex", alignItems: "center", color: "rgba(244,234,214,0.75)", opacity: 0.75 }}>
+              {money(RAKE_FIJO)}
+            </div>
           </Field>
         </div>
       </Panel>
@@ -874,11 +898,76 @@ function NewGameSetup({ roster, setActiveGame }) {
 }
 
 /* ----- Active game: buy-ins, dinner, finalize ----- */
+function useTicker(intervalMs) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), intervalMs);
+    return () => clearInterval(t);
+  }, [intervalMs]);
+}
+function formatElapsed(ms) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+function formatClock(ts) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+}
+function GameStatusBlock({ game, players, totals }) {
+  useTicker(1000);
+  const lotesTotal = game.purchases.reduce((s, p) => s + p.lotes, 0);
+  const lotesProm = players.length ? round1(lotesTotal / players.length) : 0;
+  const elapsed = game.startedAt ? Date.now() - game.startedAt : null;
+
+  const perPlayer = players.map((p) => {
+    const cash = game.purchases.filter((pu) => pu.playerId === p.id && pu.type === "cash").reduce((s, pu) => s + pu.amount, 0);
+    const virtual = game.purchases.filter((pu) => pu.playerId === p.id && pu.type === "virtual").reduce((s, pu) => s + pu.amount, 0);
+    return { player: p, cash, virtual, total: cash + virtual };
+  }).sort((a, b) => b.total - a.total);
+
+  return (
+    <Panel>
+      <SectionTitle icon={Activity}>Estatus de la jugada</SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 10 }}>
+        <ScoreBox label="Rake" value={money(game.rake)} />
+        <ScoreBox label="Jugadores" value={players.length} />
+        <ScoreBox label="Hora inicio" value={formatClock(game.startedAt)} />
+        <ScoreBox label="Tiempo jugado" value={elapsed == null ? "—" : formatElapsed(elapsed)} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 12 }}>
+        <ScoreBox label="Total cash" value={money(totals.cash)} tone="cash" />
+        <ScoreBox label="Total virtual" value={money(totals.virtual)} tone="virtual" />
+        <ScoreBox label="Lotes prom./jugador" value={lotesProm} />
+      </div>
+      <div style={{ display: "grid", gap: 6 }}>
+        {perPlayer.map((row) => (
+          <div key={row.player.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "7px 10px" }}>
+            <Avatar player={row.player} size={22} />
+            <span style={{ color: C.card, fontWeight: 600, fontSize: 13, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.player.name}</span>
+            <span style={{ ...monoFont, fontSize: 11.5, color: C.cash, flexShrink: 0 }}>{money(row.cash)}</span>
+            <span style={{ ...monoFont, fontSize: 11.5, color: C.virtual, flexShrink: 0 }}>{money(row.virtual)}</span>
+            <span style={{ ...monoFont, fontSize: 12.5, color: C.goldSoft, fontWeight: 700, flexShrink: 0, width: 64, textAlign: "right" }}>{money(row.total)}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 10, color: "rgba(244,234,214,0.4)", justifyContent: "flex-end" }}>
+        <span>cash</span><span>virtual</span><span>total</span>
+      </div>
+    </Panel>
+  );
+}
+
 function ActiveGameScreen({ game, setGame, roster, setGames }) {
   const [dinnerOpen, setDinnerOpen] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
+  const [view, setView] = useState("purchase"); // "config" | "purchase"
 
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
+  const availableToAdd = roster.filter((p) => p.active && !game.playerIds.includes(p.id));
 
   // update acepta un objeto (mezcla directa) o una función (g) => patch, que
   // recibe el estado MÁS RECIENTE del juego. Usar la forma función evita
@@ -912,6 +1001,26 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
 
   const setRake = (v) => update({ rake: Number(v) || 0 });
   const setLote = (v) => update({ loteValue: Number(v) || 0 });
+  const rakeLocked = Object.keys(game.finalChips || {}).length > 0;
+
+  const addPlayerToGame = (id) => {
+    if (game.playerIds.includes(id)) return;
+    update((g) => ({ playerIds: [...g.playerIds, id] }));
+  };
+  const removePlayerFromGame = (id) => {
+    const hasPurchases = game.purchases.some((p) => p.playerId === id);
+    const name = roster.find((r) => r.id === id)?.name || "este jugador";
+    if (hasPurchases) {
+      if (!confirm(`⚠️ ${name} ya tiene lotes comprados registrados en esta partida. Si lo quitas, esas compras se van a eliminar también. ¿Continuar?`)) return;
+    } else if (!confirm(`¿Quitar a ${name} de esta partida?`)) {
+      return;
+    }
+    update((g) => ({
+      playerIds: g.playerIds.filter((pid) => pid !== id),
+      purchases: g.purchases.filter((p) => p.playerId !== id),
+      hostId: g.hostId === id ? "" : g.hostId,
+    }));
+  };
 
   if (finalizing) {
     return (
@@ -932,8 +1041,79 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
     );
   }
 
+  if (view === "config") {
+    return (
+      <div style={{ display: "grid", gap: 16 }}>
+        <GameStatusBlock game={game} players={players} totals={totals} />
+        <Panel>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Configuración de la partida</div>
+              <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont }}>{game.date}</div>
+            </div>
+            <GhostBtn icon={X} color={C.loss} onClick={() => { if (confirm("¿Cancelar esta partida? Se perderá el progreso.")) setGame(null); }}>
+              Cancelar partida
+            </GhostBtn>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
+            <Field label="Valor de lote"><input type="number" style={inputStyle} value={game.loteValue} onChange={(e) => setLote(e.target.value)} onFocus={(e) => e.target.select()} /></Field>
+            <Field label={rakeLocked ? "Rake 🔒" : "Rake"}>
+              <input
+                type="number" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1, cursor: rakeLocked ? "not-allowed" : "text" }}
+                value={game.rake} disabled={rakeLocked}
+                onChange={(e) => setRake(e.target.value)} onFocus={(e) => e.target.select()}
+                title={rakeLocked ? "El rake queda fijo una vez que se hizo la entrega de fichas." : undefined}
+              />
+            </Field>
+          </div>
+        </Panel>
+
+        <Panel>
+          <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
+          <div style={{ display: "grid", gap: 8 }}>
+            {players.map((p) => {
+              const hasPurchases = game.purchases.some((pu) => pu.playerId === p.id);
+              return (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 9, padding: "8px 10px" }}>
+                  <Avatar player={p} size={24} />
+                  <span style={{ color: C.card, fontWeight: 600, fontSize: 13.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                  {game.hostId === p.id && <Badge tone="gold"><Crown size={10} /> Host</Badge>}
+                  {hasPurchases && <span title="Ya tiene lotes comprados" style={{ fontSize: 10.5, color: "rgba(244,234,214,0.4)" }}>tiene lotes</span>}
+                  <button onClick={() => removePlayerFromGame(p.id)} title="Quitar de la partida" style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(226,99,79,0.75)", padding: 4, flexShrink: 0 }}>
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {availableToAdd.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", marginBottom: 6 }}>Agregar a la mesa:</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {availableToAdd.map((p) => (
+                  <button key={p.id} onClick={() => addPlayerToGame(p.id)}
+                    style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", background: "rgba(0,0,0,0.18)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "8px 10px", cursor: "pointer", ...bodyFont }}>
+                    <Avatar player={p} size={20} />
+                    <span style={{ color: C.card, fontSize: 13 }}>{p.name}</span>
+                    <Plus size={13} color={C.goldSoft} style={{ marginLeft: "auto", flexShrink: 0 }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </Panel>
+
+        <PrimaryBtn onClick={() => setView("purchase")} icon={Banknote} style={{ padding: "13px 18px", fontSize: 15 }}>
+          Continuar a compra de lotes
+        </PrimaryBtn>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      <GameStatusBlock game={game} players={players} totals={totals} />
+
       <Panel>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
           <div>
@@ -947,8 +1127,8 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
               )}
             </div>
           </div>
-          <GhostBtn icon={X} color={C.loss} onClick={() => { if (confirm("¿Cancelar esta partida? Se perderá el progreso.")) setGame(null); }}>
-            Cancelar partida
+          <GhostBtn icon={Settings} onClick={() => setView("config")}>
+            Configuración
           </GhostBtn>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 14 }}>
@@ -956,10 +1136,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
           <ScoreBox label="Cash" value={money(totals.cash)} tone="cash" />
           <ScoreBox label="Virtual" value={money(totals.virtual)} tone="virtual" />
           <ScoreBox label="Rake" value={money(game.rake)} />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
-          <Field label="Valor de lote"><input type="number" style={inputStyle} value={game.loteValue} onChange={(e) => setLote(e.target.value)} onFocus={(e) => e.target.select()} /></Field>
-          <Field label="Rake"><input type="number" style={inputStyle} value={game.rake} onChange={(e) => setRake(e.target.value)} onFocus={(e) => e.target.select()} /></Field>
         </div>
       </Panel>
 
