@@ -787,7 +787,7 @@ function NewGameSetup({ roster, setActiveGame }) {
   const active = roster.filter((p) => p.active);
   const [date, setDate] = useState(todayISO());
   const [loteValue, setLoteValue] = useState(1000);
-  const RAKE_FIJO = 1500; // el rake queda fijo para todas las partidas
+  const [rake, setRake] = useState(1500); // arranca en 1500, pero se puede editar
   const [selected, setSelected] = useState([]);
   const [hostId, setHostId] = useState("");
 
@@ -799,7 +799,7 @@ function NewGameSetup({ roster, setActiveGame }) {
   const start = () => {
     if (selected.length < 2 || !loteValue || !hostId) return;
     setActiveGame({
-      id: uid(), date, loteValue: Number(loteValue), rake: RAKE_FIJO,
+      id: uid(), date, loteValue: Number(loteValue), rake: Number(rake) || 0,
       playerIds: selected, hostId, startedAt: Date.now(),
       purchases: [],
       dinner: { total: 0, sidesFee: 50, waiter: 50, alcoholFee: 50, alcohol: {}, paid: {}, paymentMethod: {} },
@@ -821,10 +821,8 @@ function NewGameSetup({ roster, setActiveGame }) {
           </Field>
         </div>
         <div style={{ marginTop: 10 }}>
-          <Field label="Rake 🔒">
-            <div style={{ ...inputStyle, display: "flex", alignItems: "center", color: "rgba(244,234,214,0.75)", opacity: 0.75 }}>
-              {money(RAKE_FIJO)}
-            </div>
+          <Field label="Rake">
+            <input type="number" min="0" style={inputStyle} value={rake === 0 ? "" : rake} onChange={(e) => setRake(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
           </Field>
         </div>
       </Panel>
@@ -1315,13 +1313,13 @@ function DinnerSection({ game, players, update }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="Monto total de la cena">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.total} onChange={(e) => setD({ total: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} onBlur={(e) => setD({ total: roundTo100(e.target.value) })} step="100" />
+            <input type="number" style={inputStyle} value={d.total === 0 ? "" : d.total} onChange={(e) => setD({ total: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.total)}</span>
           </div>
         </Field>
         <Field label="Guarniciones y complementos (por jugador)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={sidesFee} onChange={(e) => setD({ sidesFee: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} onBlur={(e) => setD({ sidesFee: roundTo100(e.target.value) })} step="100" />
+            <input type="number" style={inputStyle} value={sidesFee === 0 ? "" : sidesFee} onChange={(e) => setD({ sidesFee: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(sidesFee)}</span>
           </div>
         </Field>
@@ -1329,13 +1327,13 @@ function DinnerSection({ game, players, update }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
         <Field label="Servicio de mesero (por jugador)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.waiter} onChange={(e) => setD({ waiter: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} />
+            <input type="number" style={inputStyle} value={d.waiter === 0 ? "" : d.waiter} onChange={(e) => setD({ waiter: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.waiter)}</span>
           </div>
         </Field>
         <Field label="Cargo extra de alcohol (a quienes bebieron)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.alcoholFee} onChange={(e) => setD({ alcoholFee: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} onBlur={(e) => setD({ alcoholFee: roundTo100(e.target.value) })} step="100" />
+            <input type="number" style={inputStyle} value={d.alcoholFee === 0 ? "" : d.alcoholFee} onChange={(e) => setD({ alcoholFee: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
             <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.alcoholFee)}</span>
           </div>
         </Field>
