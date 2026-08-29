@@ -3,431 +3,336 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="BARILOCHE Stats" />
-<meta name="mobile-web-app-capable" content="yes" />
 <meta name="theme-color" content="#0c3527" />
 <title>BARILOCHE · Estadísticas</title>
 <style>
-  html, body { margin: 0; padding: 0; background: #082019; }
-  #root { min-height: 100vh; }
-  #boot-error { display:none; color:#f0d888; font-family:monospace; font-size:12px; white-space:pre-wrap; padding:16px; }
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+  :root {
+    --felt: #0c3527; --felt-deep: #082019; --card: #f4ead6;
+    --gold: #d8ad3f; --gold-soft: #f0d888;
+    --cash: #2fae66; --virtual: #f2883c; --win: #3fbf72; --loss: #e2634f;
+    --panel: #123f30; --panel-line: rgba(212,175,55,0.22);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--felt-deep); }
+  body {
+    font-family: 'Inter', sans-serif; color: var(--card);
+    background: radial-gradient(ellipse at top, var(--panel) 0%, var(--felt) 45%, var(--felt-deep) 100%);
+    min-height: 100vh;
+  }
+  .display { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.04em; }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  header {
+    border-bottom: 1px solid var(--panel-line); background: rgba(0,0,0,0.15);
+    position: sticky; top: 0; z-index: 20; backdrop-filter: blur(6px);
+  }
+  .headerInner { max-width: 900px; margin: 0 auto; padding: 14px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .brand .logo { font-size: 26px; color: var(--gold); line-height: 1; }
+  .brand .sub { font-size: 10.5px; color: rgba(240,216,136,0.55); letter-spacing: 0.12em; text-transform: uppercase; }
+  .navBtns { display: flex; gap: 6px; flex-shrink: 0; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px; text-decoration: none; cursor: pointer;
+    background: rgba(244,234,214,0.08); border: 1px solid var(--panel-line); border-radius: 8px;
+    padding: 6px 10px; color: rgba(244,234,214,0.75); font-size: 11.5px; font-weight: 600; font-family: inherit;
+  }
+  .btn.err { background: rgba(200,80,70,0.18); border-color: rgba(200,80,70,0.4); color: #e6a79c; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px 14px 60px; display: grid; gap: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 14px; padding: 16px; }
+  .sectionTitle { font-size: 19px; letter-spacing: 0.06em; color: var(--gold-soft); margin-bottom: 12px; }
+  .grid2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; }
+  .statCard { background: rgba(0,0,0,0.22); border-radius: 10px; padding: 12px 10px; min-width: 0; }
+  .statCard .lbl { font-size: 10.5px; color: rgba(244,234,214,0.5); text-transform: uppercase; letter-spacing: 0.04em; }
+  .statCard .val { font-size: 22px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .statCard .sub { font-size: 11px; color: rgba(244,234,214,0.5); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tone-win { color: var(--win); } .tone-loss { color: var(--loss); } .tone-gold { color: var(--gold-soft); }
+  .leaderRow { background: rgba(0,0,0,0.18); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .leaderTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .leaderName { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .avatar { width: 26px; height: 26px; border-radius: 99px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--gold); color: #241d12; font-weight: 800; font-size: 12px; }
+  .barTrack { margin-top: 7px; height: 6px; border-radius: 99px; background: rgba(0,0,0,0.3); overflow: hidden; }
+  .barFill { height: 100%; border-radius: 99px; }
+  .metaRow { display: flex; gap: 12px; margin-top: 7px; flex-wrap: wrap; font-size: 11px; color: rgba(244,234,214,0.55); }
+  .empty { text-align: center; padding: 30px 10px; color: rgba(244,234,214,0.45); font-size: 13.5px; }
+  .loading { text-align: center; padding: 60px 10px; color: var(--gold-soft); font-size: 22px; }
+  .errBanner { font-size: 10px; color: rgba(230,167,156,0.9); padding: 0 14px 8px; max-width: 900px; margin: 0 auto; }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; justify-content: center; }
+  .legendItem { display: flex; align-items: center; gap: 5px; font-size: 11px; color: rgba(244,234,214,0.75); }
+  .dot { width: 9px; height: 9px; border-radius: 99px; display: inline-block; }
 </style>
-<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
-<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
 </head>
 <body>
-<div id="root"></div>
-<pre id="boot-error"></pre>
-
-<script type="text/plain" id="app-source">const { useState, useEffect, useMemo, useCallback } = React;
-
-/* ----------------------------------------------------------------------
-   LECTURA DE GOOGLE SHEETS (solo lectura — el dashboard nunca escribe)
----------------------------------------------------------------------- */
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwuz_uR1jZc9cUr4TIfx3HXZHqI5a6X5YaNgmLTixYkZFKR_K4q6xB86lzlJh0WmBkjpg/exec";
-
-function sheetGet(sheetName) {
-  return new Promise((resolve, reject) => {
-    const cbName = "__sheetCb_" + Math.random().toString(36).slice(2);
-    const iframe = document.createElement("iframe");
-    iframe.style.display = "none";
-    let done = false;
-    const onMessage = (event) => {
-      const msg = event.data;
-      if (!msg || !msg.__sheetBridge || msg.callback !== cbName) return;
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      cleanup();
-      resolve(msg.data);
-    };
-    const cleanup = () => {
-      window.removeEventListener("message", onMessage);
-      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-    };
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      cleanup();
-      reject(new Error("Tiempo de espera agotado al leer " + sheetName + " de la Google Sheet."));
-    }, 15000);
-    window.addEventListener("message", onMessage);
-    iframe.src = SCRIPT_URL + "?sheet=" + encodeURIComponent(sheetName) + "&callback=" + cbName;
-    document.body.appendChild(iframe);
-  });
-}
-async function loadRoster() {
-  const rows = await sheetGet("Roster");
-  return rows.slice(1).filter((r) => r[0]).map((r) => JSON.parse(r[2]));
-}
-async function loadGames() {
-  const rows = await sheetGet("Games");
-  return rows.slice(1).filter((r) => r[0]).map((r) => JSON.parse(r[2]));
-}
-
-/* ----------------------------------------------------------------------
-   THEME (igual que la app principal, para que se sienta parte del mismo sitio)
----------------------------------------------------------------------- */
-const FONT_IMPORT =
-  "@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');";
-
-const C = {
-  felt: "#0c3527", feltDeep: "#082019", feltLine: "rgba(212,175,55,0.14)",
-  card: "#f4ead6", cardDim: "#e7dabd", ink: "#241d12", inkSoft: "#5c5240",
-  gold: "#d8ad3f", goldSoft: "#f0d888",
-  cash: "#2fae66", cashDeep: "#1d7d49", virtual: "#8b6bf0", virtualDeep: "#6748c4",
-  win: "#3fbf72", loss: "#e2634f", panel: "#123f30", panelLine: "rgba(212,175,55,0.22)",
-};
-const displayFont = { fontFamily: "'Bebas Neue', sans-serif", letterSpacing: "0.04em" };
-const monoFont = { fontFamily: "'IBM Plex Mono', monospace" };
-const bodyFont = { fontFamily: "'Inter', sans-serif" };
-const money = (n) => "$" + Math.round(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
-function round1(n) { return Math.round(n); }
-
-function Avatar({ player, size = 30 }) {
-  const av = player?.avatar;
-  const base = { width: size, height: size, borderRadius: 99, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" };
-  if (av?.type === "photo" && av.value) {
-    return <img src={av.value} alt={player.name} style={{ ...base, objectFit: "cover", border: `1px solid ${C.panelLine}` }} />;
-  }
-  if (av?.type === "icon" && av.value) {
-    return <div style={{ ...base, background: "rgba(216,173,63,0.18)", fontSize: size * 0.55 }}>{av.value}</div>;
-  }
-  return (
-    <div style={{ ...base, background: C.gold, color: C.ink, fontWeight: 800, fontSize: size * 0.42, ...bodyFont }}>
-      {(player?.name || "?").slice(0, 1).toUpperCase()}
+<header>
+  <div class="headerInner">
+    <div class="brand">
+      <span class="logo display">BARILOCHE</span>
+      <span class="sub">estadísticas</span>
     </div>
-  );
-}
-function Panel({ children, style }) {
-  return <div style={{ background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14, padding: 13, minWidth: 0, ...style }}>{children}</div>;
-}
-function SectionTitle({ children, right }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-      <span style={{ ...displayFont, fontSize: 19, letterSpacing: "0.06em", color: C.goldSoft }}>{children}</span>
-      {right}
+    <div class="navBtns">
+      <a class="btn" href="./index.html">← App</a>
+      <button class="btn" id="refreshBtn">⟳ Actualizar</button>
     </div>
-  );
-}
-function Empty({ children }) {
-  return <div style={{ textAlign: "center", padding: "22px 10px", color: "rgba(244,234,214,0.45)", fontSize: 13.5 }}>{children}</div>;
-}
-
-/* ----------------------------------------------------------------------
-   SETTLEMENT ENGINE (idéntico al de la app principal — necesario para
-   recalcular el balance real de cada jugador en cada partida)
----------------------------------------------------------------------- */
-function computeSettlement(game, roster) {
-  const base = game.playerIds.map((pid) => {
-    const p = roster.find((r) => r.id === pid);
-    const purchases = game.purchases.filter((pu) => pu.playerId === pid);
-    const cashAmount = purchases.filter((pu) => pu.type === "cash").reduce((s, pu) => s + pu.amount, 0);
-    const virtualAmount = purchases.filter((pu) => pu.type === "virtual").reduce((s, pu) => s + pu.amount, 0);
-    const totalBuyIn = cashAmount + virtualAmount;
-    const cashOut = Number(game.finalChips[pid]) || 0;
-    const balance = round1(cashOut - totalBuyIn);
-    const diff = round1(cashOut - virtualAmount);
-    const cashEligible = Math.max(0, diff);
-    return { playerId: pid, name: p ? p.name : "?", cashAmount, virtualAmount, totalBuyIn, cashOut, balance, diff, cashEligible };
-  });
-  const totalCashAll = base.reduce((s, p) => s + p.cashAmount, 0);
-  const rake = Math.min(game.rake || 0, totalCashAll);
-  return { players: base, rake, totalCashAll };
-}
-
-/* ----------------------------------------------------------------------
-   CÁLCULO DE ESTADÍSTICAS
----------------------------------------------------------------------- */
-function buildStats(roster, games) {
-  const sorted = [...games].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-
-  const byPlayer = {};
-  roster.forEach((p) => {
-    byPlayer[p.id] = {
-      player: p, played: 0, wins: 0, losses: 0, ties: 0,
-      totalBalance: 0, totalCashIn: 0, totalVirtualIn: 0,
-      best: null, worst: null, series: [],
-    };
-  });
-
-  let biggestPot = null;
-  sorted.forEach((g) => {
-    const r = computeSettlement(g, roster);
-    const pot = r.players.reduce((s, p) => s + p.totalBuyIn, 0);
-    if (!biggestPot || pot > biggestPot.pot) biggestPot = { pot, date: g.date, id: g.id };
-    r.players.forEach((p) => {
-      const st = byPlayer[p.playerId];
-      if (!st) return;
-      st.played += 1;
-      if (p.balance > 0) st.wins += 1;
-      else if (p.balance < 0) st.losses += 1;
-      else st.ties += 1;
-      st.totalBalance = round1(st.totalBalance + p.balance);
-      st.totalCashIn += p.cashAmount;
-      st.totalVirtualIn += p.virtualAmount;
-      if (!st.best || p.balance > st.best.balance) st.best = { balance: p.balance, date: g.date };
-      if (!st.worst || p.balance < st.worst.balance) st.worst = { balance: p.balance, date: g.date };
-      st.series.push({ date: g.date, balance: p.balance, cumulative: 0 });
-    });
-  });
-  // acumulado por jugador, en orden cronológico
-  Object.values(byPlayer).forEach((st) => {
-    let acc = 0;
-    st.series.forEach((pt) => { acc = round1(acc + pt.balance); pt.cumulative = acc; });
-    st.winRate = st.played ? Math.round((st.wins / st.played) * 100) : 0;
-    st.avgBalance = st.played ? round1(st.totalBalance / st.played) : 0;
-  });
-
-  const leaderboard = Object.values(byPlayer)
-    .filter((st) => st.played > 0)
-    .sort((a, b) => b.totalBalance - a.totalBalance);
-
-  const totalGames = sorted.length;
-  const totalCashMoved = sorted.reduce((s, g) => s + computeSettlement(g, roster).totalCashAll, 0);
-  const topWinner = leaderboard[0] || null;
-  const topLoser = leaderboard.length ? leaderboard[leaderboard.length - 1] : null;
-  const mostActive = [...leaderboard].sort((a, b) => b.played - a.played)[0] || null;
-
-  return { leaderboard, totalGames, totalCashMoved, biggestPot, topWinner, topLoser, mostActive, sortedGames: sorted };
-}
-
-/* ----------------------------------------------------------------------
-   COMPONENTES VISUALES
----------------------------------------------------------------------- */
-function StatCard({ label, value, sub, tone }) {
-  const color = tone === "win" ? C.win : tone === "loss" ? C.loss : C.goldSoft;
-  return (
-    <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 10, padding: "12px 10px", minWidth: 0 }}>
-      <div style={{ fontSize: 10.5, color: "rgba(244,234,214,0.5)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
-      <div style={{ ...displayFont, fontSize: 22, color, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: "rgba(244,234,214,0.5)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
-    </div>
-  );
-}
-
-function LeaderRow({ st, rank, maxAbs }) {
-  const win = st.totalBalance > 0;
-  const flat = st.totalBalance === 0;
-  const pct = maxAbs > 0 ? Math.min(100, Math.round((Math.abs(st.totalBalance) / maxAbs) * 100)) : 0;
-  return (
-    <div style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "10px 12px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <span style={{ ...monoFont, fontSize: 12, color: "rgba(244,234,214,0.4)", width: 18, flexShrink: 0 }}>#{rank}</span>
-          <Avatar player={st.player} size={26} />
-          <span style={{ color: C.card, fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{st.player.name}</span>
-        </div>
-        <span style={{ ...monoFont, fontWeight: 800, fontSize: 14.5, color: win ? C.win : flat ? "rgba(244,234,214,0.6)" : C.loss, flexShrink: 0 }}>
-          {(st.totalBalance > 0 ? "+" : "") + money(st.totalBalance)}
-        </span>
-      </div>
-      <div style={{ marginTop: 7, height: 6, borderRadius: 99, background: "rgba(0,0,0,0.3)", overflow: "hidden" }}>
-        <div style={{ width: pct + "%", height: "100%", background: win ? C.win : flat ? "rgba(244,234,214,0.3)" : C.loss, borderRadius: 99 }} />
-      </div>
-      <div style={{ display: "flex", gap: 12, marginTop: 7, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 11, color: "rgba(244,234,214,0.55)", ...monoFont }}>{st.played} partidas</span>
-        <span style={{ fontSize: 11, color: "rgba(244,234,214,0.55)", ...monoFont }}>{st.wins}G / {st.losses}P{st.ties ? ` / ${st.ties}E` : ""}</span>
-        <span style={{ fontSize: 11, color: "rgba(244,234,214,0.55)", ...monoFont }}>{st.winRate}% efectividad</span>
-        <span style={{ fontSize: 11, color: "rgba(244,234,214,0.55)", ...monoFont }}>prom. {money(st.avgBalance)}/partida</span>
-      </div>
-    </div>
-  );
-}
-
-/* Gráfico de líneas SVG: balance acumulado por jugador a lo largo de las partidas */
-const LINE_COLORS = ["#d8ad3f", "#3fbf72", "#8b6bf0", "#e2634f", "#4fb8e0", "#e08fc9", "#c9a24f", "#7fd9a8"];
-function TrendChart({ sortedGames, leaderboard }) {
-  const top = leaderboard.slice(0, 8);
-  if (sortedGames.length < 2 || top.length === 0) {
-    return <Empty>Se necesitan al menos 2 partidas guardadas para mostrar la tendencia.</Empty>;
-  }
-  const W = 640, H = 240, padL = 44, padR = 12, padT = 14, padB = 24;
-  const n = sortedGames.length;
-  const allVals = top.flatMap((st) => st.series.map((pt) => pt.cumulative)).concat([0]);
-  const maxV = Math.max(...allVals, 1);
-  const minV = Math.min(...allVals, 0);
-  const range = maxV - minV || 1;
-  const x = (i) => padL + (i / Math.max(1, n - 1)) * (W - padL - padR);
-  const y = (v) => padT + (1 - (v - minV) / range) * (H - padT - padB);
-
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 480, height: "auto", display: "block" }}>
-        <line x1={padL} y1={y(0)} x2={W - padR} y2={y(0)} stroke="rgba(244,234,214,0.25)" strokeWidth="1" strokeDasharray="3,3" />
-        <text x={padL - 6} y={y(0) + 3} textAnchor="end" fontSize="9" fill="rgba(244,234,214,0.45)" fontFamily="IBM Plex Mono, monospace">0</text>
-        <text x={padL - 6} y={y(maxV) + 3} textAnchor="end" fontSize="9" fill="rgba(244,234,214,0.45)" fontFamily="IBM Plex Mono, monospace">{money(maxV)}</text>
-        <text x={padL - 6} y={y(minV) + 3} textAnchor="end" fontSize="9" fill="rgba(244,234,214,0.45)" fontFamily="IBM Plex Mono, monospace">{money(minV)}</text>
-        {top.map((st, idx) => {
-          const color = LINE_COLORS[idx % LINE_COLORS.length];
-          const pts = st.series.map((pt, i) => `${x(i)},${y(pt.cumulative)}`).join(" ");
-          const last = st.series[st.series.length - 1];
-          return (
-            <g key={st.player.id}>
-              <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-              {last && <circle cx={x(st.series.length - 1)} cy={y(last.cumulative)} r="2.6" fill={color} />}
-            </g>
-          );
-        })}
-      </svg>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8, justifyContent: "center" }}>
-        {top.map((st, idx) => (
-          <div key={st.player.id} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 99, background: LINE_COLORS[idx % LINE_COLORS.length], display: "inline-block" }} />
-            <span style={{ fontSize: 11, color: "rgba(244,234,214,0.75)", ...bodyFont }}>{st.player.name}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ----------------------------------------------------------------------
-   ROOT
----------------------------------------------------------------------- */
-function Dashboard() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [roster, setRoster] = useState([]);
-  const [games, setGames] = useState([]);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    setRefreshing(true);
-    setError(null);
-    try {
-      const [r, g] = await Promise.all([loadRoster(), loadGames()]);
-      setRoster(r); setGames(g);
-    } catch (e) {
-      setError(String((e && e.message) || e));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const stats = useMemo(() => buildStats(roster, games), [roster, games]);
-
-  return (
-    <div style={{ minHeight: "100vh", background: `radial-gradient(ellipse at top, ${C.panel} 0%, ${C.felt} 45%, ${C.feltDeep} 100%)`, ...bodyFont }}>
-      <style>{`
-        ${FONT_IMPORT}
-        * { box-sizing: border-box; }
-        body { margin:0; }
-        ::selection { background: ${C.gold}; color: ${C.ink}; }
-      `}</style>
-      <header style={{ borderBottom: `1px solid ${C.panelLine}`, background: "rgba(0,0,0,0.15)", position: "sticky", top: 0, zIndex: 20, backdropFilter: "blur(6px)" }}>
-        <div style={{ maxWidth: 720, margin: "0 auto", padding: "14px 10px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
-              <span style={{ ...displayFont, fontSize: 26, color: C.gold, lineHeight: 1 }}>BARILOCHE</span>
-              <span style={{ ...bodyFont, fontSize: 10.5, color: "rgba(240,216,136,0.55)", letterSpacing: "0.12em", textTransform: "uppercase" }}>estadísticas</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-              <a
-                href="./index.html"
-                title="Volver a la app"
-                style={{
-                  display: "flex", alignItems: "center", gap: 5, textDecoration: "none",
-                  background: "rgba(244,234,214,0.08)", border: `1px solid ${C.panelLine}`,
-                  borderRadius: 8, padding: "6px 9px", color: "rgba(244,234,214,0.75)",
-                  fontSize: 11, ...bodyFont, fontWeight: 600,
-                }}
-              >
-                ← App
-              </a>
-              <button
-                onClick={load} disabled={refreshing}
-                style={{
-                  display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
-                  background: error ? "rgba(200,80,70,0.18)" : "rgba(244,234,214,0.08)",
-                  border: `1px solid ${error ? "rgba(200,80,70,0.4)" : C.panelLine}`,
-                  borderRadius: 8, padding: "6px 9px", cursor: refreshing ? "default" : "pointer",
-                  color: error ? "#e6a79c" : "rgba(244,234,214,0.75)", fontSize: 11, ...bodyFont, fontWeight: 600,
-                }}
-              >
-                <span style={{ display: "inline-block", fontSize: 13, lineHeight: 1, transform: refreshing ? "rotate(180deg)" : "none", transition: "transform 0.3s" }}>⟳</span>
-                {refreshing ? "Actualizando…" : error ? "Error" : "Actualizar"}
-              </button>
-            </div>
-          </div>
-          {error && <div style={{ fontSize: 10, color: "rgba(230,167,156,0.9)", marginTop: 4 }}>{error}</div>}
-        </div>
-      </header>
-
-      <main style={{ maxWidth: 720, margin: "0 auto", padding: "14px 10px 60px", display: "grid", gap: 16 }}>
-        {loading ? (
-          <div style={{ textAlign: "center", padding: "60px 10px", color: C.goldSoft, ...displayFont, fontSize: 22 }}>Cargando estadísticas…</div>
-        ) : stats.totalGames === 0 ? (
-          <Panel><Empty>Todavía no hay partidas guardadas para mostrar estadísticas.</Empty></Panel>
-        ) : (
-          <>
-            <Panel>
-              <SectionTitle>Resumen general</SectionTitle>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
-                <StatCard label="Partidas jugadas" value={stats.totalGames} />
-                <StatCard label="Cash + virtual movido" value={money(stats.totalCashMoved)} />
-                {stats.topWinner && <StatCard label="Mejor balance histórico" value={stats.topWinner.player.name} sub={"+" + money(stats.topWinner.totalBalance)} tone="win" />}
-                {stats.mostActive && <StatCard label="Más partidas jugadas" value={stats.mostActive.player.name} sub={stats.mostActive.played + " partidas"} />}
-                {stats.biggestPot && <StatCard label="Bote más grande" value={money(stats.biggestPot.pot)} sub={stats.biggestPot.date} />}
-                {stats.topLoser && stats.topLoser.totalBalance < 0 && <StatCard label="Balance más negativo" value={stats.topLoser.player.name} sub={money(stats.topLoser.totalBalance)} tone="loss" />}
-              </div>
-            </Panel>
-
-            <Panel>
-              <SectionTitle>Ranking histórico</SectionTitle>
-              <div style={{ display: "grid", gap: 8 }}>
-                {stats.leaderboard.map((st, i) => (
-                  <LeaderRow key={st.player.id} st={st} rank={i + 1} maxAbs={Math.max(...stats.leaderboard.map((x) => Math.abs(x.totalBalance)), 1)} />
-                ))}
-              </div>
-            </Panel>
-
-            <Panel>
-              <SectionTitle>Tendencia (balance acumulado)</SectionTitle>
-              <TrendChart sortedGames={stats.sortedGames} leaderboard={stats.leaderboard} />
-            </Panel>
-          </>
-        )}
-      </main>
-    </div>
-  );
-}
-
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<Dashboard />);
-</script>
+  </div>
+  <div class="errBanner" id="errBanner" style="display:none"></div>
+</header>
+<main id="main">
+  <div class="loading">Cargando estadísticas…</div>
+</main>
 
 <script>
 (function () {
-  function showError(err) {
-    var el = document.getElementById("boot-error");
-    el.style.display = "block";
-    el.textContent = "Error al iniciar el dashboard:\n\n" + (err && err.stack ? err.stack : err);
-    console.error(err);
+  const money = (n) => "$" + Math.round(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const round1 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const LINE_COLORS = ["#d8ad3f", "#3fbf72", "#f2883c", "#e2634f", "#4fb8e0", "#e08fc9", "#c9a24f", "#7fd9a8"];
+
+  async function loadKey(key, fallback) {
+    const res = await fetch("/api/store?key=" + encodeURIComponent(key));
+    if (!res.ok) throw new Error("Error " + res.status + " al leer " + key);
+    const data = await res.json();
+    return data && data.value !== undefined && data.value !== null ? data.value : fallback;
   }
-  try {
-    var missing = [];
-    if (typeof React === "undefined") missing.push("React (react.production.min.js)");
-    if (typeof ReactDOM === "undefined") missing.push("ReactDOM (react-dom.production.min.js)");
-    if (typeof Babel === "undefined") missing.push("Babel (babel.min.js)");
-    if (missing.length) {
-      throw new Error(
-        "No se pudieron cargar estos scripts desde internet:\n- " + missing.join("\n- ") +
-        "\n\nRevisa tu conexión, o si un bloqueador de anuncios/DNS está bloqueando cdn.jsdelivr.net, y recarga la página."
-      );
+
+  // Mismo motor de liquidación que la app principal (src/App.jsx), para que
+  // el balance de cada jugador coincida exactamente.
+  function computeSettlement(game, roster) {
+    const players = game.playerIds.map((pid) => {
+      const p = roster.find((r) => r.id === pid);
+      const purchases = (game.purchases || []).filter((pu) => pu.playerId === pid);
+      const cashAmount = purchases.filter((pu) => pu.type === "cash").reduce((s, pu) => s + pu.amount, 0);
+      const virtualAmount = purchases.filter((pu) => pu.type === "virtual").reduce((s, pu) => s + pu.amount, 0);
+      const totalBuyIn = cashAmount + virtualAmount;
+      const cashOut = Number((game.finalChips || {})[pid]) || 0;
+      const balance = round1(cashOut - totalBuyIn);
+      return { playerId: pid, name: p ? p.name : "?", cashAmount, virtualAmount, totalBuyIn, cashOut, balance };
+    });
+    const totalCashAll = players.reduce((s, p) => s + p.cashAmount, 0);
+    return { players, totalCashAll };
+  }
+
+  function buildStats(roster, games) {
+    const sorted = games.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const byPlayer = {};
+    roster.forEach((p) => {
+      byPlayer[p.id] = { player: p, played: 0, wins: 0, losses: 0, ties: 0, totalBalance: 0, series: [] };
+    });
+    let biggestPot = null;
+    sorted.forEach((g) => {
+      if (!g.finished) return;
+      const r = computeSettlement(g, roster);
+      const pot = r.players.reduce((s, p) => s + p.totalBuyIn, 0);
+      if (!biggestPot || pot > biggestPot.pot) biggestPot = { pot, date: g.date };
+      r.players.forEach((p) => {
+        const st = byPlayer[p.playerId];
+        if (!st) return;
+        st.played += 1;
+        if (p.balance > 0) st.wins += 1;
+        else if (p.balance < 0) st.losses += 1;
+        else st.ties += 1;
+        st.totalBalance = round1(st.totalBalance + p.balance);
+        st.series.push({ date: g.date, balance: p.balance, cumulative: 0 });
+      });
+    });
+    Object.values(byPlayer).forEach((st) => {
+      let acc = 0;
+      st.series.forEach((pt) => { acc = round1(acc + pt.balance); pt.cumulative = acc; });
+      st.winRate = st.played ? Math.round((st.wins / st.played) * 100) : 0;
+      st.avgBalance = st.played ? round1(st.totalBalance / st.played) : 0;
+    });
+    const leaderboard = Object.values(byPlayer).filter((st) => st.played > 0).sort((a, b) => b.totalBalance - a.totalBalance);
+    const totalGames = sorted.filter((g) => g.finished).length;
+    const totalCashMoved = sorted.filter((g) => g.finished).reduce((s, g) => s + computeSettlement(g, roster).totalCashAll, 0);
+    const topWinner = leaderboard[0] || null;
+    const topLoser = leaderboard.length ? leaderboard[leaderboard.length - 1] : null;
+    const mostActive = leaderboard.slice().sort((a, b) => b.played - a.played)[0] || null;
+    return { leaderboard, totalGames, totalCashMoved, biggestPot, topWinner, topLoser, mostActive, sortedGames: sorted.filter((g) => g.finished) };
+  }
+
+  function el(tag, attrs, children) {
+    const e = document.createElement(tag);
+    if (attrs) for (const k in attrs) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "html") e.innerHTML = attrs[k];
+      else e.setAttribute(k, attrs[k]);
     }
-    var src = document.getElementById("app-source").textContent;
-    var out = Babel.transform(src, { presets: ["react"] }).code;
-    (0, eval)(out);
-  } catch (err) {
-    showError(err);
+    (children || []).forEach((c) => { if (c) e.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+    return e;
   }
+
+  function avatarEl(player, size) {
+    size = size || 26;
+    const av = player && player.avatar;
+    const d = el("div", { class: "avatar" });
+    d.style.width = size + "px"; d.style.height = size + "px";
+    if (av && av.type === "icon" && av.value) {
+      d.style.background = "rgba(216,173,63,0.18)";
+      d.style.fontSize = Math.round(size * 0.55) + "px";
+      d.textContent = av.value;
+    } else if (av && av.type === "photo" && av.value) {
+      d.style.background = "transparent";
+      d.style.overflow = "hidden";
+      const img = el("img");
+      img.src = av.value; img.style.width = "100%"; img.style.height = "100%"; img.style.objectFit = "cover";
+      d.appendChild(img);
+    } else {
+      d.textContent = ((player && player.name) || "?").slice(0, 1).toUpperCase();
+    }
+    return d;
+  }
+
+  function statCard(label, value, sub, tone) {
+    const v = el("div", { class: "val mono " + (tone ? "tone-" + tone : "") }, [String(value)]);
+    const children = [el("div", { class: "lbl" }, [label]), v];
+    if (sub) children.push(el("div", { class: "sub" }, [sub]));
+    return el("div", { class: "statCard" }, children);
+  }
+
+  function leaderRow(st, rank, maxAbs) {
+    const win = st.totalBalance > 0, flat = st.totalBalance === 0;
+    const pct = maxAbs > 0 ? Math.min(100, Math.round((Math.abs(st.totalBalance) / maxAbs) * 100)) : 0;
+    const top = el("div", { class: "leaderTop" }, [
+      el("div", { class: "leaderName" }, [
+        el("span", { class: "mono", style: "font-size:12px;color:rgba(244,234,214,0.4);width:18px;flex-shrink:0;display:inline-block" }, ["#" + rank]),
+        avatarEl(st.player, 26),
+        el("span", { style: "color:#f4ead6;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, [st.player.name]),
+      ]),
+      el("span", { class: "mono", style: "font-weight:800;font-size:14.5px;flex-shrink:0;color:" + (win ? "var(--win)" : flat ? "rgba(244,234,214,0.6)" : "var(--loss)") }, [(st.totalBalance > 0 ? "+" : "") + money(st.totalBalance)]),
+    ]);
+    const track = el("div", { class: "barTrack" }, [
+      (function () { const f = el("div", { class: "barFill" }); f.style.width = pct + "%"; f.style.background = win ? "var(--win)" : flat ? "rgba(244,234,214,0.3)" : "var(--loss)"; return f; })(),
+    ]);
+    const meta = el("div", { class: "metaRow" }, [
+      el("span", {}, [st.played + " partidas"]),
+      el("span", {}, [st.wins + "G / " + st.losses + "P" + (st.ties ? " / " + st.ties + "E" : "")]),
+      el("span", {}, [st.winRate + "% efectividad"]),
+      el("span", {}, ["prom. " + money(st.avgBalance) + "/partida"]),
+    ]);
+    return el("div", { class: "leaderRow" }, [top, track, meta]);
+  }
+
+  function trendChartSvg(sortedGames, leaderboard) {
+    const top = leaderboard.slice(0, 8);
+    if (sortedGames.length < 2 || top.length === 0) {
+      return el("div", { class: "empty" }, ["Se necesitan al menos 2 partidas guardadas para mostrar la tendencia."]);
+    }
+    const W = 640, H = 240, padL = 44, padR = 12, padT = 14, padB = 24;
+    const n = sortedGames.length;
+    const allVals = top.reduce((acc, st) => acc.concat(st.series.map((pt) => pt.cumulative)), [0]);
+    const maxV = Math.max.apply(null, allVals.concat([1]));
+    const minV = Math.min.apply(null, allVals.concat([0]));
+    const range = maxV - minV || 1;
+    const x = (i) => padL + (i / Math.max(1, n - 1)) * (W - padL - padR);
+    const y = (v) => padT + (1 - (v - minV) / range) * (H - padT - padB);
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.style.width = "100%"; svg.style.minWidth = "480px"; svg.style.height = "auto"; svg.style.display = "block";
+
+    function line(x1, y1, x2, y2, opts) {
+      const l = document.createElementNS(svgNS, "line");
+      l.setAttribute("x1", x1); l.setAttribute("y1", y1); l.setAttribute("x2", x2); l.setAttribute("y2", y2);
+      l.setAttribute("stroke", (opts && opts.stroke) || "rgba(244,234,214,0.25)");
+      l.setAttribute("stroke-width", (opts && opts.width) || "1");
+      if (opts && opts.dash) l.setAttribute("stroke-dasharray", opts.dash);
+      return l;
+    }
+    function text(x, y, str) {
+      const t = document.createElementNS(svgNS, "text");
+      t.setAttribute("x", x); t.setAttribute("y", y); t.setAttribute("text-anchor", "end");
+      t.setAttribute("font-size", "9"); t.setAttribute("fill", "rgba(244,234,214,0.45)");
+      t.setAttribute("font-family", "IBM Plex Mono, monospace");
+      t.textContent = str;
+      return t;
+    }
+    svg.appendChild(line(padL, y(0), W - padR, y(0), { dash: "3,3" }));
+    svg.appendChild(text(padL - 6, y(0) + 3, "0"));
+    svg.appendChild(text(padL - 6, y(maxV) + 3, money(maxV)));
+    svg.appendChild(text(padL - 6, y(minV) + 3, money(minV)));
+
+    top.forEach((st, idx) => {
+      const color = LINE_COLORS[idx % LINE_COLORS.length];
+      const pts = st.series.map((pt, i) => x(i) + "," + y(pt.cumulative)).join(" ");
+      const poly = document.createElementNS(svgNS, "polyline");
+      poly.setAttribute("points", pts);
+      poly.setAttribute("fill", "none"); poly.setAttribute("stroke", color);
+      poly.setAttribute("stroke-width", "2"); poly.setAttribute("stroke-linejoin", "round"); poly.setAttribute("stroke-linecap", "round");
+      svg.appendChild(poly);
+      const last = st.series[st.series.length - 1];
+      if (last) {
+        const c = document.createElementNS(svgNS, "circle");
+        c.setAttribute("cx", x(st.series.length - 1)); c.setAttribute("cy", y(last.cumulative));
+        c.setAttribute("r", "2.6"); c.setAttribute("fill", color);
+        svg.appendChild(c);
+      }
+    });
+
+    const wrap = el("div", { style: "overflow-x:auto" }, [svg]);
+    const legend = el("div", { class: "legend" });
+    top.forEach((st, idx) => {
+      legend.appendChild(el("div", { class: "legendItem" }, [
+        (function () { const d = el("span", { class: "dot" }); d.style.background = LINE_COLORS[idx % LINE_COLORS.length]; return d; })(),
+        el("span", {}, [st.player.name]),
+      ]));
+    });
+    wrap.appendChild(legend);
+    return wrap;
+  }
+
+  function render(roster, games) {
+    const main = document.getElementById("main");
+    main.innerHTML = "";
+    const stats = buildStats(roster, games);
+
+    if (stats.totalGames === 0) {
+      main.appendChild(el("div", { class: "panel" }, [el("div", { class: "empty" }, ["Todavía no hay partidas guardadas para mostrar estadísticas."])]));
+      return;
+    }
+
+    const summary = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Resumen general"])]);
+    const grid = el("div", { class: "grid2" });
+    grid.appendChild(statCard("Partidas jugadas", stats.totalGames));
+    grid.appendChild(statCard("Cash + virtual movido", money(stats.totalCashMoved)));
+    if (stats.topWinner) grid.appendChild(statCard("Mejor balance histórico", stats.topWinner.player.name, "+" + money(stats.topWinner.totalBalance), "win"));
+    if (stats.mostActive) grid.appendChild(statCard("Más partidas jugadas", stats.mostActive.player.name, stats.mostActive.played + " partidas"));
+    if (stats.biggestPot) grid.appendChild(statCard("Bote más grande", money(stats.biggestPot.pot), stats.biggestPot.date));
+    if (stats.topLoser && stats.topLoser.totalBalance < 0) grid.appendChild(statCard("Balance más negativo", stats.topLoser.player.name, money(stats.topLoser.totalBalance), "loss"));
+    summary.appendChild(grid);
+    main.appendChild(summary);
+
+    const rankPanel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Ranking histórico"])]);
+    const maxAbs = Math.max.apply(null, stats.leaderboard.map((x) => Math.abs(x.totalBalance)).concat([1]));
+    stats.leaderboard.forEach((st, i) => rankPanel.appendChild(leaderRow(st, i + 1, maxAbs)));
+    main.appendChild(rankPanel);
+
+    const trendPanel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Tendencia (balance acumulado)"])]);
+    trendPanel.appendChild(trendChartSvg(stats.sortedGames, stats.leaderboard));
+    main.appendChild(trendPanel);
+  }
+
+  async function load() {
+    const btn = document.getElementById("refreshBtn");
+    const errBanner = document.getElementById("errBanner");
+    btn.textContent = "⟳ Actualizando…";
+    btn.classList.remove("err");
+    errBanner.style.display = "none";
+    try {
+      const [roster, games] = await Promise.all([
+        loadKey("poker-roster", []),
+        loadKey("poker-games", []),
+      ]);
+      render(roster || [], games || []);
+      btn.textContent = "⟳ Actualizar";
+    } catch (e) {
+      btn.textContent = "⟳ Error";
+      btn.classList.add("err");
+      errBanner.textContent = String((e && e.message) || e);
+      errBanner.style.display = "block";
+      console.error(e);
+    }
+  }
+
+  document.getElementById("refreshBtn").addEventListener("click", load);
+  load();
 })();
 </script>
 </body>
