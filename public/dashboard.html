@@ -404,8 +404,8 @@
     generalGrid.appendChild(statCard("Partidas jugadas", stats.totalGames));
     generalGrid.appendChild(statCard("Jugadores promedio/partida", stats.avgPlayers.toFixed(1)));
     generalGrid.appendChild(statCard("Rake acumulado", money(stats.totalRake), null, "gold"));
-    if (stats.mostHost.players.length === 1) generalGrid.appendChild(statCard("Más veces anfitrión", stats.mostHost.players[0].player.name, stats.mostHost.max + " veces"));
-    else if (stats.mostHost.players.length > 1) generalGrid.appendChild(statCard("Más veces anfitrión", "Varios", "con " + stats.mostHost.max + " veces"));
+    if (stats.mostHost.players.length === 1) generalGrid.appendChild(statCard("👑 Más veces anfitrión", stats.mostHost.players[0].player.name, stats.mostHost.max + " veces"));
+    else if (stats.mostHost.players.length > 1) generalGrid.appendChild(statCard("👑 Más veces anfitrión", "Varios", "con " + stats.mostHost.max + " veces"));
     panel.appendChild(generalGrid);
 
     panel.appendChild(subHeading("Cash"));
@@ -425,12 +425,6 @@
     cvGrid.appendChild(statCard("Total Cash+Virtual", money(stats.totalCash + stats.totalVirtual)));
     cvGrid.appendChild(statCard("Cash+Virtual promedio", money(stats.avgPot)));
     panel.appendChild(cvGrid);
-
-    panel.appendChild(subHeading("Cena"));
-    const dinnerGrid = el("div", { class: "kpiGrid" });
-    dinnerGrid.appendChild(statCard("Monto total cenas", money(stats.totalDinner)));
-    dinnerGrid.appendChild(statCard("$ cena promedio/jugador", money(stats.avgDinnerPerPlayer)));
-    panel.appendChild(dinnerGrid);
 
     return panel;
   }
@@ -452,7 +446,7 @@
     if (stats.mostLosses.players.length === 1) { any = true; grid.appendChild(recordCard("📉 Más balances negativos", playerNameNode(stats.mostLosses.players[0].player), stats.mostLosses.max + " partidas perdidas", "loss")); }
     else if (stats.mostLosses.players.length > 1) { any = true; grid.appendChild(recordCard("📉 Más balances negativos", variosNode(), "Varios con " + stats.mostLosses.max, "loss")); }
 
-    if (stats.bestStreak.players.length === 1) { any = true; grid.appendChild(recordCard("🔥 Mejor racha", playerNameNode(stats.bestStreak.players[0].player), "🔥 " + stats.bestStreak.max + " ganadas seguidas", "win")); }
+    if (stats.bestStreak.players.length === 1) { any = true; grid.appendChild(recordCard("🔥 Mejor racha", playerNameNode(stats.bestStreak.players[0].player), "🔥 " + stats.bestStreak.max + "G", "win")); }
     else if (stats.bestStreak.players.length > 1) { any = true; grid.appendChild(recordCard("🔥 Mejor racha", variosNode(), "🔥 Varios con " + stats.bestStreak.max + "G", "win")); }
 
     if (stats.worstStreak.players.length === 1) { any = true; grid.appendChild(recordCard("❄️ Peor racha", playerNameNode(stats.worstStreak.players[0].player), "❄️ " + stats.worstStreak.max + " perdidas seguidas", "loss")); }
