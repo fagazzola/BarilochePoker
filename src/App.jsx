@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "1.10.06.017";
+const APP_VERSION = "1.11.06.018";
 
 const money = (n) =>
   "$" + Math.round(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -664,6 +664,7 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword }) {
   const [newAvatar, setNewAvatar] = useState(null);
   const [editName, setEditName] = useState("");
   const [editAvatar, setEditAvatar] = useState(null);
+  const [savedMsg, setSavedMsg] = useState(false);
 
   const sel = roster.find((p) => p.id === selId) || null;
   useEffect(() => { setEditName(sel ? sel.name : ""); setEditAvatar(sel ? sel.avatar || null : null); }, [selId]); // eslint-disable-line
@@ -678,9 +679,16 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword }) {
   const saveEdit = () => {
     if (!sel || !editName.trim()) return;
     setRoster((r) => r.map((p) => (p.id === sel.id ? { ...p, name: editName.trim(), avatar: editAvatar } : p)));
+    setSelId(""); // limpia el combo — vuelve a "— elegir del combo —"
+    setSavedMsg(true);
+    setTimeout(() => setSavedMsg(false), 2500);
   };
-  const toggleActive = () => {
+  const toggleActive = async () => {
     if (!sel) return;
+    if (sel.active) {
+      // Solo pedimos contraseña para dar de baja (acción sensible), no para reactivar.
+      if (!(await requestAdminPassword(adminPassword, "dar de baja jugadores"))) return;
+    }
     setRoster((r) => r.map((p) => (p.id === sel.id ? { ...p, active: !p.active } : p)));
   };
   const removePlayer = async () => {
@@ -710,6 +718,12 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword }) {
 
       <Panel>
         <SectionTitle icon={Pencil}>Editar / dar de baja</SectionTitle>
+        {savedMsg && (
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10, background: "rgba(63,191,114,0.14)", border: `1px solid ${C.win}`, borderRadius: 8, padding: "8px 10px" }}>
+            <Check size={14} color={C.win} />
+            <span style={{ fontSize: 12.5, color: C.win, fontWeight: 700 }}>Jugador actualizado correctamente.</span>
+          </div>
+        )}
         <Field label="Seleccionar jugador">
           <select style={{ ...inputStyle, appearance: "auto" }} value={selId} onChange={(e) => setSelId(e.target.value)}>
             <option value="">— elegir del combo —</option>
