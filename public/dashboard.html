@@ -35,6 +35,7 @@
   .panel { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 14px; padding: 16px; }
   .sectionTitle { font-size: 19px; letter-spacing: 0.06em; color: var(--gold-soft); margin-bottom: 4px; }
   .sectionSub { font-size: 11.5px; color: rgba(244,234,214,0.5); margin-bottom: 12px; }
+  .periodTag { display: inline-block; font-size: 10.5px; color: var(--gold-soft); background: rgba(216,173,63,0.14); border: 1px solid var(--panel-line); border-radius: 99px; padding: 2px 9px; margin-bottom: 10px; }
   .filterRow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .filterRow input[type="date"] { background: rgba(0,0,0,0.25); border: 1px solid var(--panel-line); border-radius: 8px; padding: 6px 8px; color: var(--card); font-family: inherit; font-size: 12px; }
   select { background: rgba(0,0,0,0.25); border: 1px solid var(--panel-line); border-radius: 8px; padding: 7px 9px; color: var(--card); font-family: inherit; font-size: 12.5px; }
@@ -45,16 +46,9 @@
   .statCard .val { font-size: 20px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .statCard .sub { font-size: 10.5px; color: rgba(244,234,214,0.5); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tone-win { color: var(--win); } .tone-loss { color: var(--loss); } .tone-gold { color: var(--gold-soft); } .tone-cash { color: var(--cash); } .tone-virtual { color: var(--virtual); }
-  .leaderRow { background: rgba(0,0,0,0.18); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
-  .leaderTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .leaderName { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .avatar { width: 26px; height: 26px; border-radius: 99px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--gold); color: #241d12; font-weight: 800; font-size: 12px; }
-  .barTrack { margin-top: 7px; height: 6px; border-radius: 99px; background: rgba(0,0,0,0.3); overflow: hidden; }
-  .barFill { height: 100%; border-radius: 99px; }
-  .metaRow { display: flex; gap: 10px; margin-top: 7px; flex-wrap: wrap; font-size: 11px; color: rgba(244,234,214,0.55); }
-  .streakBadge { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 99px; font-weight: 700; font-size: 10.5px; }
-  .streakBadge.win { background: rgba(63,191,114,0.18); color: var(--win); }
-  .streakBadge.loss { background: rgba(226,99,79,0.18); color: var(--loss); }
+  .recordVal { font-size: 18px; margin-top: 2px; display: flex; align-items: center; gap: 6px; overflow: hidden; }
+  .recordVal .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .avatar { width: 22px; height: 22px; border-radius: 99px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--gold); color: #241d12; font-weight: 800; font-size: 11px; }
   .empty { text-align: center; padding: 30px 10px; color: rgba(244,234,214,0.45); font-size: 13.5px; }
   .loading { text-align: center; padding: 60px 10px; color: var(--gold-soft); font-size: 22px; }
   .errBanner { font-size: 10px; color: rgba(230,167,156,0.9); padding: 0 14px 8px; max-width: 980px; margin: 0 auto; }
@@ -62,19 +56,17 @@
   .legendItem { display: flex; align-items: center; gap: 5px; font-size: 11px; color: rgba(244,234,214,0.75); }
   .dot { width: 9px; height: 9px; border-radius: 99px; display: inline-block; flex-shrink: 0; }
   .volRow { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .volLabel { width: 76px; flex-shrink: 0; font-size: 10.5px; color: rgba(244,234,214,0.55); ; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .volBarWrap { flex: 1; display: flex; height: 16px; border-radius: 5px; overflow: hidden; background: rgba(0,0,0,0.25); }
+  .volLabel { width: 76px; flex-shrink: 0; font-size: 10.5px; color: rgba(244,234,214,0.55); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .volBarWrap { flex: 1; display: flex; height: 18px; border-radius: 5px; overflow: hidden; background: rgba(0,0,0,0.25); }
+  .volSeg { display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: rgba(0,0,0,0.55); overflow: hidden; white-space: nowrap; }
   .volAmount { width: 92px; flex-shrink: 0; text-align: right; font-size: 11px; }
-  .recordCard { background: rgba(0,0,0,0.2); border-radius: 10px; padding: 11px 12px; }
-  .recordCard .lbl { font-size: 10.5px; color: rgba(244,234,214,0.5); text-transform: uppercase; margin-bottom: 4px; }
-  .recordCard .main { display: flex; align-items: center; gap: 8px; }
-  .recordCard .amount { font-size: 15px; font-weight: 800; }
-  .h2hPick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-  .h2hResult { display: flex; align-items: center; justify-content: center; gap: 18px; text-align: center; }
-  .h2hScore { font-size: 30px; }
   table.simple { width: 100%; border-collapse: collapse; font-size: 12px; }
-  table.simple th, table.simple td { text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(244,234,214,0.08); }
-  table.simple th { color: rgba(244,234,214,0.5); font-weight: 600; font-size: 10.5px; text-transform: uppercase; }
+  table.simple th, table.simple td { text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(244,234,214,0.08); white-space: nowrap; }
+  table.simple th { color: rgba(244,234,214,0.5); font-weight: 600; font-size: 10px; text-transform: uppercase; }
+  .tableWrap { overflow-x: auto; }
+  .streakBadge { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 99px; font-weight: 700; font-size: 10.5px; }
+  .streakBadge.win { background: rgba(63,191,114,0.18); color: var(--win); }
+  .streakBadge.loss { background: rgba(226,99,79,0.18); color: var(--loss); }
 </style>
 </head>
 <body>
@@ -99,15 +91,14 @@
 (function () {
   const money = (n) => "$" + Math.round(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
   const round1 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-  // Paleta categórica validada contra daltonismo, sobre el panel oscuro #123f30 de la app real.
   const CAT_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#3fae3f", "#9085e9", "#e66767", "#0fa0c2"];
+  const MONTHS_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 
   let ROSTER = [], GAMES = [];
   let period = "all"; // "all" | "year" | "month" | "range"
   let rangeFrom = "", rangeTo = "";
-  let evoMetric = "balance"; // "balance" | "winrate" | "avg"
-  let evoView = "chart"; // "chart" | "table"
-  let h2hA = "", h2hB = "";
+  let evoView = "table"; // "table" | "chart"  (tabla por default)
+  let evoMetric = "balance"; // solo aplica cuando evoView === "chart"
 
   async function loadKey(key, fallback) {
     const res = await fetch("/api/store?key=" + encodeURIComponent(key));
@@ -147,6 +138,19 @@
     return true;
   }
 
+  function periodLabel() {
+    if (period === "all") return null;
+    if (period === "month") { const d = new Date(); return MONTHS_ES[d.getMonth()] + " " + d.getFullYear(); }
+    if (period === "year") return String(new Date().getFullYear());
+    if (period === "range") {
+      if (rangeFrom && rangeTo) return rangeFrom + " a " + rangeTo;
+      if (rangeFrom) return "desde " + rangeFrom;
+      if (rangeTo) return "hasta " + rangeTo;
+      return "rango sin definir";
+    }
+    return null;
+  }
+
   function buildStats(roster, gamesAll) {
     const games = gamesAll.filter((g) => g.finished && inPeriod(g.date)).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
@@ -161,12 +165,13 @@
 
     let bestNight = null, worstNight = null, highestCashOut = null;
     const perGameVolume = [];
-    const h2h = {}; // "idA|idB" (idA<idB) -> { idA, idB, games, aWins, bWins, ties }
+    let totalCash = 0, totalVirtual = 0, totalPlayersSum = 0;
 
     games.forEach((g) => {
       const r = computeSettlement(g, roster);
       const cashSum = r.players.reduce((s, p) => s + p.cashAmount, 0);
       const virtualSum = r.players.reduce((s, p) => s + p.virtualAmount, 0);
+      totalCash += cashSum; totalVirtual += virtualSum; totalPlayersSum += g.playerIds.length;
       perGameVolume.push({ date: g.date, id: g.id, cash: cashSum, virtual: virtualSum, playerCount: g.playerIds.length });
 
       r.players.forEach((p) => {
@@ -181,9 +186,9 @@
         st.series.push({ date: g.date, balance: p.balance, cumulative: 0 });
         if (p.cashOut > st.maxCashOut) st.maxCashOut = p.cashOut;
 
-        if (!bestNight || p.balance > bestNight.balance) bestNight = { name: st.player.name, player: st.player, balance: p.balance, date: g.date };
-        if (!worstNight || p.balance < worstNight.balance) worstNight = { name: st.player.name, player: st.player, balance: p.balance, date: g.date };
-        if (!highestCashOut || p.cashOut > highestCashOut.amount) highestCashOut = { name: st.player.name, player: st.player, amount: p.cashOut, date: g.date };
+        if (!bestNight || p.balance > bestNight.balance) bestNight = { player: st.player, balance: p.balance, date: g.date };
+        if (!worstNight || p.balance < worstNight.balance) worstNight = { player: st.player, balance: p.balance, date: g.date };
+        if (!highestCashOut || p.cashOut > highestCashOut.amount) highestCashOut = { player: st.player, amount: p.cashOut, date: g.date };
 
         const outcome = p.balance > 0 ? "W" : p.balance < 0 ? "L" : "T";
         if (outcome === st.curType) st.curLen += 1;
@@ -191,22 +196,6 @@
         if (outcome === "W") st.bestWinStreak = Math.max(st.bestWinStreak, st.curLen);
         if (outcome === "L") st.bestLossStreak = Math.max(st.bestLossStreak, st.curLen);
       });
-
-      // cabeza a cabeza: todas las parejas que compartieron esta partida
-      for (let i = 0; i < r.players.length; i++) {
-        for (let j = i + 1; j < r.players.length; j++) {
-          const p1 = r.players[i], p2 = r.players[j];
-          const pair = p1.playerId < p2.playerId ? [p1, p2] : [p2, p1];
-          const a = pair[0], b = pair[1];
-          const key = a.playerId + "|" + b.playerId;
-          if (!h2h[key]) h2h[key] = { idA: a.playerId, idB: b.playerId, games: 0, aWins: 0, bWins: 0, ties: 0 };
-          const rec = h2h[key];
-          rec.games += 1;
-          if (a.balance > b.balance) rec.aWins += 1;
-          else if (b.balance > a.balance) rec.bWins += 1;
-          else rec.ties += 1;
-        }
-      }
     });
 
     Object.values(byPlayer).forEach((st) => {
@@ -214,26 +203,33 @@
       st.series.forEach((pt) => { acc = round1(acc + pt.balance); pt.cumulative = acc; });
       st.winRate = st.played ? Math.round((st.wins / st.played) * 100) : 0;
       st.avgBalance = st.played ? round1(st.totalBalance / st.played) : 0;
-      st.curStreakLabel = st.curType === "W" ? "🔥 " + st.curLen + "G seguidas" : st.curType === "L" ? "❄️ " + st.curLen + "P seguidas" : null;
+      st.curStreakLabel = st.curType === "W" ? "🔥 " + st.curLen + "G" : st.curType === "L" ? "❄️ " + st.curLen + "P" : "—";
     });
 
     const leaderboard = Object.values(byPlayer).filter((st) => st.played > 0).sort((a, b) => b.totalBalance - a.totalBalance);
     const totalGames = games.length;
-    const totalCashMoved = perGameVolume.reduce((s, v) => s + v.cash + v.virtual, 0);
+    const avgPot = totalGames ? round1((totalCash + totalVirtual) / totalGames) : 0;
+    const avgPlayers = totalGames ? round1(totalPlayersSum / totalGames) : 0;
+    const avgCash = totalGames ? round1(totalCash / totalGames) : 0;
+    const avgVirtual = totalGames ? round1(totalVirtual / totalGames) : 0;
     const totalRake = games.reduce((s, g) => s + (computeSettlement(g, roster).rake || 0), 0);
-    const avgPot = totalGames ? round1(totalCashMoved / totalGames) : 0;
-    const activePlayers = roster.filter((p) => p.active).length;
 
-    let bestStreak = null, worstStreak = null;
-    leaderboard.forEach((st) => {
-      if (st.bestWinStreak > 0 && (!bestStreak || st.bestWinStreak > bestStreak.len)) bestStreak = { player: st.player, len: st.bestWinStreak };
-      if (st.bestLossStreak > 0 && (!worstStreak || st.bestLossStreak > worstStreak.len)) worstStreak = { player: st.player, len: st.bestLossStreak };
-    });
+    // Récords con posibles empates ("Varios")
+    function topByField(field, minVal) {
+      minVal = minVal === undefined ? 1 : minVal;
+      const max = leaderboard.reduce((m, st) => Math.max(m, st[field]), 0);
+      if (max < minVal) return { max: 0, players: [] };
+      return { max, players: leaderboard.filter((st) => st[field] === max) };
+    }
+    const mostWins = topByField("wins");
+    const mostLosses = topByField("losses");
+    const bestStreak = topByField("bestWinStreak");
+    const worstStreak = topByField("bestLossStreak");
 
     return {
-      leaderboard, totalGames, totalCashMoved, totalRake, avgPot, activePlayers,
-      bestNight, worstNight, highestCashOut, bestStreak, worstStreak,
-      perGameVolume, h2h, sortedGames: games,
+      leaderboard, totalGames, totalCash, totalVirtual, avgCash, avgVirtual, totalRake, avgPot, avgPlayers,
+      bestNight, worstNight, highestCashOut, mostWins, mostLosses, bestStreak, worstStreak,
+      perGameVolume, sortedGames: games,
     };
   }
 
@@ -252,12 +248,12 @@
   }
 
   function avatarEl(player, size) {
-    size = size || 26;
+    size = size || 22;
     const av = player && player.avatar;
     const d = el("div", { class: "avatar" });
     d.style.width = size + "px"; d.style.height = size + "px";
     if (av && av.type === "icon" && av.value) {
-      d.style.background = "rgba(216,173,63,0.18)"; d.style.fontSize = Math.round(size * 0.55) + "px"; d.textContent = av.value;
+      d.style.background = "rgba(216,173,63,0.18)"; d.style.fontSize = Math.round(size * 0.6) + "px"; d.textContent = av.value;
     } else if (av && av.type === "photo" && av.value) {
       d.style.background = "transparent"; d.style.overflow = "hidden";
       const img = el("img"); img.src = av.value; img.style.width = "100%"; img.style.height = "100%"; img.style.objectFit = "cover";
@@ -272,6 +268,23 @@
     const children = [el("div", { class: "lbl" }, [label]), el("div", { class: "val mono " + (tone ? "tone-" + tone : "") }, [String(value)])];
     if (sub) children.push(el("div", { class: "sub" }, [sub]));
     return el("div", { class: "statCard" }, children);
+  }
+
+  // Tarjeta de récord: nombre del jugador (con avatar) en tamaño grande, el
+  // dato/monto en tamaño chico debajo — mismo patrón que las tarjetas de
+  // "mejor/peor balance" del resumen general.
+  function recordCard(label, nameNode, sub, tone) {
+    return el("div", { class: "statCard" }, [
+      el("div", { class: "lbl" }, [label]),
+      el("div", { class: "recordVal" }, [nameNode]),
+      el("div", { class: "sub " + (tone ? "tone-" + tone : "") }, [sub]),
+    ]);
+  }
+  function playerNameNode(player) {
+    return el("div", { style: "display:flex;align-items:center;gap:6px;min-width:0" }, [avatarEl(player, 20), el("span", { class: "nm" }, [player.name])]);
+  }
+  function variosNode() {
+    return el("span", { class: "nm", style: "color:rgba(244,234,214,0.65)" }, ["Varios"]);
   }
 
   function svgLine(points, W, H, padL, padR, padT, padB, seriesArr, colorOf, yFormat) {
@@ -323,93 +336,122 @@
   }
 
   /* ---------- Section builders ---------- */
+  function periodTag() {
+    const lbl = periodLabel();
+    return lbl ? el("div", { class: "periodTag" }, ["Período: " + lbl]) : null;
+  }
+
   function buildFilterPanel() {
     const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Período"])]);
     const row = el("div", { class: "filterRow" });
     ["all", "month", "year", "range"].forEach((p) => {
       const label = p === "all" ? "Todo" : p === "month" ? "Este mes" : p === "year" ? "Este año" : "Rango";
-      const b = el("button", { class: "btn" + (period === p ? " active" : ""), onclick: function () { period = p; renderAll(); } }, [label]);
-      row.appendChild(b);
+      row.appendChild(el("button", { class: "btn" + (period === p ? " active" : ""), onclick: function () { period = p; renderAll(); } }, [label]));
     });
     if (period === "range") {
-      const from = el("input", { type: "date", value: rangeFrom, onchange: function (e) { rangeFrom = e.target.value; renderAll(); } });
-      const to = el("input", { type: "date", value: rangeTo, onchange: function (e) { rangeTo = e.target.value; renderAll(); } });
       row.appendChild(el("span", { style: "font-size:11px;color:rgba(244,234,214,0.5)" }, ["desde"]));
-      row.appendChild(from);
+      row.appendChild(el("input", { type: "date", value: rangeFrom, onchange: function (e) { rangeFrom = e.target.value; renderAll(); } }));
       row.appendChild(el("span", { style: "font-size:11px;color:rgba(244,234,214,0.5)" }, ["hasta"]));
-      row.appendChild(to);
+      row.appendChild(el("input", { type: "date", value: rangeTo, onchange: function (e) { rangeTo = e.target.value; renderAll(); } }));
     }
     panel.appendChild(row);
     return panel;
   }
 
   function buildKpiPanel(stats) {
-    const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Resumen general"])]);
+    const header = [el("div", { class: "sectionTitle" }, ["Resumen general"])];
+    const tag = periodTag();
+    if (tag) header.push(tag);
+    const panel = el("div", { class: "panel" }, header);
     const grid = el("div", { class: "kpiGrid" });
     grid.appendChild(statCard("Partidas jugadas", stats.totalGames));
-    grid.appendChild(statCard("Jugadores activos", stats.activePlayers));
-    grid.appendChild(statCard("Cash + virtual movido", money(stats.totalCashMoved)));
+    grid.appendChild(statCard("Jugadores promedio/partida", stats.avgPlayers.toFixed(1)));
+    grid.appendChild(statCard("Cash + virtual movido", money(stats.totalCash + stats.totalVirtual)));
     grid.appendChild(statCard("Rake acumulado", money(stats.totalRake), null, "gold"));
     grid.appendChild(statCard("Bote promedio", money(stats.avgPot)));
-    if (stats.leaderboard[0]) grid.appendChild(statCard("Mejor balance histórico", stats.leaderboard[0].player.name, "+" + money(stats.leaderboard[0].totalBalance), "win"));
-    const worst = stats.leaderboard.length ? stats.leaderboard[stats.leaderboard.length - 1] : null;
-    if (worst && worst.totalBalance < 0) grid.appendChild(statCard("Peor balance histórico", worst.player.name, money(worst.totalBalance), "loss"));
-    if (stats.highestCashOut) grid.appendChild(statCard("Mayor cash out", money(stats.highestCashOut.amount), stats.highestCashOut.name));
+    grid.appendChild(statCard("Monto cash en el período", money(stats.totalCash), null, "cash"));
+    grid.appendChild(statCard("Promedio cash en el período", money(stats.avgCash), null, "cash"));
+    grid.appendChild(statCard("Monto virtual en el período", money(stats.totalVirtual), null, "virtual"));
+    grid.appendChild(statCard("Promedio virtual en el período", money(stats.avgVirtual), null, "virtual"));
     panel.appendChild(grid);
     return panel;
   }
 
-  function buildLeaderPanel(stats) {
-    const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Ranking histórico"])]);
-    if (stats.leaderboard.length === 0) { panel.appendChild(el("div", { class: "empty" }, ["Sin partidas en este período."])); return panel; }
-    const maxAbs = Math.max.apply(null, stats.leaderboard.map((x) => Math.abs(x.totalBalance)).concat([1]));
-    stats.leaderboard.forEach((st, i) => {
-      const win = st.totalBalance > 0, flat = st.totalBalance === 0;
-      const pct = maxAbs > 0 ? Math.min(100, Math.round((Math.abs(st.totalBalance) / maxAbs) * 100)) : 0;
-      const top = el("div", { class: "leaderTop" }, [
-        el("div", { class: "leaderName" }, [
-          el("span", { class: "mono", style: "font-size:12px;color:rgba(244,234,214,0.4);width:18px;flex-shrink:0;display:inline-block" }, ["#" + (i + 1)]),
-          avatarEl(st.player, 26),
-          el("span", { style: "color:#f4ead6;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, [st.player.name]),
-        ]),
-        el("span", { class: "mono", style: "font-weight:800;font-size:14.5px;flex-shrink:0;color:" + (win ? "var(--win)" : flat ? "rgba(244,234,214,0.6)" : "var(--loss)") }, [(st.totalBalance > 0 ? "+" : "") + money(st.totalBalance)]),
-      ]);
-      const track = el("div", { class: "barTrack" }, [(function () { const f = el("div", { class: "barFill" }); f.style.width = pct + "%"; f.style.background = win ? "var(--win)" : flat ? "rgba(244,234,214,0.3)" : "var(--loss)"; return f; })()]);
-      const metaItems = [
-        el("span", {}, [st.played + " partidas"]),
-        el("span", {}, [st.wins + "G / " + st.losses + "P" + (st.ties ? " / " + st.ties + "E" : "")]),
-        el("span", {}, [st.winRate + "% efectividad"]),
-        el("span", {}, ["prom. " + money(st.avgBalance) + "/partida"]),
-        el("span", {}, ["👑 anfitrión x" + st.hostCount]),
-      ];
-      if (st.curStreakLabel) metaItems.push(el("span", { class: "streakBadge " + (st.curType === "W" ? "win" : "loss") }, [st.curStreakLabel]));
-      const meta = el("div", { class: "metaRow" }, metaItems);
-      panel.appendChild(el("div", { class: "leaderRow" }, [top, track, meta]));
-    });
+  function buildRecordsPanel(stats) {
+    const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Récords históricos"])]);
+    const grid = el("div", { class: "kpiGrid" });
+    let any = false;
+
+    if (stats.bestNight) { any = true; grid.appendChild(recordCard("Mejor noche", playerNameNode(stats.bestNight.player), "+" + money(stats.bestNight.balance) + " · " + stats.bestNight.date, "win")); }
+    if (stats.worstNight) { any = true; grid.appendChild(recordCard("Peor noche", playerNameNode(stats.worstNight.player), money(stats.worstNight.balance) + " · " + stats.worstNight.date, "loss")); }
+    if (stats.highestCashOut) { any = true; grid.appendChild(recordCard("Mayor cash out", playerNameNode(stats.highestCashOut.player), money(stats.highestCashOut.amount) + " · " + stats.highestCashOut.date, "gold")); }
+
+    if (stats.mostWins.players.length === 1) { any = true; grid.appendChild(recordCard("Más balances positivos", playerNameNode(stats.mostWins.players[0].player), stats.mostWins.max + " partidas ganadas", "win")); }
+    else if (stats.mostWins.players.length > 1) { any = true; grid.appendChild(recordCard("Más balances positivos", variosNode(), "Varios con " + stats.mostWins.max, "win")); }
+
+    if (stats.mostLosses.players.length === 1) { any = true; grid.appendChild(recordCard("Más balances negativos", playerNameNode(stats.mostLosses.players[0].player), stats.mostLosses.max + " partidas perdidas", "loss")); }
+    else if (stats.mostLosses.players.length > 1) { any = true; grid.appendChild(recordCard("Más balances negativos", variosNode(), "Varios con " + stats.mostLosses.max, "loss")); }
+
+    if (stats.bestStreak.players.length === 1) { any = true; grid.appendChild(recordCard("Mejor racha", playerNameNode(stats.bestStreak.players[0].player), stats.bestStreak.max + " ganadas seguidas", "win")); }
+    else if (stats.bestStreak.players.length > 1) { any = true; grid.appendChild(recordCard("Mejor racha", variosNode(), "Varios con " + stats.bestStreak.max + "G", "win")); }
+
+    if (stats.worstStreak.players.length === 1) { any = true; grid.appendChild(recordCard("Peor racha", playerNameNode(stats.worstStreak.players[0].player), stats.worstStreak.max + " perdidas seguidas", "loss")); }
+    else if (stats.worstStreak.players.length > 1) { any = true; grid.appendChild(recordCard("Peor racha", variosNode(), "Varios con " + stats.worstStreak.max + "P", "loss")); }
+
+    if (!any) { panel.appendChild(el("div", { class: "empty" }, ["Sin datos suficientes en este período."])); return panel; }
+    panel.appendChild(grid);
     return panel;
   }
 
   function buildEvoPanel(stats) {
-    const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Evolución"])]);
+    const header = [el("div", { class: "sectionTitle" }, ["Evolución"])];
+    const tag = periodTag();
+    if (tag) header.push(tag);
+    const panel = el("div", { class: "panel" }, header);
+
     const controls = el("div", { class: "filterRow", style: "margin-bottom:12px" });
-    const metricSel = el("select", { onchange: function (e) { evoMetric = e.target.value; renderAll(); } }, [
-      el("option", { value: "balance", selected: evoMetric === "balance" ? "selected" : undefined }, ["Balance acumulado"]),
-      el("option", { value: "winrate", selected: evoMetric === "winrate" ? "selected" : undefined }, ["% de victorias"]),
-      el("option", { value: "avg", selected: evoMetric === "avg" ? "selected" : undefined }, ["Promedio por partida"]),
-    ]);
-    controls.appendChild(metricSel);
-    ["chart", "table"].forEach((v) => {
-      controls.appendChild(el("button", { class: "btn" + (evoView === v ? " active" : ""), onclick: function () { evoView = v; renderAll(); } }, [v === "chart" ? "Gráfico" : "Tabla"]));
+    ["table", "chart"].forEach((v) => {
+      controls.appendChild(el("button", { class: "btn" + (evoView === v ? " active" : ""), onclick: function () { evoView = v; renderAll(); } }, [v === "table" ? "Tabla" : "Gráfico"]));
     });
+    if (evoView === "chart") {
+      const metricSel = el("select", { onchange: function (e) { evoMetric = e.target.value; renderAll(); } }, [
+        el("option", { value: "balance", selected: evoMetric === "balance" ? "selected" : undefined }, ["Balance acumulado"]),
+        el("option", { value: "winrate", selected: evoMetric === "winrate" ? "selected" : undefined }, ["% de victorias"]),
+        el("option", { value: "avg", selected: evoMetric === "avg" ? "selected" : undefined }, ["Promedio por partida"]),
+      ]);
+      controls.appendChild(metricSel);
+    }
     panel.appendChild(controls);
 
     const top = stats.leaderboard.slice(0, 8);
-    if (stats.sortedGames.length < 2 || top.length === 0) {
-      panel.appendChild(el("div", { class: "empty" }, ["Se necesitan al menos 2 partidas en este período."]));
-      return panel;
-    }
+    if (stats.leaderboard.length === 0) { panel.appendChild(el("div", { class: "empty" }, ["Sin partidas en este período."])); return panel; }
 
-    if (evoView === "chart") {
+    if (evoView === "table") {
+      const table = el("table", { class: "simple" });
+      table.appendChild(el("thead", {}, [el("tr", {}, [
+        el("th", {}, ["Jugador"]), el("th", {}, ["Partidas"]), el("th", {}, ["G/P"]), el("th", {}, ["% Efect."]),
+        el("th", {}, ["Promedio"]), el("th", {}, ["Balance total"]), el("th", {}, ["Anfitrión"]), el("th", {}, ["Racha"]),
+      ])]));
+      const tbody = el("tbody");
+      stats.leaderboard.forEach(function (st) {
+        tbody.appendChild(el("tr", {}, [
+          el("td", {}, [(function () { const w = el("div", { style: "display:flex;align-items:center;gap:6px" }, [avatarEl(st.player, 18), el("span", {}, [st.player.name])]); return w; })()]),
+          el("td", { class: "mono" }, [String(st.played)]),
+          el("td", { class: "mono" }, [st.wins + "/" + st.losses]),
+          el("td", { class: "mono" }, [st.winRate + "%"]),
+          el("td", { class: "mono" }, [money(st.avgBalance)]),
+          el("td", { class: "mono", style: "color:" + (st.totalBalance >= 0 ? "var(--win)" : "var(--loss)") }, [(st.totalBalance > 0 ? "+" : "") + money(st.totalBalance)]),
+          el("td", { class: "mono" }, ["x" + st.hostCount]),
+          el("td", {}, [el("span", { class: "streakBadge " + (st.curType === "W" ? "win" : st.curType === "L" ? "loss" : "") }, [st.curStreakLabel])]),
+        ]));
+      });
+      table.appendChild(tbody);
+      panel.appendChild(el("div", { class: "tableWrap" }, [table]));
+    } else {
+      if (stats.sortedGames.length < 2) {
+        panel.appendChild(el("div", { class: "empty" }, ["Se necesitan al menos 2 partidas en este período para graficar."]));
+        return panel;
+      }
       let seriesArr, yFormat;
       if (evoMetric === "balance") {
         seriesArr = top.map(function (st) { return { name: st.player.name, values: st.series.map(function (pt) { return pt.cumulative; }) }; });
@@ -441,21 +483,6 @@
       });
       wrap.appendChild(legend);
       panel.appendChild(wrap);
-    } else {
-      const table = el("table", { class: "simple" });
-      table.appendChild(el("thead", {}, [el("tr", {}, [el("th", {}, ["Jugador"]), el("th", {}, ["Partidas"]), el("th", {}, ["% Victorias"]), el("th", {}, ["Promedio"]), el("th", {}, ["Balance total"])])]));
-      const tbody = el("tbody");
-      top.forEach(function (st) {
-        tbody.appendChild(el("tr", {}, [
-          el("td", {}, [st.player.name]),
-          el("td", { class: "mono" }, [String(st.played)]),
-          el("td", { class: "mono" }, [st.winRate + "%"]),
-          el("td", { class: "mono" }, [money(st.avgBalance)]),
-          el("td", { class: "mono", style: "color:" + (st.totalBalance >= 0 ? "var(--win)" : "var(--loss)") }, [(st.totalBalance > 0 ? "+" : "") + money(st.totalBalance)]),
-        ]));
-      });
-      table.appendChild(tbody);
-      panel.appendChild(table);
     }
     return panel;
   }
@@ -469,14 +496,17 @@
     const maxVol = Math.max.apply(null, stats.perGameVolume.map(function (v) { return v.cash + v.virtual; }).concat([1]));
     stats.perGameVolume.forEach(function (v) {
       const total = v.cash + v.virtual;
-      const cashPct = total > 0 ? (v.cash / maxVol) * 100 : 0;
-      const virtualPct = total > 0 ? (v.virtual / maxVol) * 100 : 0;
+      const cashPct = total > 0 ? Math.round((v.cash / total) * 100) : 0;
+      const virtualPct = total > 0 ? 100 - cashPct : 0;
+      const cashWidth = total > 0 ? (v.cash / maxVol) * 100 : 0;
+      const virtualWidth = total > 0 ? (v.virtual / maxVol) * 100 : 0;
+      const cashSeg = el("div", { class: "volSeg" }, [cashPct > 0 ? cashPct + "%" : ""]);
+      cashSeg.style.width = cashWidth + "%"; cashSeg.style.background = "var(--cash)";
+      const virtualSeg = el("div", { class: "volSeg" }, [virtualPct > 0 ? virtualPct + "%" : ""]);
+      virtualSeg.style.width = virtualWidth + "%"; virtualSeg.style.background = "var(--virtual)";
       const row = el("div", { class: "volRow" }, [
         el("div", { class: "volLabel mono" }, [v.date + " (" + v.playerCount + ")"]),
-        el("div", { class: "volBarWrap" }, [
-          (function () { const b = el("div"); b.style.width = cashPct + "%"; b.style.background = "var(--cash)"; return b; })(),
-          (function () { const b = el("div"); b.style.width = virtualPct + "%"; b.style.background = "var(--virtual)"; return b; })(),
-        ]),
+        el("div", { class: "volBarWrap" }, [cashSeg, virtualSeg]),
         el("div", { class: "volAmount mono" }, [money(total)]),
       ]);
       panel.appendChild(row);
@@ -486,76 +516,6 @@
       el("div", { class: "legendItem" }, [(function () { const d = el("span", { class: "dot" }); d.style.background = "var(--virtual)"; return d; })(), el("span", {}, ["Virtual"])]),
     ]);
     panel.appendChild(legend);
-    return panel;
-  }
-
-  function buildH2hPanel(stats) {
-    const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Cabeza a cabeza"])]);
-    const roster = stats.leaderboard.map(function (st) { return st.player; });
-    if (roster.length < 2) { panel.appendChild(el("div", { class: "empty" }, ["Hacen falta al menos 2 jugadores con partidas en este período."])); return panel; }
-    if (!h2hA || !roster.find(function (p) { return p.id === h2hA; })) h2hA = roster[0].id;
-    if (!h2hB || !roster.find(function (p) { return p.id === h2hB; }) || h2hB === h2hA) {
-      const other = roster.find(function (p) { return p.id !== h2hA; });
-      h2hB = other ? other.id : roster[0].id;
-    }
-
-    const pick = el("div", { class: "h2hPick" });
-    const selA = el("select", { onchange: function (e) { h2hA = e.target.value; if (h2hA === h2hB) h2hB = ""; renderAll(); } },
-      roster.map(function (p) { return el("option", { value: p.id, selected: p.id === h2hA ? "selected" : undefined }, [p.name]); }));
-    const selB = el("select", { onchange: function (e) { h2hB = e.target.value; renderAll(); } },
-      roster.filter(function (p) { return p.id !== h2hA; }).map(function (p) { return el("option", { value: p.id, selected: p.id === h2hB ? "selected" : undefined }, [p.name]); }));
-    pick.appendChild(selA);
-    pick.appendChild(el("span", { style: "color:rgba(244,234,214,0.4)" }, ["vs"]));
-    pick.appendChild(selB);
-    panel.appendChild(pick);
-
-    const key = [h2hA, h2hB].sort().join("|");
-    const rec = stats.h2h[key];
-    const playerA = roster.find(function (p) { return p.id === h2hA; }), playerB = roster.find(function (p) { return p.id === h2hB; });
-    if (!rec || !playerA || !playerB) {
-      panel.appendChild(el("div", { class: "empty" }, ["Estos jugadores no compartieron ninguna partida en este período."]));
-      return panel;
-    }
-    const aIsFirst = h2hA < h2hB;
-    const aWins = aIsFirst ? rec.aWins : rec.bWins;
-    const bWins = aIsFirst ? rec.bWins : rec.aWins;
-
-    const result = el("div", { class: "h2hResult" }, [
-      el("div", {}, [avatarEl(playerA, 40), el("div", { style: "margin-top:6px;font-size:13px;font-weight:700" }, [playerA.name])]),
-      el("div", { class: "h2hScore mono display" }, [aWins + " – " + bWins]),
-      el("div", {}, [avatarEl(playerB, 40), el("div", { style: "margin-top:6px;font-size:13px;font-weight:700" }, [playerB.name])]),
-    ]);
-    panel.appendChild(result);
-    panel.appendChild(el("div", { style: "text-align:center;margin-top:10px;font-size:11.5px;color:rgba(244,234,214,0.5)" }, [
-      rec.games + " partidas juntos" + (rec.ties ? " · " + rec.ties + " empates" : ""),
-    ]));
-    return panel;
-  }
-
-  function buildRecordsPanel(stats) {
-    const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Récords históricos"])]);
-    const grid = el("div", { class: "kpiGrid" });
-    function recordCard(label, playerWrap, amountStr, tone) {
-      if (!playerWrap) return null;
-      const p = playerWrap.player || playerWrap;
-      return el("div", { class: "recordCard" }, [
-        el("div", { class: "lbl" }, [label]),
-        el("div", { class: "main" }, [avatarEl(p, 24), el("div", {}, [
-          el("div", { style: "font-size:13px;font-weight:700" }, [p.name]),
-          el("div", { class: "amount mono tone-" + tone }, [amountStr]),
-        ])]),
-      ]);
-    }
-    const cards = [
-      stats.bestNight ? recordCard("Mejor noche", stats.bestNight, "+" + money(stats.bestNight.balance) + " · " + stats.bestNight.date, "win") : null,
-      stats.worstNight ? recordCard("Peor noche", stats.worstNight, money(stats.worstNight.balance) + " · " + stats.worstNight.date, "loss") : null,
-      stats.bestStreak ? recordCard("Mejor racha", { player: stats.bestStreak.player }, stats.bestStreak.len + " ganadas seguidas", "win") : null,
-      stats.worstStreak ? recordCard("Peor racha", { player: stats.worstStreak.player }, stats.worstStreak.len + " perdidas seguidas", "loss") : null,
-      stats.highestCashOut ? recordCard("Mayor cash out", stats.highestCashOut, money(stats.highestCashOut.amount) + " · " + stats.highestCashOut.date, "gold") : null,
-    ].filter(Boolean);
-    if (cards.length === 0) { panel.appendChild(el("div", { class: "empty" }, ["Sin datos suficientes en este período."])); return panel; }
-    cards.forEach(function (c) { grid.appendChild(c); });
-    panel.appendChild(grid);
     return panel;
   }
 
@@ -569,11 +529,9 @@
       return;
     }
     main.appendChild(buildKpiPanel(stats));
-    main.appendChild(buildLeaderPanel(stats));
+    main.appendChild(buildRecordsPanel(stats));
     main.appendChild(buildEvoPanel(stats));
     main.appendChild(buildVolumePanel(stats));
-    main.appendChild(buildH2hPanel(stats));
-    main.appendChild(buildRecordsPanel(stats));
   }
 
   async function load() {
