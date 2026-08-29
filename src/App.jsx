@@ -73,6 +73,14 @@ async function saveKey(key, value) {
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+// Versión de la app, formato 1.AA.BB.CCC:
+//   AA  = cantidad de rondas de cambios entregadas a src/App.jsx (esta app)
+//   BB  = cantidad de rondas de cambios entregadas a public/dashboard.html
+//   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
+//         otro archivo, p. ej. netlify/functions) — nunca baja.
+// Se actualiza a mano en cada ronda de cambios que Claude entrega.
+const APP_VERSION = "1.10.06.017";
+
 const money = (n) =>
   "$" + Math.round(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -517,11 +525,14 @@ function Header({ tab, setTab, hasActive }) {
     <header style={{ borderBottom: `1px solid ${C.panelLine}`, background: "rgba(0,0,0,0.15)", position: "sticky", top: 0, zIndex: 20, backdropFilter: "blur(6px)" }}>
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "14px 14px 0" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span style={{ ...displayFont, fontSize: 30, color: C.gold, lineHeight: 1 }}>BARILOCHE</span>
-            <span style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
-              registro de poker
-            </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+              <span style={{ ...displayFont, fontSize: 30, color: C.gold, lineHeight: 1 }}>BARILOCHE</span>
+              <span style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                registro de poker
+              </span>
+            </div>
+            <span style={{ ...monoFont, fontSize: 10, color: "rgba(244,234,214,0.35)" }}>v{APP_VERSION}</span>
           </div>
           {/* Página aparte para el organizador: no es un tab más, así los
               jugadores no se topan de casualidad con rachas o comparativas. */}
