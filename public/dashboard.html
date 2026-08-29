@@ -45,6 +45,11 @@
   .statCard .lbl { font-size: 10px; color: rgba(244,234,214,0.5); text-transform: uppercase; letter-spacing: 0.04em; }
   .statCard .val { font-size: 20px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .statCard .sub { font-size: 10.5px; color: rgba(244,234,214,0.5); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .statCard .sub.tone-win { color: var(--win); font-weight: 700; }
+  .statCard .sub.tone-loss { color: var(--loss); font-weight: 700; }
+  .statCard .sub.tone-gold { color: var(--gold-soft); font-weight: 700; }
+  .statCard .sub.tone-cash { color: var(--cash); font-weight: 700; }
+  .statCard .sub.tone-virtual { color: var(--virtual); font-weight: 700; }
   .tone-win { color: var(--win); } .tone-loss { color: var(--loss); } .tone-gold { color: var(--gold-soft); } .tone-cash { color: var(--cash); } .tone-virtual { color: var(--virtual); }
   .recordVal { font-size: 18px; margin-top: 2px; display: flex; align-items: center; gap: 6px; overflow: hidden; }
   .recordVal .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -102,7 +107,7 @@
   const MONTHS_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 
   let ROSTER = [], GAMES = [];
-  let period = "all"; // "all" | "year" | "month" | "range"
+  let period = "month"; // "all" | "year" | "month" | "range"
   let rangeFrom = "", rangeTo = "";
   let evoView = "table"; // "table" | "chart"  (tabla por default)
   let evoMetric = "balance"; // solo aplica cuando evoView === "chart"
@@ -235,7 +240,7 @@
     const avgPlayers = totalGames ? round1(totalPlayersSum / totalGames) : 0;
     const avgCash = totalGames ? round1(totalCash / totalGames) : 0;
     const avgVirtual = totalGames ? round1(totalVirtual / totalGames) : 0;
-    const avgDinnerPerPlayer = totalPlayersSum ? round1(totalDinner / totalPlayersSum) : 0;
+    const avgDinnerPerPlayer = avgPlayers ? round1(totalDinner / avgPlayers) : 0;
     const totalRake = games.reduce((s, g) => s + (computeSettlement(g, roster).rake || 0), 0);
 
     // Récords con posibles empates ("Varios")
@@ -371,7 +376,7 @@
   function buildFilterPanel() {
     const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Período"])]);
     const row = el("div", { class: "filterRow" });
-    ["all", "month", "year", "range"].forEach((p) => {
+    ["month", "year", "range", "all"].forEach((p) => {
       const label = p === "all" ? "Todo" : p === "month" ? "Este mes" : p === "year" ? "Este año" : "Rango";
       row.appendChild(el("button", { class: "btn" + (period === p ? " active" : ""), onclick: function () { period = p; renderAll(); } }, [label]));
     });
