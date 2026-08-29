@@ -529,14 +529,14 @@ function Header({ tab, setTab, hasActive }) {
             href="/dashboard.html"
             target="_blank"
             rel="noopener noreferrer"
-            title="Dashboard del organizador"
+            title="Ver estadísticas históricas"
             style={{
               display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
               border: `1px solid ${C.panelLine}`, borderRadius: 8, padding: "6px 10px",
               color: "rgba(244,234,214,0.65)", fontSize: 12, fontWeight: 600, ...bodyFont,
             }}
           >
-            <BarChart3 size={13} /> Organizador
+            <BarChart3 size={13} /> Estadísticas
           </a>
         </div>
         <div style={{ display: "flex", gap: 4, marginTop: 12 }}>
@@ -1471,6 +1471,12 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
       })
     )
   );
+  // Qué jugador tiene el campo de monto enfocado ahora mismo — el aviso de
+  // "pendiente por cuadrar" se muestra pegado a esa fila, para que se vea
+  // sin que el teclado del celular lo tape (a diferencia de una barra fija
+  // abajo de la pantalla, que el teclado sí bloquea).
+  const [focusedId, setFocusedId] = useState(null);
+  const moneySigned = (n) => (n < 0 ? "-" : n > 0 ? "+" : "") + "$" + Math.abs(Math.round(n)).toLocaleString("en-US");
 
   // Al volver a la pantalla anterior, guardamos lo ya tipeado en la propia
   // partida (aunque no esté completo ni cuadre todavía) para no perderlo si
@@ -1511,16 +1517,9 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   const canConfirm = ready && enteredCount > 0 && runningDiff === 0;
 
   const cuadra = runningDiff === 0;
-  const pendingLabel = enteredCount === 0
-    ? "Ingresa los montos de cierre"
-    : cuadra
-      ? "Cuadra ✓"
-      : runningDiff > 0
-        ? `Sobran ${money(runningDiff)}`
-        : `Faltan ${money(-runningDiff)}`;
 
   return (
-    <div style={{ display: "grid", gap: 16, paddingBottom: 74 }}>
+    <div style={{ display: "grid", gap: 16 }}>
       <Panel>
         <SectionTitle icon={Trophy}>Entrega de fichas</SectionTitle>
         <div style={{ color: "rgba(244,234,214,0.6)", fontSize: 12.5, marginBottom: 10 }}>
@@ -1553,6 +1552,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
           </div>
           {players.map((p) => {
             const bi = buyIns[p.id];
+            const focused = focusedId === p.id;
             return (
               <div key={p.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 9, padding: "9px 10px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -1564,17 +1564,36 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
                     <span style={{ color: "rgba(244,234,214,0.5)", fontSize: 13 }}>$</span>
                     <input type="number" min="0" style={{ ...inputStyle, width: 110, textAlign: "right" }} placeholder="0"
                       value={values[p.id]} onChange={(e) => setValues((c) => ({ ...c, [p.id]: e.target.value }))}
-                      onFocus={(e) => e.target.select()}
-                      onBlur={(e) => { if (e.target.value !== "") setValues((c) => ({ ...c, [p.id]: String(roundTo100(e.target.value)) })); }} step="100" />
+                      onFocus={(e) => { e.target.select(); setFocusedId(p.id); }}
+                      onBlur={(e) => {
+                        if (e.target.value !== "") setValues((c) => ({ ...c, [p.id]: String(roundTo100(e.target.value)) }));
+                        setFocusedId((cur) => (cur === p.id ? null : cur));
+                      }} step="100" />
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 7, marginLeft: 34 }}>
+                <div style={{ display: "flex", gap: 6, marginTop: 7, marginLeft: 34, alignItems: "center", flexWrap: "wrap" }}>
                   <Badge tone="cash">Cash {money(bi.cash)}</Badge>
                   <Badge tone="virtual">Virtual {money(bi.virtual)}</Badge>
                   <span style={{ ...monoFont, fontSize: 11, color: "rgba(244,234,214,0.5)", alignSelf: "center" }}>
                     Total buy-in {money(bi.total)}
                   </span>
                 </div>
+                {focused && (
+                  <div style={{
+                    marginTop: 8, marginLeft: 34, display: "inline-flex", alignItems: "center", gap: 6,
+                    background: cuadra ? "rgba(63,191,114,0.14)" : "rgba(226,99,79,0.14)",
+                    border: `1px solid ${cuadra ? C.win : C.loss}`, borderRadius: 8, padding: "5px 10px",
+                  }}>
+                    {cuadra ? (
+                      <span style={{ ...bodyFont, fontWeight: 700, fontSize: 13, color: C.win }}>Cuadrado</span>
+                    ) : (
+                      <>
+                        <span style={{ ...bodyFont, fontSize: 11.5, color: "rgba(244,234,214,0.7)" }}>Pendiente por cuadrar:</span>
+                        <span style={{ ...monoFont, fontWeight: 700, fontSize: 13, color: C.loss }}>{moneySigned(runningDiff)}</span>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1589,34 +1608,15 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
         )}
       </Panel>
 
-      {/* Barra fija: siempre visible mientras bajás por la lista de jugadores,
-          para ver de un vistazo cuánto falta o sobra sin tener que volver a
-          scrollear hasta arriba. */}
-      <div style={{
-        position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 40,
-        background: "rgba(8,32,25,0.97)", borderTop: `1px solid ${cuadra ? C.win : enteredCount === 0 ? C.panelLine : C.loss}`,
-        backdropFilter: "blur(6px)", padding: "10px 14px calc(10px + env(safe-area-inset-bottom, 0px))",
-      }}>
-        <div style={{ maxWidth: 980, margin: "0 auto", display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Pendiente para cuadrar</div>
-            <div style={{
-              ...displayFont, fontSize: 22, lineHeight: 1.1,
-              color: enteredCount === 0 ? C.goldSoft : cuadra ? C.win : C.loss,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}>
-              {pendingLabel}
-            </div>
-          </div>
-          <GhostBtn onClick={handleBack} style={{ flexShrink: 0 }}>Volver</GhostBtn>
-          <PrimaryBtn
-            disabled={!canConfirm}
-            onClick={() => onConfirm(Object.fromEntries(players.map((p) => [p.id, Number(values[p.id]) || 0])))}
-            icon={Trophy} style={{ flexShrink: 0, padding: "12px 16px" }}
-          >
-            Calcular
-          </PrimaryBtn>
-        </div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <GhostBtn onClick={handleBack}>Volver</GhostBtn>
+        <PrimaryBtn
+          disabled={!canConfirm}
+          onClick={() => onConfirm(Object.fromEntries(players.map((p) => [p.id, Number(values[p.id]) || 0])))}
+          icon={Trophy} style={{ flex: 1, padding: "12px 16px" }}
+        >
+          Calcular resultados
+        </PrimaryBtn>
       </div>
     </div>
   );
