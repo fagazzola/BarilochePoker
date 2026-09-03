@@ -11,8 +11,8 @@ o ajustá `MS_EXCEL_PATH` si lo ponés en una carpeta). Adentro, creá 4 hojas
 con estos nombres **exactos** y estos encabezados en la fila 1:
 
 **Hoja "Jugadores"**
-| id | nombre | activo | avatarTipo | avatarValor | fechaAlta |
-|----|--------|--------|------------|-------------|-----------|
+| id | nombre | activo | avatarTipo | avatarValor | fechaAlta | pin |
+|----|--------|--------|------------|-------------|-----------|-----|
 
 **Hoja "Partidas"**
 | id | fecha | loteValue | rake | hostId | playerIds | finished | detalleJson |
