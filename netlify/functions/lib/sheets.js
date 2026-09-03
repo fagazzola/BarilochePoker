@@ -4,7 +4,7 @@ const { readRange, writeRange } = require("./graph");
 // de columnas de datos. Los encabezados (fila 1) los escribís vos a mano una
 // sola vez al crear el archivo — ver README.md para el texto exacto.
 const SHEETS = {
-  roster: { name: "Jugadores", cols: 6 },
+  roster: { name: "Jugadores", cols: 7 },
   games: { name: "Partidas", cols: 8 },
   resultados: { name: "Resultados", cols: 12 },
   meta: { name: "Meta", cols: 2 },
