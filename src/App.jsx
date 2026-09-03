@@ -79,12 +79,12 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "1.12.06.019";
+const APP_VERSION = "1.13.06.020";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
 // No es un login "de verdad" (no hay servidor de autenticación), es un PIN
-// simple para que la app sepa "quién sos vos" y así poder distinguir al host
+// simple para que la app sepa quién eres tú y así poder distinguir al host
 // del resto durante una partida.
 const MY_ID_STORAGE_KEY = "bariloche_myPlayerId";
 let _showIdentityModal = null;
@@ -126,11 +126,11 @@ function IdentityModal() {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => finish(null)}>
       <div style={{ background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14, padding: 20, width: "min(360px, 100%)", boxShadow: "0 12px 32px rgba(0,0,0,0.4)" }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ ...displayFont, fontSize: 19, color: C.card, marginBottom: 4 }}>¿Quién sos?</div>
+        <div style={{ ...displayFont, fontSize: 19, color: C.card, marginBottom: 4 }}>¿QUIÉN ERES?</div>
         {!picked ? (
           <>
             <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 12 }}>
-              Elegí tu nombre para identificarte en este celular. Así la app sabe cuándo sos vos el host de la partida.
+              Elige tu nombre para identificarte en este celular. Así la app sabe cuando eres tú el host de la partida.
             </div>
             <div style={{ display: "grid", gap: 6, maxHeight: 320, overflowY: "auto" }}>
               {players.map((p) => (
@@ -154,17 +154,17 @@ function IdentityModal() {
             </div>
             {picked.pin ? (
               <>
-                <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>Ingresá tu PIN:</div>
+                <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>Ingresa tu PIN:</div>
                 <input
-                  type="password" inputMode="numeric" autoFocus style={inputStyle}
-                  value={pin} onChange={(e) => { setPin(e.target.value); setErr(""); }}
+                  type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle}
+                  value={pin} onChange={(e) => { setPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
                   onKeyDown={(e) => { if (e.key === "Enter") submitPin(); if (e.key === "Escape") finish(null); }}
                 />
                 {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
               </>
             ) : (
               <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 4 }}>
-                Este jugador todavía no tiene PIN configurado. Podés identificarte igual, pero para protegerte de verdad, configurá un PIN desde la pestaña Jugadores.
+                Este jugador todavía no tiene PIN configurado. Puedes identificarte igual, pero para protegerte de verdad, configura un PIN desde la pestaña Jugadores.
               </div>
             )}
             <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
@@ -486,7 +486,7 @@ export default function PokerLedger() {
   const [tab, setTab] = useState("partida");
   const [adminPassword, setAdminPassword] = useState("");
 
-  // Identidad del dispositivo: quién sos vos, persistida en localStorage.
+  // Identidad del dispositivo: quién eres tú, persistida en localStorage.
   const [myPlayerId, setMyPlayerIdState] = useState(() => {
     try { return localStorage.getItem(MY_ID_STORAGE_KEY) || ""; } catch { return ""; }
   });
@@ -498,8 +498,18 @@ export default function PokerLedger() {
     const id = await requestIdentity(roster);
     if (id) setMyPlayerId(id);
   };
-  // La primera vez que abrís la app en este celular (sin identidad guardada
-  // todavía), se ofrece identificarse — pero solo una vez, no en cada render.
+  const logout = async () => {
+    const ok = await requestConfirm({
+      title: "¿Cerrar tu sesión en este celular?",
+      message: "Vas a dejar de estar identificado en este dispositivo. La próxima vez que quieras hacer cambios durante una partida, vas a tener que volver a identificarte con tu PIN.",
+      confirmLabel: "Sí, cerrar sesión",
+      cancelLabel: "Cancelar",
+      danger: false,
+    });
+    if (ok) setMyPlayerId("");
+  };
+  // La primera vez que abres la app en este celular (sin identidad guardada
+  // todavía), se ofrece identificarte — pero solo una vez, no en cada render.
   const autoPromptedRef = useRef(false);
   useEffect(() => {
     if (!loading && !myPlayerId && roster.length > 0 && !autoPromptedRef.current) {
@@ -592,7 +602,7 @@ export default function PokerLedger() {
         .scrollbar-thin::-webkit-scrollbar-thumb { background: ${C.panelLine}; border-radius: 3px; }
       `}</style>
 
-      <Header tab={tab} setTab={setTab} hasActive={!!activeGame && !activeGame.finished} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} />
+      <Header tab={tab} setTab={setTab} hasActive={!!activeGame && !activeGame.finished} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} onLogout={logout} />
 
       <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 14px 60px" }}>
         {!!activeGame && !activeGame.finished && (
@@ -643,40 +653,41 @@ function Header({ tab, setTab, hasActive, me, onIdentify }) {
         { id: "jugadores", label: "Jugadores", icon: Users },
         { id: "historial", label: "Historial", icon: History },
       ];
+  const handleIdentityClick = () => { if (me) onLogout(); else onIdentify(); };
   return (
     <header style={{ borderBottom: `1px solid ${C.panelLine}`, background: "rgba(0,0,0,0.15)", position: "sticky", top: 0, zIndex: 20, backdropFilter: "blur(6px)" }}>
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "14px 14px 0" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
               <span style={{ ...displayFont, fontSize: 30, color: C.gold, lineHeight: 1 }}>BARILOCHE</span>
               <span style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
                 registro de poker
               </span>
+              <button
+                onClick={handleIdentityClick} title={me ? "Cerrar tu sesión en este celular" : "Identifícate para poder ser host"}
+                style={{
+                  display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
+                  background: me ? "rgba(0,0,0,0.2)" : "rgba(216,173,63,0.16)",
+                  border: `1px solid ${me ? C.panelLine : C.gold}`, borderRadius: 99, padding: "3px 9px 3px 5px",
+                  color: me ? "rgba(244,234,214,0.75)" : C.goldSoft, fontSize: 11, fontWeight: 600, ...bodyFont,
+                }}
+              >
+                {me ? (
+                  <>
+                    <Avatar player={me} size={15} />
+                    <span>{me.name}</span>
+                  </>
+                ) : (
+                  <>👤 ¿Quién eres?</>
+                )}
+              </button>
             </div>
             <span style={{ ...monoFont, fontSize: 10, color: "rgba(244,234,214,0.35)" }}>v{APP_VERSION}</span>
           </div>
           {/* Página aparte para el organizador: no es un tab más, así los
               jugadores no se topan de casualidad con rachas o comparativas. */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <button
-              onClick={onIdentify} title={me ? "Cambiar quién sos" : "Identificate para poder ser host"}
-              style={{
-                display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
-                background: me ? "rgba(0,0,0,0.2)" : "rgba(216,173,63,0.16)",
-                border: `1px solid ${me ? C.panelLine : C.gold}`, borderRadius: 8, padding: "5px 9px",
-                color: me ? "rgba(244,234,214,0.75)" : C.goldSoft, fontSize: 12, fontWeight: 600, ...bodyFont,
-              }}
-            >
-              {me ? (
-                <>
-                  <Avatar player={me} size={17} />
-                  <span>{me.name}</span>
-                </>
-              ) : (
-                <>👤 ¿Quién sos?</>
-              )}
-            </button>
             <a
               href="/dashboard.html"
               target="_blank"
@@ -833,7 +844,7 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword, myPlayerId 
   const savePin = async () => {
     if (!sel) return;
     const trimmed = editPin.trim();
-    if (trimmed && !/^\d{4,6}$/.test(trimmed)) { setPinMsg("El PIN debe ser numérico, de 4 a 6 dígitos."); return; }
+    if (trimmed && !/^\d{4}$/.test(trimmed)) { setPinMsg("El PIN debe ser numérico, de exactamente 4 dígitos."); return; }
     const isSelf = !!myPlayerId && myPlayerId === sel.id;
     if (!isSelf) {
       if (!(await requestAdminPassword(adminPassword, `cambiar el PIN de ${sel.name}`))) return;
@@ -899,11 +910,11 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword, myPlayerId 
               <GhostBtn onClick={saveEdit} icon={Check} color={C.win}>Guardar</GhostBtn>
             </div>
             <AvatarPicker avatar={editAvatar} setAvatar={setEditAvatar} previewName={editName} />
-            <Field label="PIN (4 a 6 dígitos, para identificarse en un celular)">
+            <Field label="PIN (4 dígitos, para identificarte en un celular)">
               <div style={{ display: "flex", gap: 8 }}>
                 <input
-                  type="password" inputMode="numeric" style={inputStyle} placeholder="Sin PIN configurado" value={editPin}
-                  onChange={(e) => setEditPin(e.target.value.replace(/[^\d]/g, ""))}
+                  type="password" inputMode="numeric" maxLength={4} style={inputStyle} placeholder="Sin PIN configurado" value={editPin}
+                  onChange={(e) => setEditPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4))}
                 />
                 <GhostBtn onClick={savePin} icon={Check} color={C.gold}>Guardar PIN</GhostBtn>
               </div>
@@ -1257,7 +1268,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify 
           <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.85)", lineHeight: 1.5 }}>
             Solo <strong>{hostPlayer ? hostPlayer.name : "el host"}</strong> puede modificar esta partida. Estás viendo en modo lectura.
             {hostPlayer && (
-              <> Si sos vos, tocá <button onClick={onIdentify} style={{ background: "none", border: "none", padding: 0, color: C.goldSoft, fontWeight: 700, cursor: "pointer", textDecoration: "underline", ...bodyFont, fontSize: 12.5 }}>"¿Quién sos?" arriba a la derecha</button> para identificarte.</>
+              <> Si eres tú, toca <button onClick={onIdentify} style={{ background: "none", border: "none", padding: 0, color: C.goldSoft, fontWeight: 700, cursor: "pointer", textDecoration: "underline", ...bodyFont, fontSize: 12.5 }}>"¿Quién eres?" arriba a la derecha</button> para identificarte.</>
             )}
           </div>
         </div>
