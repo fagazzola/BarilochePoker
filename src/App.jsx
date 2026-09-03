@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "1.13.06.020";
+const APP_VERSION = "1.14.06.021";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -642,7 +642,7 @@ export default function PokerLedger() {
 /* ----------------------------------------------------------------------
    HEADER / TABS
 ---------------------------------------------------------------------- */
-function Header({ tab, setTab, hasActive, me, onIdentify }) {
+function Header({ tab, setTab, hasActive, me, onIdentify, onLogout }) {
   const tabs = hasActive
     ? [
         { id: "partida", label: "Estatus jugada", icon: Activity },
@@ -658,36 +658,36 @@ function Header({ tab, setTab, hasActive, me, onIdentify }) {
     <header style={{ borderBottom: `1px solid ${C.panelLine}`, background: "rgba(0,0,0,0.15)", position: "sticky", top: 0, zIndex: 20, backdropFilter: "blur(6px)" }}>
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "14px 14px 0" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
               <span style={{ ...displayFont, fontSize: 30, color: C.gold, lineHeight: 1 }}>BARILOCHE</span>
               <span style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
                 registro de poker
               </span>
-              <button
-                onClick={handleIdentityClick} title={me ? "Cerrar tu sesión en este celular" : "Identifícate para poder ser host"}
-                style={{
-                  display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
-                  background: me ? "rgba(0,0,0,0.2)" : "rgba(216,173,63,0.16)",
-                  border: `1px solid ${me ? C.panelLine : C.gold}`, borderRadius: 99, padding: "3px 9px 3px 5px",
-                  color: me ? "rgba(244,234,214,0.75)" : C.goldSoft, fontSize: 11, fontWeight: 600, ...bodyFont,
-                }}
-              >
-                {me ? (
-                  <>
-                    <Avatar player={me} size={15} />
-                    <span>{me.name}</span>
-                  </>
-                ) : (
-                  <>👤 ¿Quién eres?</>
-                )}
-              </button>
             </div>
             <span style={{ ...monoFont, fontSize: 10, color: "rgba(244,234,214,0.35)" }}>v{APP_VERSION}</span>
           </div>
           {/* Página aparte para el organizador: no es un tab más, así los
               jugadores no se topan de casualidad con rachas o comparativas. */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <button
+              onClick={handleIdentityClick} title={me ? "Cerrar tu sesión en este celular" : "Identifícate para poder ser host"}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+                background: me ? "rgba(0,0,0,0.2)" : "rgba(216,173,63,0.16)",
+                border: `1px solid ${me ? C.panelLine : C.gold}`, borderRadius: 8, padding: "5px 9px",
+                color: me ? "rgba(244,234,214,0.75)" : C.goldSoft, fontSize: 12, fontWeight: 600, ...bodyFont,
+              }}
+            >
+              {me ? (
+                <>
+                  <Avatar player={me} size={17} />
+                  <span>{me.name}</span>
+                </>
+              ) : (
+                <>👤 ¿Quién eres?</>
+              )}
+            </button>
             <a
               href="/dashboard.html"
               target="_blank"
