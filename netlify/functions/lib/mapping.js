@@ -37,6 +37,7 @@ function rosterToRows(roster) {
       avatarType,
       avatarValue,
       p.createdAt ? new Date(p.createdAt).toISOString() : "",
+      p.pin || "",
     ];
   });
 }
@@ -48,6 +49,7 @@ function rowsToRoster(rows) {
       active: String(r[2] || "").toUpperCase() === "SI",
       avatar: r[3] ? { type: String(r[3]), value: String(r[4] || "") } : null,
       createdAt: r[5] ? (Date.parse(r[5]) || Date.now()) : Date.now(),
+      pin: String(r[6] || ""),
     }))
     .filter((p) => p.id && p.name);
 }
