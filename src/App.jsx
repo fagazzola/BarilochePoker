@@ -79,7 +79,104 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "1.11.06.018";
+const APP_VERSION = "1.12.06.019";
+
+// Identidad del jugador en este dispositivo: se guarda en localStorage, así
+// que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
+// No es un login "de verdad" (no hay servidor de autenticación), es un PIN
+// simple para que la app sepa "quién sos vos" y así poder distinguir al host
+// del resto durante una partida.
+const MY_ID_STORAGE_KEY = "bariloche_myPlayerId";
+let _showIdentityModal = null;
+function requestIdentity(roster) {
+  return new Promise((resolve) => {
+    if (!_showIdentityModal) { resolve(null); return; }
+    _showIdentityModal(roster, resolve);
+  });
+}
+function IdentityModal() {
+  const [pending, setPending] = useState(null); // { roster, onSubmit }
+  const [pickedId, setPickedId] = useState("");
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    _showIdentityModal = (roster, onSubmit) => {
+      setPickedId(""); setPin(""); setErr("");
+      setPending({ roster, onSubmit });
+    };
+    return () => { _showIdentityModal = null; };
+  }, []);
+
+  if (!pending) return null;
+  const players = pending.roster.filter((p) => p.active).sort((a, b) => a.name.localeCompare(b.name));
+  const picked = players.find((p) => p.id === pickedId);
+
+  const finish = (id) => {
+    const cb = pending.onSubmit;
+    setPending(null);
+    cb(id);
+  };
+  const submitPin = () => {
+    if (!picked) return;
+    if (picked.pin && picked.pin !== pin) { setErr("PIN incorrecto."); return; }
+    finish(picked.id);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => finish(null)}>
+      <div style={{ background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14, padding: 20, width: "min(360px, 100%)", boxShadow: "0 12px 32px rgba(0,0,0,0.4)" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ ...displayFont, fontSize: 19, color: C.card, marginBottom: 4 }}>¿Quién sos?</div>
+        {!picked ? (
+          <>
+            <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 12 }}>
+              Elegí tu nombre para identificarte en este celular. Así la app sabe cuándo sos vos el host de la partida.
+            </div>
+            <div style={{ display: "grid", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+              {players.map((p) => (
+                <button key={p.id} onClick={() => setPickedId(p.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "rgba(0,0,0,0.18)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "9px 10px", cursor: "pointer", ...bodyFont }}>
+                  <Avatar player={p} size={26} />
+                  <span style={{ color: C.card, fontSize: 14 }}>{p.name}</span>
+                  {p.pin && <span title="Tiene PIN configurado" style={{ marginLeft: "auto", fontSize: 12, color: "rgba(244,234,214,0.35)" }}>🔒</span>}
+                </button>
+              ))}
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <GhostBtn onClick={() => finish(null)}>Cancelar</GhostBtn>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Avatar player={picked} size={32} />
+              <span style={{ color: C.card, fontSize: 16, fontWeight: 700 }}>{picked.name}</span>
+            </div>
+            {picked.pin ? (
+              <>
+                <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>Ingresá tu PIN:</div>
+                <input
+                  type="password" inputMode="numeric" autoFocus style={inputStyle}
+                  value={pin} onChange={(e) => { setPin(e.target.value); setErr(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitPin(); if (e.key === "Escape") finish(null); }}
+                />
+                {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
+              </>
+            ) : (
+              <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 4 }}>
+                Este jugador todavía no tiene PIN configurado. Podés identificarte igual, pero para protegerte de verdad, configurá un PIN desde la pestaña Jugadores.
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+              <GhostBtn onClick={() => { setPickedId(""); setPin(""); setErr(""); }}>Atrás</GhostBtn>
+              <PrimaryBtn onClick={submitPin}>Entrar</PrimaryBtn>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const money = (n) =>
   "$" + Math.round(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -389,6 +486,28 @@ export default function PokerLedger() {
   const [tab, setTab] = useState("partida");
   const [adminPassword, setAdminPassword] = useState("");
 
+  // Identidad del dispositivo: quién sos vos, persistida en localStorage.
+  const [myPlayerId, setMyPlayerIdState] = useState(() => {
+    try { return localStorage.getItem(MY_ID_STORAGE_KEY) || ""; } catch { return ""; }
+  });
+  const setMyPlayerId = (id) => {
+    setMyPlayerIdState(id || "");
+    try { if (id) localStorage.setItem(MY_ID_STORAGE_KEY, id); else localStorage.removeItem(MY_ID_STORAGE_KEY); } catch {}
+  };
+  const identify = async () => {
+    const id = await requestIdentity(roster);
+    if (id) setMyPlayerId(id);
+  };
+  // La primera vez que abrís la app en este celular (sin identidad guardada
+  // todavía), se ofrece identificarse — pero solo una vez, no en cada render.
+  const autoPromptedRef = useRef(false);
+  useEffect(() => {
+    if (!loading && !myPlayerId && roster.length > 0 && !autoPromptedRef.current) {
+      autoPromptedRef.current = true;
+      identify();
+    }
+  }, [loading, roster.length]); // eslint-disable-line
+
   // Si hay una partida en curso, la pestaña "Jugadores" queda oculta (no se debe
   // editar el roster a mitad de una partida); si alguien estaba justo ahí cuando
   // arrancó una partida, lo mandamos de vuelta a la pestaña de la partida.
@@ -473,7 +592,7 @@ export default function PokerLedger() {
         .scrollbar-thin::-webkit-scrollbar-thumb { background: ${C.panelLine}; border-radius: 3px; }
       `}</style>
 
-      <Header tab={tab} setTab={setTab} hasActive={!!activeGame && !activeGame.finished} />
+      <Header tab={tab} setTab={setTab} hasActive={!!activeGame && !activeGame.finished} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} />
 
       <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 14px 60px" }}>
         {!!activeGame && !activeGame.finished && (
@@ -487,7 +606,7 @@ export default function PokerLedger() {
           </div>
         )}
         {tab === "jugadores" && !(!!activeGame && !activeGame.finished) && (
-          <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} />
+          <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} myPlayerId={myPlayerId} />
         )}
         {tab === "partida" && (
           <GameTab
@@ -496,6 +615,8 @@ export default function PokerLedger() {
             setActiveGame={setActiveGame}
             games={games}
             setGames={setGames}
+            myPlayerId={myPlayerId}
+            onIdentify={identify}
           />
         )}
         {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} />}
@@ -503,6 +624,7 @@ export default function PokerLedger() {
 
       <AdminPasswordModal />
       <ConfirmModal />
+      <IdentityModal />
     </div>
   );
 }
@@ -510,7 +632,7 @@ export default function PokerLedger() {
 /* ----------------------------------------------------------------------
    HEADER / TABS
 ---------------------------------------------------------------------- */
-function Header({ tab, setTab, hasActive }) {
+function Header({ tab, setTab, hasActive, me, onIdentify }) {
   const tabs = hasActive
     ? [
         { id: "partida", label: "Estatus jugada", icon: Activity },
@@ -536,19 +658,39 @@ function Header({ tab, setTab, hasActive }) {
           </div>
           {/* Página aparte para el organizador: no es un tab más, así los
               jugadores no se topan de casualidad con rachas o comparativas. */}
-          <a
-            href="/dashboard.html"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Ver estadísticas históricas"
-            style={{
-              display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
-              border: `1px solid ${C.panelLine}`, borderRadius: 8, padding: "6px 10px",
-              color: "rgba(244,234,214,0.65)", fontSize: 12, fontWeight: 600, ...bodyFont,
-            }}
-          >
-            <BarChart3 size={13} /> Estadísticas
-          </a>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <button
+              onClick={onIdentify} title={me ? "Cambiar quién sos" : "Identificate para poder ser host"}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+                background: me ? "rgba(0,0,0,0.2)" : "rgba(216,173,63,0.16)",
+                border: `1px solid ${me ? C.panelLine : C.gold}`, borderRadius: 8, padding: "5px 9px",
+                color: me ? "rgba(244,234,214,0.75)" : C.goldSoft, fontSize: 12, fontWeight: 600, ...bodyFont,
+              }}
+            >
+              {me ? (
+                <>
+                  <Avatar player={me} size={17} />
+                  <span>{me.name}</span>
+                </>
+              ) : (
+                <>👤 ¿Quién sos?</>
+              )}
+            </button>
+            <a
+              href="/dashboard.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Ver estadísticas históricas"
+              style={{
+                display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
+                border: `1px solid ${C.panelLine}`, borderRadius: 8, padding: "6px 10px",
+                color: "rgba(244,234,214,0.65)", fontSize: 12, fontWeight: 600, ...bodyFont,
+              }}
+            >
+              <BarChart3 size={13} /> Estadísticas
+            </a>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 4, marginTop: 12 }}>
           {tabs.map((t) => {
@@ -658,16 +800,21 @@ function Badge({ children, tone }) {
 /* ----------------------------------------------------------------------
    PLAYERS TAB
 ---------------------------------------------------------------------- */
-function PlayersTab({ roster, setRoster, playerStats, adminPassword }) {
+function PlayersTab({ roster, setRoster, playerStats, adminPassword, myPlayerId }) {
   const [selId, setSelId] = useState("");
   const [newName, setNewName] = useState("");
   const [newAvatar, setNewAvatar] = useState(null);
   const [editName, setEditName] = useState("");
   const [editAvatar, setEditAvatar] = useState(null);
+  const [editPin, setEditPin] = useState("");
+  const [pinMsg, setPinMsg] = useState("");
   const [savedMsg, setSavedMsg] = useState(false);
 
   const sel = roster.find((p) => p.id === selId) || null;
-  useEffect(() => { setEditName(sel ? sel.name : ""); setEditAvatar(sel ? sel.avatar || null : null); }, [selId]); // eslint-disable-line
+  useEffect(() => {
+    setEditName(sel ? sel.name : ""); setEditAvatar(sel ? sel.avatar || null : null);
+    setEditPin(sel ? sel.pin || "" : ""); setPinMsg("");
+  }, [selId]); // eslint-disable-line
 
   const addPlayer = () => {
     const name = newName.trim();
@@ -682,6 +829,18 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword }) {
     setSelId(""); // limpia el combo — vuelve a "— elegir del combo —"
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2500);
+  };
+  const savePin = async () => {
+    if (!sel) return;
+    const trimmed = editPin.trim();
+    if (trimmed && !/^\d{4,6}$/.test(trimmed)) { setPinMsg("El PIN debe ser numérico, de 4 a 6 dígitos."); return; }
+    const isSelf = !!myPlayerId && myPlayerId === sel.id;
+    if (!isSelf) {
+      if (!(await requestAdminPassword(adminPassword, `cambiar el PIN de ${sel.name}`))) return;
+    }
+    setRoster((r) => r.map((p) => (p.id === sel.id ? { ...p, pin: trimmed } : p)));
+    setPinMsg(trimmed ? "PIN guardado." : "PIN eliminado — este jugador queda sin protección al identificarse.");
+    setTimeout(() => setPinMsg(""), 3000);
   };
   const toggleActive = async () => {
     if (!sel) return;
@@ -740,6 +899,16 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword }) {
               <GhostBtn onClick={saveEdit} icon={Check} color={C.win}>Guardar</GhostBtn>
             </div>
             <AvatarPicker avatar={editAvatar} setAvatar={setEditAvatar} previewName={editName} />
+            <Field label="PIN (4 a 6 dígitos, para identificarse en un celular)">
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="password" inputMode="numeric" style={inputStyle} placeholder="Sin PIN configurado" value={editPin}
+                  onChange={(e) => setEditPin(e.target.value.replace(/[^\d]/g, ""))}
+                />
+                <GhostBtn onClick={savePin} icon={Check} color={C.gold}>Guardar PIN</GhostBtn>
+              </div>
+              {pinMsg && <div style={{ fontSize: 11.5, color: pinMsg.includes("eliminado") ? C.goldSoft : C.win, marginTop: 5 }}>{pinMsg}</div>}
+            </Field>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <GhostBtn onClick={toggleActive} icon={sel.active ? UserX : UserCheck} color={sel.active ? C.loss : C.win}>
                 {sel.active ? "Dar de baja" : "Reactivar"}
@@ -862,10 +1031,11 @@ function Empty({ children }) {
 /* ----------------------------------------------------------------------
    GAME TAB
 ---------------------------------------------------------------------- */
-function GameTab({ roster, activeGame, setActiveGame, games, setGames }) {
+function GameTab({ roster, activeGame, setActiveGame, games, setGames, myPlayerId, onIdentify }) {
   if (!activeGame) return <NewGameSetup roster={roster} setActiveGame={setActiveGame} />;
   if (activeGame.finished) return <FinalizedGame game={activeGame} roster={roster} onClose={() => setActiveGame(null)} setActiveGame={setActiveGame} setGames={setGames} />;
-  return <ActiveGameScreen game={activeGame} setGame={setActiveGame} roster={roster} setGames={setGames} />;
+  const isHost = !!myPlayerId && myPlayerId === activeGame.hostId;
+  return <ActiveGameScreen game={activeGame} setGame={setActiveGame} roster={roster} setGames={setGames} isHost={isHost} onIdentify={onIdentify} />;
 }
 
 function NewGameSetup({ roster, setActiveGame }) {
@@ -1062,12 +1232,39 @@ function GameStatusBlock({ game, players, totals }) {
   );
 }
 
-function ActiveGameScreen({ game, setGame, roster, setGames }) {
+function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify }) {
   const [finalizing, setFinalizing] = useState(false);
   const [view, setView] = useState(() => (game.dinnerSetupDone ? "purchase" : "dinner")); // "config" | "purchase" | "dinner"
 
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
   const availableToAdd = roster.filter((p) => p.active && !game.playerIds.includes(p.id));
+
+  const totals = useMemo(() => {
+    let cash = 0, virtual = 0;
+    game.purchases.forEach((p) => { if (p.type === "cash") cash += p.amount; else virtual += p.amount; });
+    return { cash, virtual };
+  }, [game.purchases]);
+
+  // Solo el host de la partida puede modificar algo (comprar lotes, tocar la
+  // cena, cambiar configuración, cerrarla). Cualquier otro dispositivo ve
+  // exactamente el mismo bloque de estatus, pero de solo lectura.
+  if (!isHost) {
+    const hostPlayer = roster.find((r) => r.id === game.hostId);
+    return (
+      <div style={{ display: "grid", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 10, padding: "10px 12px" }}>
+          <AlertCircle size={16} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.85)", lineHeight: 1.5 }}>
+            Solo <strong>{hostPlayer ? hostPlayer.name : "el host"}</strong> puede modificar esta partida. Estás viendo en modo lectura.
+            {hostPlayer && (
+              <> Si sos vos, tocá <button onClick={onIdentify} style={{ background: "none", border: "none", padding: 0, color: C.goldSoft, fontWeight: 700, cursor: "pointer", textDecoration: "underline", ...bodyFont, fontSize: 12.5 }}>"¿Quién sos?" arriba a la derecha</button> para identificarte.</>
+            )}
+          </div>
+        </div>
+        <GameStatusBlock game={game} players={players} totals={totals} />
+      </div>
+    );
+  }
 
   // update acepta un objeto (mezcla directa) o una función (g) => patch, que
   // recibe el estado MÁS RECIENTE del juego. Usar la forma función evita
@@ -1093,11 +1290,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames }) {
     });
   };
 
-  const totals = useMemo(() => {
-    let cash = 0, virtual = 0;
-    game.purchases.forEach((p) => { if (p.type === "cash") cash += p.amount; else virtual += p.amount; });
-    return { cash, virtual };
-  }, [game.purchases]);
   const unpaidCount = players.filter((p) => !game.dinner.paid?.[p.id]).length;
 
   const setRake = (v) => update({ rake: Number(v) || 0 });
