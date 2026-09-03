@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "1.14.06.021";
+const APP_VERSION = "1.15.06.022";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -173,6 +173,84 @@ function IdentityModal() {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Pantalla completa (no un modal descartable): mientras nadie se identificó
+// en este celular, no se puede navegar por la app en absoluto — a diferencia
+// del modal de "cambiar identidad" (que sí se puede cancelar porque ahí ya
+// estabas identificado), esta pantalla no tiene forma de saltearse.
+function IdentityGateScreen({ roster, onIdentified }) {
+  const [pickedId, setPickedId] = useState("");
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+
+  const players = roster.filter((p) => p.active).sort((a, b) => a.name.localeCompare(b.name));
+  const picked = players.find((p) => p.id === pickedId);
+
+  const submitPin = () => {
+    if (!picked) return;
+    if (picked.pin && picked.pin !== pin) { setErr("PIN incorrecto."); return; }
+    onIdentified(picked.id);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: `radial-gradient(ellipse at top, ${C.panel} 0%, ${C.felt} 45%, ${C.feltDeep} 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, ...bodyFont }}>
+      <div style={{ width: "min(420px, 100%)" }}>
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <div style={{ ...displayFont, fontSize: 36, color: C.gold, lineHeight: 1 }}>BARILOCHE</div>
+          <div style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: 4 }}>
+            registro de poker
+          </div>
+        </div>
+        <div style={{ background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14, padding: 22, boxShadow: "0 12px 32px rgba(0,0,0,0.4)" }}>
+          <div style={{ ...displayFont, fontSize: 22, color: C.card, marginBottom: 4 }}>¿QUIÉN ERES?</div>
+          {!picked ? (
+            <>
+              <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 14 }}>
+                Elige tu nombre para poder usar la app en este celular. Así la app sabe cuando eres tú el host de la partida.
+              </div>
+              <div style={{ display: "grid", gap: 8, maxHeight: 380, overflowY: "auto" }}>
+                {players.map((p) => (
+                  <button key={p.id} onClick={() => setPickedId(p.id)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "rgba(0,0,0,0.18)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "10px 12px", cursor: "pointer", ...bodyFont }}>
+                    <Avatar player={p} size={28} />
+                    <span style={{ color: C.card, fontSize: 15 }}>{p.name}</span>
+                    {p.pin && <span title="Tiene PIN configurado" style={{ marginLeft: "auto", fontSize: 13, color: "rgba(244,234,214,0.35)" }}>🔒</span>}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <Avatar player={picked} size={34} />
+                <span style={{ color: C.card, fontSize: 17, fontWeight: 700 }}>{picked.name}</span>
+              </div>
+              {picked.pin ? (
+                <>
+                  <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>Ingresa tu PIN:</div>
+                  <input
+                    type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle}
+                    value={pin} onChange={(e) => { setPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") submitPin(); }}
+                  />
+                  {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 4 }}>
+                  Este jugador todavía no tiene PIN configurado. Puedes continuar, pero para protegerte de verdad configura un PIN desde la pestaña Jugadores en cuanto entres.
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+                <GhostBtn onClick={() => { setPickedId(""); setPin(""); setErr(""); }}>Atrás</GhostBtn>
+                <PrimaryBtn onClick={submitPin}>Entrar</PrimaryBtn>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -508,16 +586,6 @@ export default function PokerLedger() {
     });
     if (ok) setMyPlayerId("");
   };
-  // La primera vez que abres la app en este celular (sin identidad guardada
-  // todavía), se ofrece identificarte — pero solo una vez, no en cada render.
-  const autoPromptedRef = useRef(false);
-  useEffect(() => {
-    if (!loading && !myPlayerId && roster.length > 0 && !autoPromptedRef.current) {
-      autoPromptedRef.current = true;
-      identify();
-    }
-  }, [loading, roster.length]); // eslint-disable-line
-
   // Si hay una partida en curso, la pestaña "Jugadores" queda oculta (no se debe
   // editar el roster a mitad de una partida); si alguien estaba justo ahí cuando
   // arrancó una partida, lo mandamos de vuelta a la pestaña de la partida.
@@ -584,6 +652,14 @@ export default function PokerLedger() {
         <div style={{ ...displayFont, color: C.goldSoft, fontSize: 28 }}>Repartiendo cartas…</div>
       </div>
     );
+  }
+
+  // Sin identificarte, no se puede navegar por ninguna parte de la app.
+  // Excepción: si el roster todavía está vacío (recién desplegada, sin
+  // jugadores dados de alta), no hay nadie para elegir — se deja pasar para
+  // que se pueda cargar al primer jugador desde la pestaña Jugadores.
+  if (roster.length > 0 && !myPlayerId) {
+    return <IdentityGateScreen roster={roster} onIdentified={setMyPlayerId} />;
   }
 
   return (
