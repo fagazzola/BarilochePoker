@@ -66,10 +66,13 @@ function gamesToRows(games) {
     g.finished ? "SI" : "NO",
     JSON.stringify({
       purchases: g.purchases || [],
-      dinner: g.dinner || { total: 0, sidesFee: 0, waiter: 0, alcoholFee: 0, alcohol: {}, paid: {}, paymentMethod: {} },
+      dinner: g.dinner || { amountNoAlcohol: 0, amountAlcohol: 0, alcohol: {}, paid: {}, paymentMethod: {} },
       finalChips: g.finalChips || {},
       startedAt: g.startedAt || null,
-      dinnerSetupDone: !!g.dinnerSetupDone,
+      requests: g.requests || [],
+      rakeHost: g.rakeHost || 0,
+      rakeAutosCount: g.rakeAutosCount || 0,
+      rakeAutoAmount: g.rakeAutoAmount ?? 250,
     }),
   ]);
 }
@@ -89,10 +92,13 @@ function rowsToGames(rows) {
         playerIds,
         finished: String(r[6] || "").toUpperCase() === "SI",
         purchases: detalle.purchases || [],
-        dinner: detalle.dinner || { total: 0, sidesFee: 0, waiter: 0, alcoholFee: 0, alcohol: {}, paid: {}, paymentMethod: {} },
+        dinner: detalle.dinner || { amountNoAlcohol: 0, amountAlcohol: 0, alcohol: {}, paid: {}, paymentMethod: {} },
         finalChips: detalle.finalChips || {},
         startedAt: detalle.startedAt || null,
-        dinnerSetupDone: !!detalle.dinnerSetupDone,
+        requests: detalle.requests || [],
+        rakeHost: detalle.rakeHost || 0,
+        rakeAutosCount: detalle.rakeAutosCount || 0,
+        rakeAutoAmount: detalle.rakeAutoAmount ?? 250,
         results: null,
       };
     })

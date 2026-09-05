@@ -168,6 +168,15 @@
   function dinnerTotalForGame(game) {
     const d = game.dinner;
     if (!d) return 0;
+    // Partidas nuevas: monto fijo por jugador según si bebió alcohol o no.
+    // Partidas viejas (antes de la reforma de cena): fórmula anterior por
+    // cena repartida + guarniciones + servicio + cargo de alcohol.
+    if (d.amountNoAlcohol !== undefined || d.amountAlcohol !== undefined) {
+      return (game.playerIds || []).reduce((s, pid) => {
+        const alcohol = !!(d.alcohol && d.alcohol[pid]);
+        return s + (alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0));
+      }, 0);
+    }
     const numPlayers = (game.playerIds || []).length || 1;
     const sidesFee = d.sidesFee || 0;
     return (game.playerIds || []).reduce((s, pid) => {

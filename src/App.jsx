@@ -4,7 +4,7 @@ import {
   Trophy, ArrowRightLeft, Save, X, Check, ChevronDown, ChevronUp, ChevronLeft,
   Banknote, Landmark, Flame, History, UserPlus, UserX, UserCheck,
   Play, Square, AlertCircle, Crown, DollarSign, CircleDollarSign, Coins,
-  BarChart3, Activity, Settings
+  BarChart3, Activity
 } from "lucide-react";
 
 /* ----------------------------------------------------------------------
@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "1.15.06.022";
+const APP_VERSION = "1.16.07.024";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -586,12 +586,15 @@ export default function PokerLedger() {
     });
     if (ok) setMyPlayerId("");
   };
-  // Si hay una partida en curso, la pestaña "Jugadores" queda oculta (no se debe
-  // editar el roster a mitad de una partida); si alguien estaba justo ahí cuando
-  // arrancó una partida, lo mandamos de vuelta a la pestaña de la partida.
+  const hasActive = !!activeGame && !activeGame.finished;
+
+  // Si una partida en curso termina o se cancela mientras alguien está parado
+  // en una de las pestañas exclusivas de "partida en curso" (Cena, Lote y
+  // Rake, o Jugadores-de-la-partida), lo mandamos de vuelta a la pestaña
+  // principal para que no quede en una pestaña que ya no existe.
   useEffect(() => {
-    if (activeGame && !activeGame.finished && tab === "jugadores") setTab("partida");
-  }, [activeGame, tab]);
+    if (!hasActive && (tab === "cena" || tab === "loterake")) setTab("partida");
+  }, [hasActive, tab]);
 
   useEffect(() => {
     (async () => {
@@ -678,10 +681,10 @@ export default function PokerLedger() {
         .scrollbar-thin::-webkit-scrollbar-thumb { background: ${C.panelLine}; border-radius: 3px; }
       `}</style>
 
-      <Header tab={tab} setTab={setTab} hasActive={!!activeGame && !activeGame.finished} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} onLogout={logout} />
+      <Header tab={tab} setTab={setTab} hasActive={hasActive} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} onLogout={logout} />
 
       <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 14px 60px" }}>
-        {!!activeGame && !activeGame.finished && (
+        {hasActive && (
           <div style={{
             display: "flex", alignItems: "center", gap: 8, marginBottom: 14,
             background: "rgba(216,173,63,0.14)", border: `1px solid ${C.gold}`,
@@ -691,10 +694,10 @@ export default function PokerLedger() {
             <span style={{ ...displayFont, fontSize: 15, color: C.goldSoft, letterSpacing: "0.04em" }}>Jugada en Curso</span>
           </div>
         )}
-        {tab === "jugadores" && !(!!activeGame && !activeGame.finished) && (
+        {tab === "jugadores" && !hasActive && (
           <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} myPlayerId={myPlayerId} />
         )}
-        {tab === "partida" && (
+        {(tab === "partida" || tab === "cena" || tab === "loterake" || (tab === "jugadores" && hasActive)) && (
           <GameTab
             roster={roster}
             activeGame={activeGame}
@@ -703,9 +706,12 @@ export default function PokerLedger() {
             setGames={setGames}
             myPlayerId={myPlayerId}
             onIdentify={identify}
+            adminPassword={adminPassword}
+            setTab={setTab}
+            subView={tab === "cena" ? "cena" : tab === "loterake" ? "loterake" : tab === "jugadores" ? "jugadoresPartida" : "estatus"}
           />
         )}
-        {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} />}
+        {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} activeGame={activeGame} setActiveGame={setActiveGame} />}
       </main>
 
       <AdminPasswordModal />
@@ -722,6 +728,9 @@ function Header({ tab, setTab, hasActive, me, onIdentify, onLogout }) {
   const tabs = hasActive
     ? [
         { id: "partida", label: "Estatus jugada", icon: Activity },
+        { id: "cena", label: "Cena y servicio", icon: UtensilsCrossed },
+        { id: "loterake", label: "Lote y Rake", icon: Coins },
+        { id: "jugadores", label: "Jugadores", icon: Users },
         { id: "historial", label: "Información histórica", icon: History },
       ]
     : [
@@ -1118,20 +1127,30 @@ function Empty({ children }) {
 /* ----------------------------------------------------------------------
    GAME TAB
 ---------------------------------------------------------------------- */
-function GameTab({ roster, activeGame, setActiveGame, games, setGames, myPlayerId, onIdentify }) {
+function GameTab({ roster, activeGame, setActiveGame, games, setGames, myPlayerId, onIdentify, adminPassword, setTab, subView }) {
   if (!activeGame) return <NewGameSetup roster={roster} setActiveGame={setActiveGame} />;
-  if (activeGame.finished) return <FinalizedGame game={activeGame} roster={roster} onClose={() => setActiveGame(null)} setActiveGame={setActiveGame} setGames={setGames} />;
+  if (activeGame.finished) return <FinalizedGame game={activeGame} roster={roster} onClose={() => setActiveGame(null)} setActiveGame={setActiveGame} setGames={setGames} adminPassword={adminPassword} />;
   const isHost = !!myPlayerId && myPlayerId === activeGame.hostId;
-  return <ActiveGameScreen game={activeGame} setGame={setActiveGame} roster={roster} setGames={setGames} isHost={isHost} onIdentify={onIdentify} />;
+  return (
+    <ActiveGameScreen
+      game={activeGame} setGame={setActiveGame} roster={roster} setGames={setGames}
+      isHost={isHost} onIdentify={onIdentify} myPlayerId={myPlayerId}
+      view={subView} setTab={setTab}
+    />
+  );
 }
 
 function NewGameSetup({ roster, setActiveGame }) {
   const active = roster.filter((p) => p.active);
   const [date, setDate] = useState(todayISO());
   const [loteValue, setLoteValue] = useState(1000);
-  const [rake, setRake] = useState(1500); // arranca en 1500, pero se puede editar
+  const [rakeHost, setRakeHost] = useState(1500); // arranca en 1500, pero se puede editar
+  const [rakeAutosCount, setRakeAutosCount] = useState(0);
+  const [rakeAutoAmount, setRakeAutoAmount] = useState(250);
   const [selected, setSelected] = useState([]);
   const [hostId, setHostId] = useState("");
+
+  const rakeTotal = round1((Number(rakeHost) || 0) + (Number(rakeAutosCount) || 0) * (Number(rakeAutoAmount) || 0));
 
   const toggle = (id) => {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -1141,11 +1160,15 @@ function NewGameSetup({ roster, setActiveGame }) {
   const start = () => {
     if (selected.length < 2 || !loteValue || !hostId) return;
     setActiveGame({
-      id: uid(), date, loteValue: Number(loteValue), rake: Number(rake) || 0,
+      id: uid(), date, loteValue: Number(loteValue),
+      rakeHost: Number(rakeHost) || 0,
+      rakeAutosCount: Number(rakeAutosCount) || 0,
+      rakeAutoAmount: Number(rakeAutoAmount) || 0,
+      rake: rakeTotal,
       playerIds: selected, hostId, startedAt: Date.now(),
       purchases: [],
-      dinner: { total: 0, sidesFee: 50, waiter: 50, alcoholFee: 50, alcohol: {}, paid: {}, paymentMethod: {} },
-      dinnerSetupDone: false, // fuerza a pasar por la pantalla de cena antes de comprar lotes, una sola vez
+      requests: [],
+      dinner: { amountNoAlcohol: 0, amountAlcohol: 0, alcohol: {}, paid: {}, paymentMethod: {} },
       finalChips: {}, finished: false, results: null,
     });
   };
@@ -1162,10 +1185,22 @@ function NewGameSetup({ roster, setActiveGame }) {
             <input type="number" min="0" style={inputStyle} value={loteValue} onChange={(e) => setLoteValue(e.target.value)} onFocus={(e) => e.target.select()} />
           </Field>
         </div>
-        <div style={{ marginTop: 10 }}>
-          <Field label="Rake">
-            <input type="number" min="0" style={inputStyle} value={rake === 0 ? "" : rake} onChange={(e) => setRake(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
+        <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 12 }}>
+          <div style={{ ...displayFont, fontSize: 15, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
+          <Field label="Rake para anfitrión">
+            <input type="number" min="0" style={inputStyle} value={rakeHost === 0 ? "" : rakeHost} onChange={(e) => setRakeHost(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
           </Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+            <Field label="Rake para autos — # de autos">
+              <input type="number" min="0" style={inputStyle} value={rakeAutosCount === 0 ? "" : rakeAutosCount} onChange={(e) => setRakeAutosCount(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
+            </Field>
+            <Field label="Monto por auto">
+              <input type="number" min="0" style={inputStyle} value={rakeAutoAmount} onChange={(e) => setRakeAutoAmount(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
+            </Field>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <ScoreBox label="Rake total" value={money(rakeTotal)} />
+          </div>
         </div>
       </Panel>
 
@@ -1239,78 +1274,46 @@ function NewGameSetup({ roster, setActiveGame }) {
 }
 
 /* ----- Active game: buy-ins, dinner, finalize ----- */
-function useTicker(intervalMs) {
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), intervalMs);
-    return () => clearInterval(t);
-  }, [intervalMs]);
-}
-function formatElapsed(ms) {
-  const totalMin = Math.max(0, Math.floor(ms / 60000));
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(h)}:${pad(m)}`;
-}
 function formatClock(ts) {
   if (!ts) return "—";
   return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
-// Recuadro combinado: Rake y Número de jugadores juntos en una sola tarjeta.
-function RakeAndPlayersBox({ rake, playerCount }) {
-  return (
-    <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "8px 6px", display: "flex" }}>
-      <div style={{ flex: 1, textAlign: "center", borderRight: `1px solid ${C.panelLine}` }}>
-        <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase" }}>Rake</div>
-        <div style={{ ...monoFont, fontWeight: 700, fontSize: 14.5, color: C.goldSoft }}>{money(rake)}</div>
-      </div>
-      <div style={{ flex: 1, textAlign: "center" }}>
-        <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase" }}>Jugadores</div>
-        <div style={{ ...monoFont, fontWeight: 700, fontSize: 14.5, color: C.goldSoft }}>{playerCount}</div>
-      </div>
-    </div>
-  );
-}
 function GameStatusBlock({ game, players, totals }) {
-  useTicker(1000);
-  const lotesTotal = game.purchases.reduce((s, p) => s + p.lotes, 0);
-  const lotesProm = players.length ? round1(lotesTotal / players.length) : 0;
-  const elapsed = game.startedAt ? Date.now() - game.startedAt : null;
-
   const perPlayer = players.map((p) => {
     const cash = game.purchases.filter((pu) => pu.playerId === p.id && pu.type === "cash").reduce((s, pu) => s + pu.amount, 0);
     const virtual = game.purchases.filter((pu) => pu.playerId === p.id && pu.type === "virtual").reduce((s, pu) => s + pu.amount, 0);
     return { player: p, cash, virtual, total: cash + virtual };
-  }).sort((a, b) => b.total - a.total);
+  }).sort((a, b) => a.player.name.localeCompare(b.player.name));
 
   return (
     <Panel>
       <SectionTitle icon={Activity}>Estatus de la jugada</SectionTitle>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 10 }}>
-        <RakeAndPlayersBox rake={game.rake} playerCount={players.length} />
-        <ScoreBox label="Hora inicio" value={formatClock(game.startedAt)} />
-        <ScoreBox label="Tiempo jugado" value={elapsed == null ? "—" : formatElapsed(elapsed)} />
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 14 }}>
         <ScoreBox label="Total cash" value={money(totals.cash)} tone="cash" />
         <ScoreBox label="Total virtual" value={money(totals.virtual)} tone="virtual" />
-        <ScoreBox label="Lotes prom./jugador" value={lotesProm} />
+        <ScoreBox label="Total" value={money(totals.cash + totals.virtual)} />
+        <ScoreBox label="Hora inicio" value={formatClock(game.startedAt)} />
       </div>
-      <div style={{ display: "flex", gap: 12, marginBottom: 6, fontSize: 10, color: "rgba(244,234,214,0.4)", justifyContent: "flex-end" }}>
-        <span>cash</span><span>virtual</span><span>total</span>
-      </div>
-      <div style={{ display: "grid", gap: 6 }}>
+      <div style={{ display: "grid", gap: 8 }}>
         {perPlayer.map((row) => (
-          <div key={row.player.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+          <div key={row.player.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 8 }}>
               <Avatar player={row.player} size={22} />
-              <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.player.name}</span>
+              <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.player.name}</span>
             </div>
-            <div style={{ display: "flex", gap: 14 }}>
-              <span style={{ ...monoFont, fontSize: 12.5, color: C.cash, fontWeight: 700 }}>{money(row.cash)}</span>
-              <span style={{ ...monoFont, fontSize: 12.5, color: C.virtual, fontWeight: 700 }}>{money(row.virtual)}</span>
-              <span style={{ ...monoFont, fontSize: 12.5, color: C.goldSoft, fontWeight: 800 }}>{money(row.total)}</span>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 4, textAlign: "center" }}>
+              <div>
+                <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Cash</div>
+                <div style={{ ...monoFont, fontWeight: 800, fontSize: 19, color: C.cash }}>{money(row.cash)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Virtual</div>
+                <div style={{ ...monoFont, fontWeight: 800, fontSize: 19, color: C.virtual }}>{money(row.virtual)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Total</div>
+                <div style={{ ...monoFont, fontWeight: 800, fontSize: 20, color: C.goldSoft }}>{money(row.total)}</div>
+              </div>
             </div>
           </div>
         ))}
@@ -1319,9 +1322,9 @@ function GameStatusBlock({ game, players, totals }) {
   );
 }
 
-function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify }) {
+function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify, myPlayerId, view, setTab }) {
   const [finalizing, setFinalizing] = useState(false);
-  const [view, setView] = useState(() => (game.dinnerSetupDone ? "purchase" : "dinner")); // "config" | "purchase" | "dinner"
+  const effectiveView = view || "estatus";
 
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
   const availableToAdd = roster.filter((p) => p.active && !game.playerIds.includes(p.id));
@@ -1332,27 +1335,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify 
     return { cash, virtual };
   }, [game.purchases]);
 
-  // Solo el host de la partida puede modificar algo (comprar lotes, tocar la
-  // cena, cambiar configuración, cerrarla). Cualquier otro dispositivo ve
-  // exactamente el mismo bloque de estatus, pero de solo lectura.
-  if (!isHost) {
-    const hostPlayer = roster.find((r) => r.id === game.hostId);
-    return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 10, padding: "10px 12px" }}>
-          <AlertCircle size={16} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.85)", lineHeight: 1.5 }}>
-            Solo <strong>{hostPlayer ? hostPlayer.name : "el host"}</strong> puede modificar esta partida. Estás viendo en modo lectura.
-            {hostPlayer && (
-              <> Si eres tú, toca <button onClick={onIdentify} style={{ background: "none", border: "none", padding: 0, color: C.goldSoft, fontWeight: 700, cursor: "pointer", textDecoration: "underline", ...bodyFont, fontSize: 12.5 }}>"¿Quién eres?" arriba a la derecha</button> para identificarte.</>
-            )}
-          </div>
-        </div>
-        <GameStatusBlock game={game} players={players} totals={totals} />
-      </div>
-    );
-  }
-
   // update acepta un objeto (mezcla directa) o una función (g) => patch, que
   // recibe el estado MÁS RECIENTE del juego. Usar la forma función evita
   // "carreras" cuando se disparan varios cambios rápido seguidos (por
@@ -1362,9 +1344,118 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify 
   const update = (patch) =>
     setGame((g) => ({ ...g, ...(typeof patch === "function" ? patch(g) : patch) }));
 
+  // Solicitudes de fichas: cualquier jugador identificado en la mesa puede
+  // pedir un lote (cash o virtual) o un monto libre; solo el host puede
+  // aceptarla (se vuelve una compra normal) o rechazarla.
+  const myRequests = (game.requests || []).filter((r) => r.playerId === myPlayerId);
+  const submitRequest = (type, amount) => {
+    const amt = Math.round(Number(amount) || 0);
+    if (!myPlayerId || amt <= 0) return;
+    update((g) => ({ requests: [...(g.requests || []), { id: uid(), playerId: myPlayerId, type, amount: amt, status: "pending", ts: Date.now() }] }));
+  };
+  const resolveRequest = (reqId, approve) => {
+    update((g) => {
+      const req = (g.requests || []).find((r) => r.id === reqId);
+      if (!req || req.status !== "pending") return {};
+      if (approve) {
+        const entry = { id: uid(), playerId: req.playerId, type: req.type, lotes: g.loteValue ? round1(req.amount / g.loteValue) : 0, amount: req.amount, ts: Date.now() };
+        return {
+          purchases: [...g.purchases, entry],
+          requests: g.requests.map((r) => (r.id === reqId ? { ...r, status: "approved" } : r)),
+        };
+      }
+      return { requests: g.requests.map((r) => (r.id === reqId ? { ...r, status: "rejected" } : r)) };
+    });
+  };
+
+  // Solo el host de la partida puede modificar algo (comprar lotes, tocar la
+  // cena, cambiar configuración, cerrarla). Cualquier otro dispositivo ve
+  // exactamente el mismo bloque de estatus (y puede pedir fichas), pero de
+  // solo lectura para todo lo demás.
+  if (!isHost) {
+    const hostPlayer = roster.find((r) => r.id === game.hostId);
+    const iAmInGame = players.some((p) => p.id === myPlayerId);
+    const banner = (
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 10, padding: "10px 12px" }}>
+        <AlertCircle size={16} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.85)", lineHeight: 1.5 }}>
+          Solo <strong>{hostPlayer ? hostPlayer.name : "el host"}</strong> puede modificar esta partida. Estás viendo en modo lectura.
+          {hostPlayer && (
+            <> Si eres tú, toca <button onClick={onIdentify} style={{ background: "none", border: "none", padding: 0, color: C.goldSoft, fontWeight: 700, cursor: "pointer", textDecoration: "underline", ...bodyFont, fontSize: 12.5 }}>"¿Quién eres?" arriba a la derecha</button> para identificarte.</>
+          )}
+        </div>
+      </div>
+    );
+
+    if (effectiveView === "cena") {
+      return (
+        <div style={{ display: "grid", gap: 16 }}>
+          {banner}
+          <Panel>
+            <SectionTitle icon={UtensilsCrossed}>Cena y servicio</SectionTitle>
+            <DinnerReadOnly game={game} players={players} />
+          </Panel>
+        </div>
+      );
+    }
+    if (effectiveView === "loterake") {
+      return (
+        <div style={{ display: "grid", gap: 16 }}>
+          {banner}
+          <Panel>
+            <SectionTitle icon={Coins}>Lote y Rake</SectionTitle>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
+              <ScoreBox label="Valor de lote" value={money(game.loteValue)} />
+              <ScoreBox label="Rake total" value={money(game.rake)} />
+              <ScoreBox label="Rake anfitrión" value={money(game.rakeHost || 0)} />
+              <ScoreBox label={`Rake autos (${game.rakeAutosCount || 0} × ${money(game.rakeAutoAmount ?? 250)})`} value={money((game.rakeAutosCount || 0) * (game.rakeAutoAmount ?? 250))} />
+            </div>
+          </Panel>
+        </div>
+      );
+    }
+    if (effectiveView === "jugadoresPartida") {
+      return (
+        <div style={{ display: "grid", gap: 16 }}>
+          {banner}
+          <Panel>
+            <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
+            <div style={{ display: "grid", gap: 8 }}>
+              {players.map((p) => (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 9, padding: "8px 10px" }}>
+                  <Avatar player={p} size={24} />
+                  <span style={{ color: C.card, fontWeight: 600, fontSize: 13.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                  {game.hostId === p.id && <Badge tone="gold"><Crown size={10} /> Host</Badge>}
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ display: "grid", gap: 16 }}>
+        {banner}
+        <GameStatusBlock game={game} players={players} totals={totals} />
+        {iAmInGame && (
+          <RequestChipsPanel loteValue={game.loteValue} myRequests={myRequests} onSubmit={submitRequest} />
+        )}
+      </div>
+    );
+  }
+
   const addPurchase = (playerId, type) => {
     update((g) => {
       const entry = { id: uid(), playerId, type, lotes: 1, amount: g.loteValue, ts: Date.now() };
+      return { purchases: [...g.purchases, entry] };
+    });
+  };
+  const addCustomPurchase = (playerId, type, amount) => {
+    const amt = Math.round(Number(amount) || 0);
+    if (amt <= 0) return;
+    update((g) => {
+      const entry = { id: uid(), playerId, type, lotes: g.loteValue ? round1(amt / g.loteValue) : 0, amount: amt, ts: Date.now() };
       return { purchases: [...g.purchases, entry] };
     });
   };
@@ -1379,9 +1470,28 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify 
 
   const unpaidCount = players.filter((p) => !game.dinner.paid?.[p.id]).length;
 
-  const setRake = (v) => update({ rake: Number(v) || 0 });
   const setLote = (v) => update({ loteValue: Number(v) || 0 });
   const rakeLocked = Object.keys(game.finalChips || {}).length > 0;
+  const setRakeParts = (patch) =>
+    update((g) => {
+      const rakeHost = patch.rakeHost !== undefined ? Number(patch.rakeHost) || 0 : (Number(g.rakeHost) || 0);
+      const rakeAutosCount = patch.rakeAutosCount !== undefined ? Number(patch.rakeAutosCount) || 0 : (Number(g.rakeAutosCount) || 0);
+      const rakeAutoAmount = patch.rakeAutoAmount !== undefined ? Number(patch.rakeAutoAmount) || 0 : (g.rakeAutoAmount ?? 250);
+      return { rakeHost, rakeAutosCount, rakeAutoAmount, rake: round1(rakeHost + rakeAutosCount * rakeAutoAmount) };
+    });
+  const setRakeHost = (v) => setRakeParts({ rakeHost: v });
+  const setRakeAutosCount = (v) => setRakeParts({ rakeAutosCount: v });
+  const setRakeAutoAmount = (v) => setRakeParts({ rakeAutoAmount: v });
+
+  const cancelPartida = async () => {
+    const ok = await requestConfirm({
+      title: "¿Cancelar esta partida?",
+      message: "Se va a perder todo el progreso de esta partida (lotes comprados, cena, configuración). Esta acción no se puede deshacer.",
+      confirmLabel: "Sí, cancelar partida",
+      cancelLabel: "Seguir jugando",
+    });
+    if (ok) setGame(null);
+  };
 
   const addPlayerToGame = (id) => {
     if (game.playerIds.includes(id)) return;
@@ -1421,67 +1531,71 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify 
     );
   }
 
-  if (view === "dinner") {
-    const goToPurchase = () => {
-      update({ dinnerSetupDone: true });
-      setView("purchase");
-    };
+  if (effectiveView === "cena") {
     return (
       <div style={{ display: "grid", gap: 16 }}>
         <GameStatusBlock game={game} players={players} totals={totals} />
         <Panel>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 4 }}>
-            <SectionTitle icon={UtensilsCrossed}>Cena y servicio</SectionTitle>
-          </div>
+          <SectionTitle icon={UtensilsCrossed}>Cena y servicio</SectionTitle>
           <DinnerSection game={game} players={players} update={update} />
         </Panel>
-        <PrimaryBtn onClick={goToPurchase} icon={Banknote} style={{ padding: "13px 18px", fontSize: 15 }}>
-          {game.dinnerSetupDone ? "Volver a compra de lotes" : "Continuar a compra de lotes"}
-        </PrimaryBtn>
       </div>
     );
   }
 
-  if (view === "config") {
+  if (effectiveView === "loterake") {
     return (
       <div style={{ display: "grid", gap: 16 }}>
         <GameStatusBlock game={game} players={players} totals={totals} />
         <Panel>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
             <div>
-              <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Configuración de la partida</div>
+              <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Lote y Rake</div>
               <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont }}>{game.date}</div>
             </div>
-            <GhostBtn
-              icon={X} color={C.loss}
-              onClick={async () => {
-                const ok = await requestConfirm({
-                  title: "¿Cancelar esta partida?",
-                  message: "Se va a perder todo el progreso de esta partida (lotes comprados, cena, configuración). Esta acción no se puede deshacer.",
-                  confirmLabel: "Sí, cancelar partida",
-                  cancelLabel: "Seguir jugando",
-                });
-                if (ok) setGame(null);
-              }}
-            >
-              Cancelar partida
-            </GhostBtn>
+            <GhostBtn icon={X} color={C.loss} onClick={cancelPartida}>Cancelar partida</GhostBtn>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
-            <Field label="Valor de lote"><input type="number" style={inputStyle} value={game.loteValue} onChange={(e) => setLote(e.target.value)} onFocus={(e) => e.target.select()} /></Field>
-            <Field label={rakeLocked ? "Rake 🔒" : "Rake"}>
-              <input
-                type="number" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1, cursor: rakeLocked ? "not-allowed" : "text" }}
-                value={game.rake} disabled={rakeLocked}
-                onChange={(e) => setRake(e.target.value)} onFocus={(e) => e.target.select()}
-                title={rakeLocked ? "El rake queda fijo una vez que se hizo la entrega de fichas." : undefined}
-              />
+          <div style={{ marginTop: 14 }}>
+            <Field label="Valor de lote">
+              <input type="number" style={inputStyle} value={game.loteValue} onChange={(e) => setLote(e.target.value)} onFocus={(e) => e.target.select()} />
             </Field>
           </div>
+          <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 14 }}>
+            <div style={{ ...displayFont, fontSize: 16, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
+            <Field label={rakeLocked ? "Rake para anfitrión 🔒" : "Rake para anfitrión"}>
+              <input
+                type="number" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1, cursor: rakeLocked ? "not-allowed" : "text" }}
+                value={game.rakeHost || 0} disabled={rakeLocked}
+                onChange={(e) => setRakeHost(e.target.value)} onFocus={(e) => e.target.select()}
+              />
+            </Field>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+              <Field label="Rake para autos — # de autos">
+                <input type="number" min="0" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1 }} value={game.rakeAutosCount || 0} disabled={rakeLocked} onChange={(e) => setRakeAutosCount(e.target.value)} onFocus={(e) => e.target.select()} />
+              </Field>
+              <Field label="Monto por auto">
+                <input type="number" min="0" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1 }} value={game.rakeAutoAmount ?? 250} disabled={rakeLocked} onChange={(e) => setRakeAutoAmount(e.target.value)} onFocus={(e) => e.target.select()} />
+              </Field>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <ScoreBox label="Rake total" value={money(game.rake)} />
+            </div>
+            {rakeLocked && <div style={{ fontSize: 11, color: "rgba(244,234,214,0.4)", marginTop: 8 }}>El rake queda fijo una vez que se hizo la entrega de fichas.</div>}
+          </div>
         </Panel>
+      </div>
+    );
+  }
 
+  if (effectiveView === "jugadoresPartida") {
+    return (
+      <div style={{ display: "grid", gap: 16 }}>
+        <GameStatusBlock game={game} players={players} totals={totals} />
         <Panel>
-          <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+            <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
+            <GhostBtn icon={X} color={C.loss} onClick={cancelPartida}>Cancelar partida</GhostBtn>
+          </div>
           <div style={{ display: "grid", gap: 8 }}>
             {players.map((p) => {
               const hasPurchases = game.purchases.some((pu) => pu.playerId === p.id);
@@ -1514,10 +1628,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify 
             </div>
           )}
         </Panel>
-
-        <PrimaryBtn onClick={() => setView("purchase")} icon={Banknote} style={{ padding: "13px 18px", fontSize: 15 }}>
-          Continuar a compra de lotes
-        </PrimaryBtn>
       </div>
     );
   }
@@ -1539,14 +1649,11 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify 
               )}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <GhostBtn icon={UtensilsCrossed} onClick={() => setView("dinner")} color={unpaidCount > 0 ? C.loss : undefined}>
-              Cena y servicio{unpaidCount > 0 ? ` (${unpaidCount} sin pagar)` : ""}
+          {unpaidCount > 0 && (
+            <GhostBtn icon={UtensilsCrossed} onClick={() => setTab && setTab("cena")} color={C.loss}>
+              Cena y servicio ({unpaidCount} sin pagar)
             </GhostBtn>
-            <GhostBtn icon={Settings} onClick={() => setView("config")}>
-              Configuración
-            </GhostBtn>
-          </div>
+          )}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 14 }}>
           <ScoreBox label="Lote" value={money(game.loteValue)} />
@@ -1556,14 +1663,17 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify 
         </div>
       </Panel>
 
+      <PendingRequestsPanel game={game} players={players} onResolve={resolveRequest} />
+
       <Panel>
         <SectionTitle icon={Banknote}>Compra de lotes por jugador</SectionTitle>
         <div style={{ display: "grid", gap: 10 }}>
           {players.map((p) => (
             <PlayerBuyRow
               key={p.id} player={p} game={game} onAdd={addPurchase} onRemoveLast={removeLastPurchase}
+              onAddCustom={addCustomPurchase}
               dinnerPaid={!!game.dinner.paid?.[p.id]}
-              onGoToDinner={() => setView("dinner")}
+              onGoToDinner={() => setTab && setTab("cena")}
             />
           ))}
         </div>
@@ -1572,6 +1682,129 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify 
       <PrimaryBtn onClick={() => setFinalizing(true)} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
         Finalizar partida
       </PrimaryBtn>
+    </div>
+  );
+}
+
+function PendingRequestsPanel({ game, players, onResolve }) {
+  const pending = (game.requests || []).filter((r) => r.status === "pending");
+  if (pending.length === 0) return null;
+  return (
+    <Panel style={{ border: `1px solid ${C.gold}` }}>
+      <SectionTitle icon={AlertCircle}>Solicitudes pendientes ({pending.length})</SectionTitle>
+      <div style={{ display: "grid", gap: 8 }}>
+        {pending.map((r) => {
+          const p = players.find((pl) => pl.id === r.playerId);
+          return (
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 9, padding: "9px 10px", flexWrap: "wrap" }}>
+              {p && <Avatar player={p} size={24} />}
+              <div style={{ flex: 1, minWidth: 120 }}>
+                <div style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{p ? p.name : "?"}</div>
+                <div style={{ ...monoFont, fontSize: 12, color: r.type === "cash" ? C.cash : C.virtual, fontWeight: 700 }}>
+                  {r.type === "cash" ? "Cash" : "Virtual"} · {money(r.amount)}
+                </div>
+              </div>
+              <GhostBtn icon={Check} color={C.win} onClick={() => onResolve(r.id, true)}>Aceptar</GhostBtn>
+              <GhostBtn icon={X} color={C.loss} onClick={() => onResolve(r.id, false)}>Rechazar</GhostBtn>
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+function RequestChipsPanel({ loteValue, myRequests, onSubmit }) {
+  const [customAmount, setCustomAmount] = useState("");
+  const [customType, setCustomType] = useState("cash");
+  const pending = myRequests.filter((r) => r.status === "pending");
+  const recent = myRequests.filter((r) => r.status !== "pending").slice(-4).reverse();
+
+  const submitCustom = () => {
+    onSubmit(customType, customAmount);
+    setCustomAmount("");
+  };
+
+  return (
+    <Panel>
+      <SectionTitle icon={Banknote}>Solicitar fichas</SectionTitle>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <PrimaryBtn icon={Plus} onClick={() => onSubmit("cash", loteValue)} style={{ background: `linear-gradient(180deg, ${C.cash}, ${C.cashDeep})`, color: "#fff" }}>
+          1 lote cash
+        </PrimaryBtn>
+        <PrimaryBtn icon={Plus} onClick={() => onSubmit("virtual", loteValue)} style={{ background: `linear-gradient(180deg, ${C.virtual}, ${C.virtualDeep})`, color: "#fff" }}>
+          1 lote virtual
+        </PrimaryBtn>
+      </div>
+      <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", marginBottom: 6 }}>O pide un monto libre (no tiene que ser un lote completo):</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", background: "rgba(0,0,0,0.24)", borderRadius: 8, padding: 2 }}>
+          <button onClick={() => setCustomType("cash")}
+            style={{ border: "none", cursor: "pointer", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 700, ...bodyFont, background: customType === "cash" ? C.cash : "transparent", color: customType === "cash" ? "#fff" : "rgba(244,234,214,0.6)" }}>
+            Cash
+          </button>
+          <button onClick={() => setCustomType("virtual")}
+            style={{ border: "none", cursor: "pointer", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 700, ...bodyFont, background: customType === "virtual" ? C.virtual : "transparent", color: customType === "virtual" ? "#fff" : "rgba(244,234,214,0.6)" }}>
+            Virtual
+          </button>
+        </div>
+        <input type="number" min="0" placeholder="Monto libre" style={{ ...inputStyle, width: 130 }} value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} onFocus={(e) => e.target.select()} />
+        <PrimaryBtn onClick={submitCustom} disabled={!customAmount || Number(customAmount) <= 0}>Solicitar</PrimaryBtn>
+      </div>
+      {pending.length > 0 && (
+        <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
+          {pending.map((r) => (
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(216,173,63,0.1)", border: `1px dashed ${C.panelLine}`, borderRadius: 8, padding: "7px 10px" }}>
+              <span style={{ ...monoFont, fontSize: 12, color: r.type === "cash" ? C.cash : C.virtual, fontWeight: 700 }}>{r.type === "cash" ? "Cash" : "Virtual"} {money(r.amount)}</span>
+              <span style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", marginLeft: "auto" }}>Esperando aprobación del host…</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {recent.length > 0 && (
+        <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {recent.map((r) => (
+            <span key={r.id} style={{ fontSize: 10.5, ...monoFont, padding: "3px 7px", borderRadius: 6, background: r.status === "approved" ? "rgba(63,191,114,0.14)" : "rgba(226,99,79,0.14)", color: r.status === "approved" ? C.win : C.loss }}>
+              {r.type === "cash" ? "Cash" : "Virtual"} {money(r.amount)} · {r.status === "approved" ? "aprobada" : "rechazada"}
+            </span>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function DinnerReadOnly({ game, players }) {
+  const d = game.dinner;
+  const totalRecaudado = players.reduce((s, p) => {
+    const alcohol = !!d.alcohol?.[p.id];
+    return s + (alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0));
+  }, 0);
+  return (
+    <div>
+      <div style={{ marginBottom: 12 }}>
+        <ScoreBox label="Total recabado" value={money(totalRecaudado)} />
+      </div>
+      <div style={{ display: "grid", gap: 6 }}>
+        {players.map((p) => {
+          const alcohol = !!d.alcohol?.[p.id];
+          const charge = alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0);
+          const paid = !!d.paid?.[p.id];
+          return (
+            <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                <Avatar player={p} size={22} />
+                <Wine size={13} color={alcohol ? C.virtual : "rgba(244,234,214,0.3)"} />
+                <span style={{ fontSize: 13, color: C.card, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)" }}>{money(charge)}</span>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: paid ? C.win : C.loss, ...monoFont }}>{paid ? "PAGADO" : "PENDIENTE"}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1604,13 +1837,20 @@ function buyBtnStyle(color, subtract, disabled) {
   };
 }
 
-function PlayerBuyRow({ player, game, onAdd, onRemoveLast, dinnerPaid, onGoToDinner }) {
+function PlayerBuyRow({ player, game, onAdd, onRemoveLast, onAddCustom, dinnerPaid, onGoToDinner }) {
+  const [customAmount, setCustomAmount] = useState("");
+  const [customType, setCustomType] = useState("cash");
   const entries = game.purchases.filter((p) => p.playerId === player.id);
   const cashLotes = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.lotes, 0);
   const virtualLotes = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.lotes, 0);
-  const cashAmount = cashLotes * game.loteValue;
-  const virtualAmount = virtualLotes * game.loteValue;
+  const cashAmount = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.amount, 0);
+  const virtualAmount = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.amount, 0);
   const blocked = !dinnerPaid;
+
+  const submitCustom = () => {
+    onAddCustom(player.id, customType, customAmount);
+    setCustomAmount("");
+  };
 
   return (
     <div style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: 12 }}>
@@ -1656,87 +1896,79 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast, dinnerPaid, onGoToDin
           {virtualLotes} lotes · {money(virtualAmount)}
         </span>
       </div>
+
+      {!blocked && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.panelLine}`, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10.5, color: "rgba(244,234,214,0.45)", textTransform: "uppercase" }}>Monto libre</span>
+          <div style={{ display: "flex", background: "rgba(0,0,0,0.24)", borderRadius: 7, padding: 2 }}>
+            <button onClick={() => setCustomType("cash")}
+              style={{ border: "none", cursor: "pointer", borderRadius: 5, padding: "4px 8px", fontSize: 11, fontWeight: 700, ...bodyFont, background: customType === "cash" ? C.cash : "transparent", color: customType === "cash" ? "#fff" : "rgba(244,234,214,0.6)" }}>
+              Cash
+            </button>
+            <button onClick={() => setCustomType("virtual")}
+              style={{ border: "none", cursor: "pointer", borderRadius: 5, padding: "4px 8px", fontSize: 11, fontWeight: 700, ...bodyFont, background: customType === "virtual" ? C.virtual : "transparent", color: customType === "virtual" ? "#fff" : "rgba(244,234,214,0.6)" }}>
+              Virtual
+            </button>
+          </div>
+          <input type="number" min="0" placeholder="0" style={{ ...inputStyle, width: 90, padding: "5px 8px", fontSize: 12.5 }} value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} onFocus={(e) => e.target.select()} />
+          <GhostBtn onClick={submitCustom} icon={Plus} color={C.goldSoft}>Agregar</GhostBtn>
+        </div>
+      )}
     </div>
   );
 }
 
 function DinnerSection({ game, players, update }) {
   const d = game.dinner;
-  const sidesFee = d.sidesFee || 0; // compatibilidad con partidas viejas sin este campo
   const setD = (patch) =>
     update((g) => ({
       dinner: { ...g.dinner, ...(typeof patch === "function" ? patch(g.dinner) : patch) },
     }));
-  const numPlayers = players.length || 1;
 
-  // Costo base por persona (cena repartida + guarniciones + servicio), sin
-  // alcohol porque ese varía según quién bebió. Es el número que se muestra
-  // como referencia.
-  const costoPorPersona = d.total / numPlayers + sidesFee + d.waiter;
-  const nominalTotal = players.reduce((s, p) => {
-    const alcohol = !!d.alcohol[p.id];
-    return s + (d.total / numPlayers + sidesFee + d.waiter + (alcohol ? d.alcoholFee : 0));
-  }, 0);
   const totalRecaudado = players.reduce((s, p) => {
     const alcohol = !!d.alcohol[p.id];
-    return s + ceilTo100(d.total / numPlayers + sidesFee + d.waiter + (alcohol ? d.alcoholFee : 0));
+    return s + (alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0));
   }, 0);
-  const redondeoExtra = round1(totalRecaudado - nominalTotal);
 
   return (
     <div style={{ marginTop: 6 }}>
+      <div style={{ marginBottom: 14 }}>
+        <ScoreBox label="Total recabado" value={money(totalRecaudado)} />
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="Monto total de la cena">
+        <Field label="Cena sin alcohol (por jugador)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.total === 0 ? "" : d.total} onChange={(e) => setD({ total: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
-            <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.total)}</span>
+            <input type="number" style={inputStyle} value={d.amountNoAlcohol === 0 ? "" : d.amountNoAlcohol} onChange={(e) => setD({ amountNoAlcohol: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
           </div>
         </Field>
-        <Field label="Guarniciones y complementos (por jugador)">
+        <Field label="Cena con alcohol (por jugador)">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={sidesFee === 0 ? "" : sidesFee} onChange={(e) => setD({ sidesFee: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
-            <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(sidesFee)}</span>
+            <input type="number" style={inputStyle} value={d.amountAlcohol === 0 ? "" : d.amountAlcohol} onChange={(e) => setD({ amountAlcohol: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
           </div>
         </Field>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-        <Field label="Servicio de mesero (por jugador)">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.waiter === 0 ? "" : d.waiter} onChange={(e) => setD({ waiter: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
-            <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.waiter)}</span>
-          </div>
-        </Field>
-        <Field label="Cargo extra de alcohol (a quienes bebieron)">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.alcoholFee === 0 ? "" : d.alcoholFee} onChange={(e) => setD({ alcoholFee: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
-            <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.alcoholFee)}</span>
-          </div>
-        </Field>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
-        <ScoreBox label="Costo por persona (cena + servicio)" value={money(costoPorPersona)} />
-        <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "8px 6px", textAlign: "center" }}>
-          <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase" }}>Total recabado</div>
-          <div style={{ ...monoFont, fontWeight: 700, fontSize: 14.5, color: C.goldSoft }}>{money(totalRecaudado)}</div>
-          <div style={{ fontSize: 9.5, ...monoFont, color: "rgba(244,234,214,0.45)" }}>
-            {redondeoExtra > 0 ? `+${money(redondeoExtra)} de redondeo` : "sin redondeo extra"}
-          </div>
-        </div>
-      </div>
-      <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
+      <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
         {players.map((p) => {
           const alcohol = !!d.alcohol[p.id];
-          const charge = ceilTo100(d.total / numPlayers + sidesFee + d.waiter + (alcohol ? d.alcoholFee : 0));
+          const charge = alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0);
           const paid = !!d.paid?.[p.id];
           return (
             <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <button onClick={() => setD((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: !dd.alcohol[p.id] } }))}
-                  style={{ display: "flex", alignItems: "center", gap: 7, background: "transparent", border: "none", cursor: "pointer", color: C.card, flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, flex: 1, minWidth: 0 }}>
                   <Avatar player={p} size={22} />
-                  <Wine size={14} color={alcohol ? C.virtual : "rgba(244,234,214,0.3)"} style={{ flexShrink: 0 }} />
-                  <span style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-                </button>
+                  <span style={{ fontSize: 13, color: C.card, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                </div>
+                <div style={{ display: "flex", background: "rgba(0,0,0,0.24)", borderRadius: 7, padding: 2 }}>
+                  <button onClick={() => setD((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: false } }))}
+                    style={{ border: "none", cursor: "pointer", borderRadius: 5, padding: "4px 8px", fontSize: 11, fontWeight: 700, ...bodyFont, background: !alcohol ? C.gold : "transparent", color: !alcohol ? C.ink : "rgba(244,234,214,0.6)" }}>
+                    Sin alcohol
+                  </button>
+                  <button onClick={() => setD((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: true } }))}
+                    style={{ border: "none", cursor: "pointer", borderRadius: 5, padding: "4px 8px", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 3, ...bodyFont, background: alcohol ? C.virtual : "transparent", color: alcohol ? "#fff" : "rgba(244,234,214,0.6)" }}>
+                    <Wine size={11} /> Con alcohol
+                  </button>
+                </div>
                 <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)", whiteSpace: "nowrap" }}>{money(charge)}</span>
               </div>
               <div style={{ marginTop: 7 }}>
@@ -1994,12 +2226,10 @@ function PlayerResultCard({ p, player }) {
     </div>
   );
 }
-function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
+function FinalizedGame({ game, roster, onClose, setActiveGame, setGames, adminPassword }) {
   const r = useMemo(() => computeSettlement(game, roster), [game, roster]);
   const players = game.playerIds.map((id) => roster.find((p) => p.id === id)).filter(Boolean);
-  const numPlayers = players.length || 1;
   const d = game.dinner;
-  const sidesFee = d.sidesFee || 0;
   const winner = [...r.players].sort((a, b) => b.balance - a.balance)[0];
   const winnerPlayer = players.find((pl) => pl.id === winner?.playerId);
 
@@ -2014,15 +2244,17 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
   // Vuelve a dejar la partida "en curso" para poder corregir lotes, fichas
   // de cierre, rake, etc. La sacamos del historial hasta que se vuelva a
   // cerrar, para no dejar una copia vieja e inconsistente dando vueltas.
-  const handleBack = () => {
-    if (!confirm("¿Volver a editar esta partida? Vas a poder corregir lotes, rake y fichas de cierre, y después cerrarla de nuevo.")) return;
+  // Se pide la contraseña de administrador porque la partida ya se finalizó
+  // "formalmente" — reabrirla es una acción sensible.
+  const handleBack = async () => {
+    if (!(await requestAdminPassword(adminPassword, "reabrir esta partida"))) return;
     setGames((gs) => gs.filter((g) => g.id !== game.id));
     setActiveGame({ ...game, finished: false });
   };
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <GhostBtn onClick={handleBack} icon={ChevronLeft} color={C.goldSoft}>Volver a editar partida</GhostBtn>
+      <GhostBtn onClick={handleBack} icon={ChevronLeft} color={C.goldSoft}>Reabrir partida</GhostBtn>
 
       <Panel>
         <SectionTitle icon={Trophy}>Resultados de la partida</SectionTitle>
@@ -2077,7 +2309,7 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
         <div style={{ display: "grid", gap: 6 }}>
           {players.map((p) => {
             const alcohol = !!d.alcohol[p.id];
-            const charge = ceilTo100(d.total / numPlayers + sidesFee + d.waiter + (alcohol ? d.alcoholFee : 0));
+            const charge = alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0);
             const paid = !!d.paid?.[p.id];
             return (
               <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
@@ -2185,7 +2417,7 @@ function SwipeableRow({ children, onDelete }) {
   );
 }
 
-function HistoryTab({ games, roster, setGames, adminPassword }) {
+function HistoryTab({ games, roster, setGames, adminPassword, activeGame, setActiveGame }) {
   const [openId, setOpenId] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const sorted = [...games].sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -2194,6 +2426,20 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
     if (!(await requestAdminPassword(adminPassword, "eliminar partidas"))) return;
     if (!confirm(`¿Eliminar definitivamente la partida del ${g.date}? Esta acción no se puede deshacer.`)) return;
     setGames((gs) => gs.filter((x) => x.id !== g.id));
+  };
+
+  // Reabre una partida ya cerrada (y ya reemplazada por otra en curso, o
+  // sin ninguna partida activa) para poder ajustar algo pendiente. Pide
+  // contraseña de administrador porque es una acción sensible: se pierde
+  // temporalmente el resultado ya calculado hasta volver a cerrarla.
+  const handleReopen = async (g) => {
+    if (activeGame && !activeGame.finished) {
+      alert("Ya hay una partida en curso. Finalízala o cancélala antes de reabrir otra.");
+      return;
+    }
+    if (!(await requestAdminPassword(adminPassword, "reabrir esta partida"))) return;
+    setGames((gs) => gs.filter((x) => x.id !== g.id));
+    setActiveGame({ ...g, finished: false });
   };
 
   // Fuerza un reguardado de todas las partidas sin cambiar ningún dato — sirve
@@ -2274,6 +2520,10 @@ function HistoryTab({ games, roster, setGames, adminPassword }) {
                         </div>
                       ))}
                     </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
+                    <GhostBtn onClick={() => handleReopen(g)} icon={ChevronLeft} color={C.goldSoft}>Reabrir partida</GhostBtn>
                   </div>
                 </div>
               )}
