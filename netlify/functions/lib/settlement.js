@@ -16,6 +16,13 @@ function computeSettlement(game, roster) {
     const cashOut = Number((game.finalChips || {})[pid]) || 0;
     const balance = round1(cashOut - totalBuyIn); // balance neto informativo (gana/pierde en total)
 
+    // Ajuste manual capturado al entregar fichas: no cambia el dinero total
+    // en juego (las fichas entregadas se dejan como están), pero puede
+    // corregir hasta cuánto cash se le reconoce a este jugador a la hora de
+    // decidir quién cobra en efectivo vs. por transferencia.
+    const cashAdjust = Number((game.finalChipsAdjust || {})[pid]) || 0;
+    const cashAmountAdjusted = Math.max(0, round1(cashAmount + cashAdjust));
+
     // Regla: el cash out primero salda el buy-in virtual. Lo que sobra de eso
     // ("netClaim") es lo que el jugador realmente puede reclamar del pozo de
     // cash real — no el balance total. Si netClaim <= 0, ni siquiera alcanzó
@@ -25,7 +32,7 @@ function computeSettlement(game, roster) {
     let pagoCash = 0;
     let pagoTransfer = 0;
     if (netClaim > 0) {
-      pagoCash = round1(Math.min(cashAmount, netClaim));
+      pagoCash = round1(Math.min(cashAmountAdjusted, netClaim));
       pagoTransfer = round1(netClaim - pagoCash);
     } else {
       pagoCash = 0;
