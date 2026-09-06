@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "2.03.07.027";
+const APP_VERSION = "2.04.07.028";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -94,15 +94,17 @@ function requestIdentity(roster) {
     _showIdentityModal(roster, resolve);
   });
 }
-function IdentityModal() {
+function IdentityModal({ setRoster }) {
   const [pending, setPending] = useState(null); // { roster, onSubmit }
   const [pickedId, setPickedId] = useState("");
   const [pin, setPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [newPinConfirm, setNewPinConfirm] = useState("");
   const [err, setErr] = useState("");
 
   useEffect(() => {
     _showIdentityModal = (roster, onSubmit) => {
-      setPickedId(""); setPin(""); setErr("");
+      setPickedId(""); setPin(""); setNewPin(""); setNewPinConfirm(""); setErr("");
       setPending({ roster, onSubmit });
     };
     return () => { _showIdentityModal = null; };
@@ -120,6 +122,16 @@ function IdentityModal() {
   const submitPin = () => {
     if (!picked) return;
     if (picked.pin && picked.pin !== pin) { setErr("PIN incorrecto."); return; }
+    finish(picked.id);
+  };
+  // El Excel (hoja "roster") es la fuente de verdad de los PIN. Si este
+  // jugador todavía no tiene uno ahí, lo obligamos a crearlo aquí mismo antes
+  // de dejarlo entrar, para que quede registrado desde ya.
+  const submitNewPin = () => {
+    if (!picked) return;
+    if (!/^\d{4}$/.test(newPin)) { setErr("El PIN debe ser numérico, de exactamente 4 dígitos."); return; }
+    if (newPin !== newPinConfirm) { setErr("Los PIN no coinciden."); return; }
+    setRoster((r) => r.map((p) => (p.id === picked.id ? { ...p, pin: newPin } : p)));
     finish(picked.id);
   };
 
@@ -161,16 +173,34 @@ function IdentityModal() {
                   onKeyDown={(e) => { if (e.key === "Enter") submitPin(); if (e.key === "Escape") finish(null); }}
                 />
                 {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
+                <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+                  <GhostBtn onClick={() => { setPickedId(""); setPin(""); setErr(""); }}>Atrás</GhostBtn>
+                  <PrimaryBtn onClick={submitPin}>Entrar</PrimaryBtn>
+                </div>
               </>
             ) : (
-              <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 4 }}>
-                Este jugador todavía no tiene PIN configurado. Puedes identificarte igual, pero para protegerte de verdad, configura un PIN desde la pestaña Jugadores.
-              </div>
+              <>
+                <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>
+                  Todavía no tienes un PIN registrado. Crea uno de 4 dígitos para poder identificarte en tus celulares:
+                </div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  <input
+                    type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle} placeholder="Nuevo PIN (4 dígitos)"
+                    value={newPin} onChange={(e) => { setNewPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
+                  />
+                  <input
+                    type="password" inputMode="numeric" maxLength={4} style={inputStyle} placeholder="Confirma tu PIN"
+                    value={newPinConfirm} onChange={(e) => { setNewPinConfirm(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") submitNewPin(); if (e.key === "Escape") finish(null); }}
+                  />
+                </div>
+                {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
+                <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+                  <GhostBtn onClick={() => { setPickedId(""); setNewPin(""); setNewPinConfirm(""); setErr(""); }}>Atrás</GhostBtn>
+                  <PrimaryBtn onClick={submitNewPin}>Crear PIN y entrar</PrimaryBtn>
+                </div>
+              </>
             )}
-            <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-              <GhostBtn onClick={() => { setPickedId(""); setPin(""); setErr(""); }}>Atrás</GhostBtn>
-              <PrimaryBtn onClick={submitPin}>Entrar</PrimaryBtn>
-            </div>
           </>
         )}
       </div>
@@ -182,9 +212,11 @@ function IdentityModal() {
 // en este celular, no se puede navegar por la app en absoluto — a diferencia
 // del modal de "cambiar identidad" (que sí se puede cancelar porque ahí ya
 // estabas identificado), esta pantalla no tiene forma de saltearse.
-function IdentityGateScreen({ roster, onIdentified }) {
+function IdentityGateScreen({ roster, setRoster, onIdentified }) {
   const [pickedId, setPickedId] = useState("");
   const [pin, setPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [newPinConfirm, setNewPinConfirm] = useState("");
   const [err, setErr] = useState("");
 
   const players = roster.filter((p) => p.active).sort((a, b) => a.name.localeCompare(b.name));
@@ -193,6 +225,15 @@ function IdentityGateScreen({ roster, onIdentified }) {
   const submitPin = () => {
     if (!picked) return;
     if (picked.pin && picked.pin !== pin) { setErr("PIN incorrecto."); return; }
+    onIdentified(picked.id);
+  };
+  // Igual que en el modal de identidad: si el jugador no tiene PIN en el
+  // Excel, lo obligamos a crear uno antes de dejarlo pasar.
+  const submitNewPin = () => {
+    if (!picked) return;
+    if (!/^\d{4}$/.test(newPin)) { setErr("El PIN debe ser numérico, de exactamente 4 dígitos."); return; }
+    if (newPin !== newPinConfirm) { setErr("Los PIN no coinciden."); return; }
+    setRoster((r) => r.map((p) => (p.id === picked.id ? { ...p, pin: newPin } : p)));
     onIdentified(picked.id);
   };
 
@@ -238,16 +279,34 @@ function IdentityGateScreen({ roster, onIdentified }) {
                     onKeyDown={(e) => { if (e.key === "Enter") submitPin(); }}
                   />
                   {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+                    <GhostBtn onClick={() => { setPickedId(""); setPin(""); setErr(""); }}>Atrás</GhostBtn>
+                    <PrimaryBtn onClick={submitPin}>Entrar</PrimaryBtn>
+                  </div>
                 </>
               ) : (
-                <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 4 }}>
-                  Este jugador todavía no tiene PIN configurado. Puedes continuar, pero para protegerte de verdad configura un PIN desde la pestaña Jugadores en cuanto entres.
-                </div>
+                <>
+                  <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>
+                    Todavía no tienes un PIN registrado. Crea uno de 4 dígitos para poder identificarte en tus celulares:
+                  </div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <input
+                      type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle} placeholder="Nuevo PIN (4 dígitos)"
+                      value={newPin} onChange={(e) => { setNewPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
+                    />
+                    <input
+                      type="password" inputMode="numeric" maxLength={4} style={inputStyle} placeholder="Confirma tu PIN"
+                      value={newPinConfirm} onChange={(e) => { setNewPinConfirm(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") submitNewPin(); }}
+                    />
+                  </div>
+                  {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+                    <GhostBtn onClick={() => { setPickedId(""); setNewPin(""); setNewPinConfirm(""); setErr(""); }}>Atrás</GhostBtn>
+                    <PrimaryBtn onClick={submitNewPin}>Crear PIN y entrar</PrimaryBtn>
+                  </div>
+                </>
               )}
-              <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-                <GhostBtn onClick={() => { setPickedId(""); setPin(""); setErr(""); }}>Atrás</GhostBtn>
-                <PrimaryBtn onClick={submitPin}>Entrar</PrimaryBtn>
-              </div>
             </>
           )}
         </div>
@@ -663,7 +722,7 @@ export default function PokerLedger() {
   // jugadores dados de alta), no hay nadie para elegir — se deja pasar para
   // que se pueda cargar al primer jugador desde la pestaña Jugadores.
   if (roster.length > 0 && !myPlayerId) {
-    return <IdentityGateScreen roster={roster} onIdentified={setMyPlayerId} />;
+    return <IdentityGateScreen roster={roster} setRoster={setRoster} onIdentified={setMyPlayerId} />;
   }
 
   return (
@@ -707,7 +766,7 @@ export default function PokerLedger() {
 
       <AdminPasswordModal />
       <ConfirmModal />
-      <IdentityModal />
+      <IdentityModal setRoster={setRoster} />
     </div>
   );
 }
