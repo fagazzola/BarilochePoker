@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "2.05.07.029";
+const APP_VERSION = "2.06.07.030";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -982,6 +982,30 @@ const inputStyle = {
   width: "100%", background: "rgba(0,0,0,0.25)", border: `1px solid ${C.panelLine}`,
   borderRadius: 8, padding: "9px 10px", color: C.card, fontSize: 14.5, ...bodyFont,
 };
+// Campo para montos en pesos (lote, rake, cena, etc.): mientras se está
+// editando se ve el número "pelón" para no pelear con el cursor, pero en
+// cuanto se sale del campo (blur) se muestra formateado como $#,##0.
+function MoneyInput({ value, onChange, disabled, placeholder, style }) {
+  const [focused, setFocused] = useState(false);
+  const display = focused
+    ? (value || value === 0 ? String(value) : "")
+    : (value || value === 0 ? money(value) : "");
+  return (
+    <input
+      type="text" inputMode="numeric"
+      disabled={disabled}
+      style={{ ...inputStyle, opacity: disabled ? 0.55 : 1, cursor: disabled ? "not-allowed" : "text", ...style }}
+      placeholder={placeholder}
+      value={display}
+      onFocus={(e) => { setFocused(true); requestAnimationFrame(() => e.target.select()); }}
+      onChange={(e) => {
+        const digits = e.target.value.replace(/[^\d]/g, "");
+        onChange(digits === "" ? 0 : Number(digits));
+      }}
+      onBlur={() => setFocused(false)}
+    />
+  );
+}
 function PrimaryBtn({ children, onClick, disabled, style, icon: Icon }) {
   return (
     <button
@@ -1312,20 +1336,20 @@ function NewGameSetup({ roster, setActiveGame }) {
             <input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
           <Field label="Valor del lote">
-            <input type="number" min="0" style={inputStyle} value={loteValue} onChange={(e) => setLoteValue(e.target.value)} onFocus={(e) => e.target.select()} />
+            <MoneyInput value={loteValue} onChange={setLoteValue} />
           </Field>
         </div>
         <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 12 }}>
           <div style={{ ...displayFont, fontSize: 15, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
           <Field label="Rake para anfitrión">
-            <input type="number" min="0" style={inputStyle} value={rakeHost === 0 ? "" : rakeHost} onChange={(e) => setRakeHost(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
+            <MoneyInput value={rakeHost} onChange={setRakeHost} />
           </Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
             <Field label="Rake para autos — # de autos">
               <input type="number" min="0" style={inputStyle} value={rakeAutosCount === 0 ? "" : rakeAutosCount} onChange={(e) => setRakeAutosCount(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
             </Field>
             <Field label="Monto por auto">
-              <input type="number" min="0" style={inputStyle} value={rakeAutoAmount} onChange={(e) => setRakeAutoAmount(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
+              <MoneyInput value={rakeAutoAmount} onChange={setRakeAutoAmount} />
             </Field>
           </div>
           <div style={{ marginTop: 10 }}>
@@ -1483,11 +1507,29 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
     if (!myPlayerId || amt <= 0) return;
     update((g) => ({ requests: [...(g.requests || []), { id: uid(), playerId: myPlayerId, type, amount: amt, status: "pending", ts: Date.now() }] }));
   };
+  // Alguien que ya se identificó con su PIN pero todavía no está sentado en
+  // esta mesa (no llegó a tiempo para el alta inicial, o se sumó a mitad de
+  // la noche) no puede simplemente entrar solo: le manda al host una
+  // solicitud de "agrégame a la mesa", igual que cuando pide fichas.
+  const submitJoinRequest = () => {
+    if (!myPlayerId) return;
+    update((g) => {
+      const already = (g.requests || []).some((r) => r.playerId === myPlayerId && r.type === "join" && r.status === "pending");
+      if (already) return {};
+      return { requests: [...(g.requests || []), { id: uid(), playerId: myPlayerId, type: "join", amount: 0, status: "pending", ts: Date.now() }] };
+    });
+  };
   const resolveRequest = (reqId, approve) => {
     update((g) => {
       const req = (g.requests || []).find((r) => r.id === reqId);
       if (!req || req.status !== "pending") return {};
       if (approve) {
+        if (req.type === "join") {
+          return {
+            playerIds: g.playerIds.includes(req.playerId) ? g.playerIds : [...g.playerIds, req.playerId],
+            requests: g.requests.map((r) => (r.id === reqId ? { ...r, status: "approved" } : r)),
+          };
+        }
         const entry = { id: uid(), playerId: req.playerId, type: req.type, lotes: g.loteValue ? round1(req.amount / g.loteValue) : 0, amount: req.amount, ts: Date.now() };
         return {
           purchases: [...g.purchases, entry],
@@ -1568,8 +1610,10 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
       return (
         <div style={{ display: "grid", gap: 16 }}>
           {banner}
-          {iAmInGame && (
+          {iAmInGame ? (
             <RequestChipsPanel loteValue={game.loteValue} myRequests={myRequests} onSubmit={submitRequest} />
+          ) : (
+            myPlayerId && <JoinRequestPanel myRequests={myRequests} onSubmit={submitJoinRequest} />
           )}
         </div>
       );
@@ -1692,7 +1736,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   if (effectiveView === "compra") {
     return (
       <div style={{ display: "grid", gap: 16 }}>
-        <PendingRequestsPanel game={game} players={players} onResolve={resolveRequest} />
+        <PendingRequestsPanel game={game} roster={roster} onResolve={resolveRequest} />
         <Panel>
           <SectionTitle icon={Banknote}>Compra de lotes por jugador</SectionTitle>
           <div style={{ display: "grid", gap: 10 }}>
@@ -1722,24 +1766,20 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
           </div>
           <div style={{ marginTop: 14 }}>
             <Field label="Valor de lote">
-              <input type="number" style={inputStyle} value={game.loteValue} onChange={(e) => setLote(e.target.value)} onFocus={(e) => e.target.select()} />
+              <MoneyInput value={game.loteValue} onChange={setLote} />
             </Field>
           </div>
           <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 14 }}>
             <div style={{ ...displayFont, fontSize: 16, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
             <Field label={rakeLocked ? "Rake para anfitrión 🔒" : "Rake para anfitrión"}>
-              <input
-                type="number" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1, cursor: rakeLocked ? "not-allowed" : "text" }}
-                value={game.rakeHost || 0} disabled={rakeLocked}
-                onChange={(e) => setRakeHost(e.target.value)} onFocus={(e) => e.target.select()}
-              />
+              <MoneyInput value={game.rakeHost || 0} onChange={setRakeHost} disabled={rakeLocked} />
             </Field>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
               <Field label="Rake para autos — # de autos">
                 <input type="number" min="0" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1 }} value={game.rakeAutosCount || 0} disabled={rakeLocked} onChange={(e) => setRakeAutosCount(e.target.value)} onFocus={(e) => e.target.select()} />
               </Field>
               <Field label="Monto por auto">
-                <input type="number" min="0" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1 }} value={game.rakeAutoAmount ?? 250} disabled={rakeLocked} onChange={(e) => setRakeAutoAmount(e.target.value)} onFocus={(e) => e.target.select()} />
+                <MoneyInput value={game.rakeAutoAmount ?? 250} onChange={setRakeAutoAmount} disabled={rakeLocked} />
               </Field>
             </div>
             <div style={{ marginTop: 10 }}>
@@ -1821,7 +1861,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   );
 }
 
-function PendingRequestsPanel({ game, players, onResolve }) {
+function PendingRequestsPanel({ game, roster, onResolve }) {
   const pending = (game.requests || []).filter((r) => r.status === "pending");
   if (pending.length === 0) return null;
   return (
@@ -1829,22 +1869,58 @@ function PendingRequestsPanel({ game, players, onResolve }) {
       <SectionTitle icon={AlertCircle}>Solicitudes pendientes ({pending.length})</SectionTitle>
       <div style={{ display: "grid", gap: 8 }}>
         {pending.map((r) => {
-          const p = players.find((pl) => pl.id === r.playerId);
+          // Ojo: para una solicitud de "unirse a la mesa" el jugador todavía
+          // NO está en playerIds, así que hay que buscarlo en el roster
+          // completo (no solo entre los ya sentados) para poder mostrar su
+          // nombre y avatar.
+          const p = roster.find((pl) => pl.id === r.playerId);
+          const isJoin = r.type === "join";
           return (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 9, padding: "9px 10px", flexWrap: "wrap" }}>
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: isJoin ? "rgba(216,173,63,0.14)" : "rgba(0,0,0,0.18)", borderRadius: 9, padding: "9px 10px", flexWrap: "wrap" }}>
               {p && <Avatar player={p} size={24} />}
               <div style={{ flex: 1, minWidth: 120 }}>
                 <div style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{p ? p.name : "?"}</div>
-                <div style={{ ...monoFont, fontSize: 12, color: r.type === "cash" ? C.cash : C.virtual, fontWeight: 700 }}>
-                  {r.type === "cash" ? "Cash" : "Virtual"} · {money(r.amount)}
-                </div>
+                {isJoin ? (
+                  <div style={{ ...monoFont, fontSize: 12, color: C.goldSoft, fontWeight: 700 }}>Pide unirse a la mesa</div>
+                ) : (
+                  <div style={{ ...monoFont, fontSize: 12, color: r.type === "cash" ? C.cash : C.virtual, fontWeight: 700 }}>
+                    {r.type === "cash" ? "Cash" : "Virtual"} · {money(r.amount)}
+                  </div>
+                )}
               </div>
-              <GhostBtn icon={Check} color={C.win} onClick={() => onResolve(r.id, true)}>Aceptar</GhostBtn>
+              <GhostBtn icon={Check} color={C.win} onClick={() => onResolve(r.id, true)}>{isJoin ? "Agregar a la mesa" : "Aceptar"}</GhostBtn>
               <GhostBtn icon={X} color={C.loss} onClick={() => onResolve(r.id, false)}>Rechazar</GhostBtn>
             </div>
           );
         })}
       </div>
+    </Panel>
+  );
+}
+
+function JoinRequestPanel({ myRequests, onSubmit }) {
+  const joinRequests = myRequests.filter((r) => r.type === "join");
+  const pending = joinRequests.some((r) => r.status === "pending");
+  const rejected = [...joinRequests].reverse().find((r) => r.status === "rejected");
+
+  return (
+    <Panel>
+      <SectionTitle icon={Users}>Unirme a la mesa</SectionTitle>
+      <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 12 }}>
+        Todavía no estás en esta partida. Pídele al host que te agregue para poder comprar lotes.
+      </div>
+      {pending ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(216,173,63,0.1)", border: `1px dashed ${C.panelLine}`, borderRadius: 8, padding: "9px 10px" }}>
+          <span style={{ fontSize: 12.5, color: "rgba(244,234,214,0.7)" }}>Esperando a que el host te agregue a la mesa…</span>
+        </div>
+      ) : (
+        <>
+          {rejected && (
+            <div style={{ fontSize: 12, color: C.loss, marginBottom: 8 }}>El host rechazó tu solicitud anterior. Puedes volver a pedirlo.</div>
+          )}
+          <PrimaryBtn icon={Plus} onClick={onSubmit}>Solicitar unirme a la mesa</PrimaryBtn>
+        </>
+      )}
     </Panel>
   );
 }
@@ -2047,14 +2123,10 @@ function DinnerSection({ game, players, update }) {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="Cena sin alcohol (por jugador)">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.amountNoAlcohol === 0 ? "" : d.amountNoAlcohol} onChange={(e) => setD({ amountNoAlcohol: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
-          </div>
+          <MoneyInput value={d.amountNoAlcohol || 0} onChange={(v) => setD({ amountNoAlcohol: v })} />
         </Field>
         <Field label="Cena con alcohol (por jugador)">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="number" style={inputStyle} value={d.amountAlcohol === 0 ? "" : d.amountAlcohol} onChange={(e) => setD({ amountAlcohol: e.target.value === "" ? 0 : Number(e.target.value) })} onFocus={(e) => e.target.select()} />
-          </div>
+          <MoneyInput value={d.amountAlcohol || 0} onChange={(v) => setD({ amountAlcohol: v })} />
         </Field>
       </div>
       <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
