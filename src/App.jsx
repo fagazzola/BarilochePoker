@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "2.09.07.033";
+const APP_VERSION = "2.12.07.036";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -518,26 +518,28 @@ function computeSettlement(game, roster) {
     const cashOut = Number(game.finalChips[pid]) || 0; // lo reportado en fichas
     const balance = round1(cashOut - totalBuyIn); // balance neto informativo (gana/pierde en total)
 
-    // Ajuste manual capturado al entregar fichas: no cambia el dinero total
-    // en juego (las fichas entregadas se dejan como están), pero puede
-    // corregir hasta cuánto cash se le reconoce a este jugador a la hora de
-    // decidir quién cobra en efectivo vs. por transferencia.
+    // Ajuste manual capturado al entregar fichas: corrige las fichas
+    // realmente entregadas (un billete/ficha mal contado, etc.), sin tocar
+    // el campo principal de fichas ni el cuadre total de dinero de la
+    // partida. Como las fichas entregadas son lo que primero salda el
+    // buy-in virtual, el ajuste impacta ese cálculo (y por lo tanto cuánto
+    // termina cobrando en cash vs. transferencia).
     const cashAdjust = Number((game.finalChipsAdjust || {})[pid]) || 0;
-    const cashAmountAdjusted = Math.max(0, round1(cashAmount + cashAdjust));
+    const fichasAjustadas = round1(cashOut + cashAdjust);
 
-    // Regla: el cash out primero salda el buy-in virtual. Lo que sobra de eso
-    // ("netClaim") es lo que el jugador realmente puede reclamar del pozo de
-    // cash real — no el balance total. Si netClaim <= 0, ni siquiera alcanzó
-    // para saldar el virtual, y esa diferencia se debe por transferencia.
-    const netClaim = round1(cashOut - virtualAmount);
+    // Regla: el cash out (ya ajustado) primero salda el buy-in virtual. Lo
+    // que sobra de eso ("netClaim") es lo que el jugador realmente puede
+    // reclamar del pozo de cash real — no el balance total. Si netClaim <= 0,
+    // ni siquiera alcanzó para saldar el virtual, y esa diferencia se debe
+    // por transferencia.
+    const netClaim = round1(fichasAjustadas - virtualAmount);
 
     let pagoCash = 0;
     let pagoTransfer = 0;
     if (netClaim > 0) {
-      // Puede cobrar en cash hasta lo que él mismo puso en cash (más el
-      // ajuste manual, si lo hay); el resto del reclamo (si lo hay) se cobra
-      // por transferencia.
-      pagoCash = round1(Math.min(cashAmountAdjusted, netClaim));
+      // Puede cobrar en cash hasta lo que él mismo puso en cash; el resto
+      // del reclamo (si lo hay) se cobra por transferencia.
+      pagoCash = round1(Math.min(cashAmount, netClaim));
       pagoTransfer = round1(netClaim - pagoCash);
     } else {
       pagoCash = 0;
@@ -1472,6 +1474,20 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   const [finalizing, setFinalizing] = useState(false);
   const effectiveView = view || "estatus";
 
+  // Si el host cambia de pestaña (arriba, en el Header) mientras está en la
+  // pantalla de "Finalizar partida", eso debe sacarlo de esa pantalla — si
+  // no, como "finalizing" es un estado aparte que no depende de la pestaña,
+  // el componente se queda mostrando "Finalizar partida" sin importar qué
+  // pestaña se toque, y da la sensación de que las demás pestañas
+  // desaparecieron/no responden.
+  const prevViewRef = useRef(effectiveView);
+  useEffect(() => {
+    if (prevViewRef.current !== effectiveView) {
+      setFinalizing(false);
+      prevViewRef.current = effectiveView;
+    }
+  }, [effectiveView]);
+
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
   const availableToAdd = roster.filter((p) => p.active && !game.playerIds.includes(p.id));
 
@@ -2290,8 +2306,12 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
             const hasEntered = values[p.id] !== "";
             const fichas = Number(values[p.id]) || 0;
             const adj = Number(adjustments[p.id]) || 0;
-            const virtualPagado = Math.max(0, Math.min(fichas, bi.virtual));
-            const cashOutPendiente = round1(fichas - bi.virtual);
+            // El ajuste manual corrige las fichas realmente entregadas (no el
+            // campo de fichas que se guarda), y esas fichas ajustadas son las
+            // que saldan primero el buy-in virtual.
+            const fichasAjustadas = round1(fichas + adj);
+            const virtualPagado = Math.max(0, Math.min(fichasAjustadas, bi.virtual));
+            const cashOutPendiente = round1(fichasAjustadas - bi.virtual);
             const debeVirtual = cashOutPendiente < 0;
             const cashAjustado = round1(bi.cash + adj);
             return (

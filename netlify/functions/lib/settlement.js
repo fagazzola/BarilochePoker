@@ -16,23 +16,26 @@ function computeSettlement(game, roster) {
     const cashOut = Number((game.finalChips || {})[pid]) || 0;
     const balance = round1(cashOut - totalBuyIn); // balance neto informativo (gana/pierde en total)
 
-    // Ajuste manual capturado al entregar fichas: no cambia el dinero total
-    // en juego (las fichas entregadas se dejan como están), pero puede
-    // corregir hasta cuánto cash se le reconoce a este jugador a la hora de
-    // decidir quién cobra en efectivo vs. por transferencia.
+    // Ajuste manual capturado al entregar fichas: corrige las fichas
+    // realmente entregadas (un billete/ficha mal contado, etc.), sin tocar
+    // el campo principal de fichas ni el cuadre total de dinero de la
+    // partida. Como las fichas entregadas son lo que primero salda el
+    // buy-in virtual, el ajuste impacta ese cálculo (y por lo tanto cuánto
+    // termina cobrando en cash vs. transferencia).
     const cashAdjust = Number((game.finalChipsAdjust || {})[pid]) || 0;
-    const cashAmountAdjusted = Math.max(0, round1(cashAmount + cashAdjust));
+    const fichasAjustadas = round1(cashOut + cashAdjust);
 
-    // Regla: el cash out primero salda el buy-in virtual. Lo que sobra de eso
-    // ("netClaim") es lo que el jugador realmente puede reclamar del pozo de
-    // cash real — no el balance total. Si netClaim <= 0, ni siquiera alcanzó
-    // para saldar el virtual, y esa diferencia se debe por transferencia.
-    const netClaim = round1(cashOut - virtualAmount);
+    // Regla: el cash out (ya ajustado) primero salda el buy-in virtual. Lo
+    // que sobra de eso ("netClaim") es lo que el jugador realmente puede
+    // reclamar del pozo de cash real — no el balance total. Si netClaim <= 0,
+    // ni siquiera alcanzó para saldar el virtual, y esa diferencia se debe
+    // por transferencia.
+    const netClaim = round1(fichasAjustadas - virtualAmount);
 
     let pagoCash = 0;
     let pagoTransfer = 0;
     if (netClaim > 0) {
-      pagoCash = round1(Math.min(cashAmountAdjusted, netClaim));
+      pagoCash = round1(Math.min(cashAmount, netClaim));
       pagoTransfer = round1(netClaim - pagoCash);
     } else {
       pagoCash = 0;
