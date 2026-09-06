@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "2.04.07.028";
+const APP_VERSION = "2.05.07.029";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -646,15 +646,18 @@ export default function PokerLedger() {
     if (ok) setMyPlayerId("");
   };
   const hasActive = !!activeGame && !activeGame.finished;
+  const isHost = hasActive && !!myPlayerId && myPlayerId === activeGame.hostId;
 
   // Si una partida en curso termina o se cancela mientras alguien está parado
   // en una de las pestañas exclusivas de "partida en curso" (Cena, Lote y
   // Rake, o Jugadores-de-la-partida), lo mandamos de vuelta a la pestaña
-  // principal para que no quede en una pestaña que ya no existe.
+  // principal para que no quede en una pestaña que ya no existe. Lo mismo si
+  // quien no es host queda parado en una pestaña que ahora es solo del host.
   useEffect(() => {
     if (!hasActive && (tab === "cena" || tab === "loterake" || tab === "compra")) setTab("partida");
     if (hasActive && tab === "historial") setTab("partida");
-  }, [hasActive, tab]);
+    if (hasActive && !isHost && (tab === "cena" || tab === "loterake" || tab === "jugadores")) setTab("partida");
+  }, [hasActive, isHost, tab]);
 
   useEffect(() => {
     (async () => {
@@ -677,21 +680,83 @@ export default function PokerLedger() {
   const skipNextGamesSave = useRef(true);
   const skipNextActiveSave = useRef(true);
 
+  // Mientras este dispositivo tiene un cambio propio recién guardándose, el
+  // polling (más abajo) no debe pisarlo con lo que todavía estaba en el
+  // Excel un instante antes — si no, se ve como que el cambio "no pegó" por
+  // un segundo. Cada guardado local extiende su propio "candado" unos
+  // segundos; pasado ese tiempo, el polling ya puede volver a sincronizar
+  // libremente desde el Excel (por ejemplo, para traer los cambios que hizo
+  // OTRO dispositivo).
+  const rosterLockUntil = useRef(0);
+  const gamesLockUntil = useRef(0);
+  const activeLockUntil = useRef(0);
+  const LOCK_MS = 3000;
+
   useEffect(() => {
     if (loading) return;
     if (skipNextRosterSave.current) { skipNextRosterSave.current = false; return; }
+    rosterLockUntil.current = Date.now() + LOCK_MS;
     saveKey(KEYS.roster, roster);
   }, [roster, loading]);
   useEffect(() => {
     if (loading) return;
     if (skipNextGamesSave.current) { skipNextGamesSave.current = false; return; }
+    gamesLockUntil.current = Date.now() + LOCK_MS;
     saveKey(KEYS.games, games);
   }, [games, loading]);
   useEffect(() => {
     if (loading) return;
     if (skipNextActiveSave.current) { skipNextActiveSave.current = false; return; }
+    activeLockUntil.current = Date.now() + LOCK_MS;
     saveKey(KEYS.active, activeGame);
   }, [activeGame, loading]);
+
+  // Este ledger no tiene tiempo real (no hay websockets): cada celular
+  // guarda sus cambios al Excel, pero para ENTERARSE de lo que hicieron los
+  // demás dispositivos (el host inició la partida, otro jugador pidió
+  // fichas, el host la aceptó, etc.) hace falta ir a preguntarle al Excel
+  // de vez en cuando. Sin este polling, cada quien se quedaba viendo una
+  // foto congelada de cuando entró a la app.
+  const POLL_MS = 4000;
+  useEffect(() => {
+    if (loading) return;
+    const interval = setInterval(async () => {
+      try {
+        const [r, g, a] = await Promise.all([
+          loadKey(KEYS.roster, []),
+          loadKey(KEYS.games, []),
+          loadKey(KEYS.active, null),
+        ]);
+        const now = Date.now();
+        if (now >= rosterLockUntil.current) {
+          setRoster((prev) => {
+            if (JSON.stringify(prev) === JSON.stringify(r)) return prev;
+            skipNextRosterSave.current = true;
+            return r;
+          });
+        }
+        if (now >= gamesLockUntil.current) {
+          setGames((prev) => {
+            if (JSON.stringify(prev) === JSON.stringify(g)) return prev;
+            skipNextGamesSave.current = true;
+            return g;
+          });
+        }
+        if (now >= activeLockUntil.current) {
+          setActiveGame((prev) => {
+            if (JSON.stringify(prev) === JSON.stringify(a)) return prev;
+            skipNextActiveSave.current = true;
+            return a;
+          });
+        }
+      } catch {
+        // Si falla una vuelta de polling (por ejemplo, sin conexión un
+        // instante), simplemente se reintenta en la siguiente — no vale la
+        // pena molestar al usuario por esto.
+      }
+    }, POLL_MS);
+    return () => clearInterval(interval);
+  }, [loading]);
 
   const playerStats = useCallback(
     (playerId) => {
@@ -741,7 +806,7 @@ export default function PokerLedger() {
         .scrollbar-thin::-webkit-scrollbar-thumb { background: ${C.panelLine}; border-radius: 3px; }
       `}</style>
 
-      <Header tab={tab} setTab={setTab} hasActive={hasActive} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} onLogout={logout} />
+      <Header tab={tab} setTab={setTab} hasActive={hasActive} isHost={isHost} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} onLogout={logout} />
 
       <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 14px 60px" }}>
         {tab === "jugadores" && !hasActive && (
@@ -774,15 +839,20 @@ export default function PokerLedger() {
 /* ----------------------------------------------------------------------
    HEADER / TABS
 ---------------------------------------------------------------------- */
-function Header({ tab, setTab, hasActive, me, onIdentify, onLogout }) {
+function Header({ tab, setTab, hasActive, isHost, me, onIdentify, onLogout }) {
   const tabs = hasActive
-    ? [
-        { id: "partida", label: "Estatus jugada", icon: Activity },
-        { id: "compra", label: "Compra de lotes", icon: Banknote },
-        { id: "jugadores", label: "Jugadores", icon: Users },
-        { id: "cena", label: "Cena y servicio", icon: UtensilsCrossed },
-        { id: "loterake", label: "Lote y Rakes", icon: Coins },
-      ]
+    ? (isHost
+        ? [
+            { id: "partida", label: "Estatus jugada", icon: Activity },
+            { id: "compra", label: "Compra de lotes", icon: Banknote },
+            { id: "jugadores", label: "Jugadores", icon: Users },
+            { id: "cena", label: "Cena y servicio", icon: UtensilsCrossed },
+            { id: "loterake", label: "Lote y Rakes", icon: Coins },
+          ]
+        : [
+            { id: "partida", label: "Estatus jugada", icon: Activity },
+            { id: "compra", label: "Compra de lotes", icon: Banknote },
+          ])
     : [
         { id: "partida", label: "Partida", icon: Flame },
         { id: "jugadores", label: "Jugadores", icon: Users },
