@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "2.07.07.031";
+const APP_VERSION = "2.08.07.032";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -503,22 +503,6 @@ function Avatar({ player, size = 30 }) {
       {(player?.name || "?").slice(0, 1).toUpperCase()}
     </div>
   );
-}
-
-/* Break an amount (assumed multiple of 100) into bills of 500/200/100 */
-function billsFor(amount) {
-  let a = Math.max(0, Math.round(amount / 100) * 100);
-  const b500 = Math.floor(a / 500); a -= b500 * 500;
-  const b200 = Math.floor(a / 200); a -= b200 * 200;
-  const b100 = Math.round(a / 100);
-  return { 500: b500, 200: b200, 100: b100 };
-}
-function billsLabel(bd) {
-  const parts = [];
-  if (bd[500]) parts.push(`${bd[500]}×$500`);
-  if (bd[200]) parts.push(`${bd[200]}×$200`);
-  if (bd[100]) parts.push(`${bd[100]}×$100`);
-  return parts.length ? parts.join(" + ") : "—";
 }
 
 /* ----------------------------------------------------------------------
@@ -2517,7 +2501,7 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames, adminPa
           {r.players.filter((p) => p.pagoCash > 0).map((p) => (
             <div key={p.playerId} style={{ display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
               <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
-              <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)} · {billsLabel(billsFor(p.pagoCash))}</span>
+              <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)}</span>
             </div>
           ))}
           {r.players.every((p) => p.pagoCash === 0) && <Empty>No hay efectivo para repartir.</Empty>}
@@ -2735,7 +2719,7 @@ function HistoryTab({ games, roster, setGames, adminPassword, activeGame, setAct
                       {results.players.filter((p) => p.pagoCash > 0).map((p) => (
                         <div key={p.playerId} style={{ display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
                           <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
-                          <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)} · {billsLabel(billsFor(p.pagoCash))}</span>
+                          <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)}</span>
                         </div>
                       ))}
                       {results.players.every((p) => p.pagoCash === 0) && <Empty>No hay efectivo para repartir.</Empty>}
