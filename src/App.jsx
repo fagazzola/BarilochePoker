@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "2.01.07.025";
+const APP_VERSION = "2.02.07.026";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -594,6 +594,7 @@ export default function PokerLedger() {
   // principal para que no quede en una pestaña que ya no existe.
   useEffect(() => {
     if (!hasActive && (tab === "cena" || tab === "loterake" || tab === "compra")) setTab("partida");
+    if (hasActive && tab === "historial") setTab("partida");
   }, [hasActive, tab]);
 
   useEffect(() => {
@@ -722,12 +723,11 @@ function Header({ tab, setTab, hasActive, me, onIdentify, onLogout }) {
         { id: "compra", label: "Compra de lotes", icon: Banknote },
         { id: "loterake", label: "Lote y Rake", icon: Coins },
         { id: "jugadores", label: "Jugadores", icon: Users },
-        { id: "historial", label: "Información histórica", icon: History },
       ]
     : [
         { id: "partida", label: "Partida", icon: Flame },
         { id: "jugadores", label: "Jugadores", icon: Users },
-        { id: "historial", label: "Historial", icon: History },
+        { id: "historial", label: "Histórico", icon: History },
       ];
   const handleIdentityClick = () => { if (me) onLogout(); else onIdentify(); };
   return (
@@ -789,7 +789,7 @@ function Header({ tab, setTab, hasActive, me, onIdentify, onLogout }) {
             <span style={{ ...displayFont, fontSize: 15, color: C.goldSoft, letterSpacing: "0.04em" }}>Jugada en Curso</span>
           </div>
         )}
-        <div style={{ display: "flex", gap: 4, marginTop: 12, flexWrap: "wrap" }}>
+        <div className="scrollbar-thin" style={{ display: "flex", gap: 4, marginTop: 12, flexWrap: "nowrap", overflowX: "auto", overflowY: "hidden" }}>
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -798,7 +798,7 @@ function Header({ tab, setTab, hasActive, me, onIdentify, onLogout }) {
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 style={{
-                  display: "flex", alignItems: "center", gap: 6,
+                  display: "flex", alignItems: "center", gap: 6, flexShrink: 0, whiteSpace: "nowrap",
                   padding: "8px 14px", border: "none", cursor: "pointer",
                   background: "transparent",
                   color: active ? C.goldSoft : "rgba(244,234,214,0.55)",
@@ -1145,7 +1145,7 @@ function NewGameSetup({ roster, setActiveGame }) {
   const active = roster.filter((p) => p.active);
   const [date, setDate] = useState(todayISO());
   const [loteValue, setLoteValue] = useState(1000);
-  const [rakeHost, setRakeHost] = useState(1500); // arranca en 1500, pero se puede editar
+  const rakeHost = 1500; // monto fijo, no editable
   const [rakeAutosCount, setRakeAutosCount] = useState(0);
   const [rakeAutoAmount, setRakeAutoAmount] = useState(250);
   const [selected, setSelected] = useState([]);
@@ -1188,8 +1188,8 @@ function NewGameSetup({ roster, setActiveGame }) {
         </div>
         <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 12 }}>
           <div style={{ ...displayFont, fontSize: 15, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
-          <Field label="Rake para anfitrión">
-            <input type="number" min="0" style={inputStyle} value={rakeHost === 0 ? "" : rakeHost} onChange={(e) => setRakeHost(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
+          <Field label="Rake para anfitrión (fijo)">
+            <input type="number" style={{ ...inputStyle, opacity: 0.55, cursor: "not-allowed" }} value={rakeHost} disabled />
           </Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
             <Field label="Rake para autos — # de autos">
@@ -1497,7 +1497,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
       const rakeAutoAmount = patch.rakeAutoAmount !== undefined ? Number(patch.rakeAutoAmount) || 0 : (g.rakeAutoAmount ?? 250);
       return { rakeHost, rakeAutosCount, rakeAutoAmount, rake: round1(rakeHost + rakeAutosCount * rakeAutoAmount) };
     });
-  const setRakeHost = (v) => setRakeParts({ rakeHost: v });
   const setRakeAutosCount = (v) => setRakeParts({ rakeAutosCount: v });
   const setRakeAutoAmount = (v) => setRakeParts({ rakeAutoAmount: v });
 
@@ -1602,11 +1601,10 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
           </div>
           <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 14 }}>
             <div style={{ ...displayFont, fontSize: 16, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
-            <Field label={rakeLocked ? "Rake para anfitrión 🔒" : "Rake para anfitrión"}>
+            <Field label="Rake para anfitrión (fijo)">
               <input
-                type="number" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1, cursor: rakeLocked ? "not-allowed" : "text" }}
-                value={game.rakeHost || 0} disabled={rakeLocked}
-                onChange={(e) => setRakeHost(e.target.value)} onFocus={(e) => e.target.select()}
+                type="number" style={{ ...inputStyle, opacity: 0.55, cursor: "not-allowed" }}
+                value={game.rakeHost || 1500} disabled
               />
             </Field>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
@@ -1630,7 +1628,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   if (effectiveView === "jugadoresPartida") {
     return (
       <div style={{ display: "grid", gap: 16 }}>
-        <GameStatusBlock game={game} players={players} totals={totals} />
         <Panel>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
             <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
