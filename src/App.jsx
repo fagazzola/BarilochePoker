@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "1.16.07.024";
+const APP_VERSION = "2.01.07.025";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -593,7 +593,7 @@ export default function PokerLedger() {
   // Rake, o Jugadores-de-la-partida), lo mandamos de vuelta a la pestaña
   // principal para que no quede en una pestaña que ya no existe.
   useEffect(() => {
-    if (!hasActive && (tab === "cena" || tab === "loterake")) setTab("partida");
+    if (!hasActive && (tab === "cena" || tab === "loterake" || tab === "compra")) setTab("partida");
   }, [hasActive, tab]);
 
   useEffect(() => {
@@ -684,20 +684,10 @@ export default function PokerLedger() {
       <Header tab={tab} setTab={setTab} hasActive={hasActive} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} onLogout={logout} />
 
       <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 14px 60px" }}>
-        {hasActive && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8, marginBottom: 14,
-            background: "rgba(216,173,63,0.14)", border: `1px solid ${C.gold}`,
-            borderRadius: 10, padding: "9px 12px",
-          }}>
-            <span style={{ width: 8, height: 8, borderRadius: 99, background: C.win, flexShrink: 0, boxShadow: "0 0 0 3px rgba(63,191,114,0.25)" }} />
-            <span style={{ ...displayFont, fontSize: 15, color: C.goldSoft, letterSpacing: "0.04em" }}>Jugada en Curso</span>
-          </div>
-        )}
         {tab === "jugadores" && !hasActive && (
           <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} myPlayerId={myPlayerId} />
         )}
-        {(tab === "partida" || tab === "cena" || tab === "loterake" || (tab === "jugadores" && hasActive)) && (
+        {(tab === "partida" || tab === "cena" || tab === "loterake" || tab === "compra" || (tab === "jugadores" && hasActive)) && (
           <GameTab
             roster={roster}
             activeGame={activeGame}
@@ -708,7 +698,7 @@ export default function PokerLedger() {
             onIdentify={identify}
             adminPassword={adminPassword}
             setTab={setTab}
-            subView={tab === "cena" ? "cena" : tab === "loterake" ? "loterake" : tab === "jugadores" ? "jugadoresPartida" : "estatus"}
+            subView={tab === "cena" ? "cena" : tab === "loterake" ? "loterake" : tab === "jugadores" ? "jugadoresPartida" : tab === "compra" ? "compra" : "estatus"}
           />
         )}
         {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} activeGame={activeGame} setActiveGame={setActiveGame} />}
@@ -729,6 +719,7 @@ function Header({ tab, setTab, hasActive, me, onIdentify, onLogout }) {
     ? [
         { id: "partida", label: "Estatus jugada", icon: Activity },
         { id: "cena", label: "Cena y servicio", icon: UtensilsCrossed },
+        { id: "compra", label: "Compra de lotes", icon: Banknote },
         { id: "loterake", label: "Lote y Rake", icon: Coins },
         { id: "jugadores", label: "Jugadores", icon: Users },
         { id: "historial", label: "Información histórica", icon: History },
@@ -788,7 +779,17 @@ function Header({ tab, setTab, hasActive, me, onIdentify, onLogout }) {
             </a>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 4, marginTop: 12 }}>
+        {hasActive && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, marginTop: 12,
+            background: "rgba(216,173,63,0.14)", border: `1px solid ${C.gold}`,
+            borderRadius: 10, padding: "9px 12px",
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: 99, background: C.win, flexShrink: 0, boxShadow: "0 0 0 3px rgba(63,191,114,0.25)" }} />
+            <span style={{ ...displayFont, fontSize: 15, color: C.goldSoft, letterSpacing: "0.04em" }}>Jugada en Curso</span>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 4, marginTop: 12, flexWrap: "wrap" }}>
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -1434,13 +1435,40 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
       );
     }
 
+    if (effectiveView === "compra") {
+      return (
+        <div style={{ display: "grid", gap: 16 }}>
+          {banner}
+          {iAmInGame && (
+            <RequestChipsPanel loteValue={game.loteValue} myRequests={myRequests} onSubmit={submitRequest} />
+          )}
+        </div>
+      );
+    }
+
     return (
       <div style={{ display: "grid", gap: 16 }}>
         {banner}
+        <Panel>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Partida en curso</div>
+              <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span>{game.date} · {players.length} jugadores</span>
+                {game.hostId && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(216,173,63,0.16)", color: C.goldSoft, padding: "2px 7px", borderRadius: 99 }}>
+                    <Crown size={11} /> Host: {roster.find((r) => r.id === game.hostId)?.name || "—"}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 14 }}>
+            <ScoreBox label="Monto del lote" value={money(game.loteValue)} />
+            <ScoreBox label="Rake + estacionamiento" value={money(game.rake)} />
+          </div>
+        </Panel>
         <GameStatusBlock game={game} players={players} totals={totals} />
-        {iAmInGame && (
-          <RequestChipsPanel loteValue={game.loteValue} myRequests={myRequests} onSubmit={submitRequest} />
-        )}
       </div>
     );
   }
@@ -1448,14 +1476,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   const addPurchase = (playerId, type) => {
     update((g) => {
       const entry = { id: uid(), playerId, type, lotes: 1, amount: g.loteValue, ts: Date.now() };
-      return { purchases: [...g.purchases, entry] };
-    });
-  };
-  const addCustomPurchase = (playerId, type, amount) => {
-    const amt = Math.round(Number(amount) || 0);
-    if (amt <= 0) return;
-    update((g) => {
-      const entry = { id: uid(), playerId, type, lotes: g.loteValue ? round1(amt / g.loteValue) : 0, amount: amt, ts: Date.now() };
       return { purchases: [...g.purchases, entry] };
     });
   };
@@ -1467,8 +1487,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
       return { purchases: g.purchases.filter((p) => p.id !== last.id) };
     });
   };
-
-  const unpaidCount = players.filter((p) => !game.dinner.paid?.[p.id]).length;
 
   const setLote = (v) => update({ loteValue: Number(v) || 0 });
   const rakeLocked = Object.keys(game.finalChips || {}).length > 0;
@@ -1534,11 +1552,33 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   if (effectiveView === "cena") {
     return (
       <div style={{ display: "grid", gap: 16 }}>
-        <GameStatusBlock game={game} players={players} totals={totals} />
         <Panel>
           <SectionTitle icon={UtensilsCrossed}>Cena y servicio</SectionTitle>
           <DinnerSection game={game} players={players} update={update} />
         </Panel>
+      </div>
+    );
+  }
+
+  if (effectiveView === "compra") {
+    return (
+      <div style={{ display: "grid", gap: 16 }}>
+        <PendingRequestsPanel game={game} players={players} onResolve={resolveRequest} />
+        <Panel>
+          <SectionTitle icon={Banknote}>Compra de lotes por jugador</SectionTitle>
+          <div style={{ display: "grid", gap: 10 }}>
+            {players.map((p) => (
+              <PlayerBuyRow
+                key={p.id} player={p} game={game} onAdd={addPurchase} onRemoveLast={removeLastPurchase}
+                dinnerPaid={!!game.dinner.paid?.[p.id]}
+                onGoToDinner={() => setTab && setTab("cena")}
+              />
+            ))}
+          </div>
+        </Panel>
+        <PrimaryBtn onClick={() => setFinalizing(true)} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
+          Finalizar partida
+        </PrimaryBtn>
       </div>
     );
   }
@@ -1634,54 +1674,25 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <GameStatusBlock game={game} players={players} totals={totals} />
-
       <Panel>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
-          <div>
-            <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Partida en curso</div>
-            <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <span>{game.date} · {players.length} jugadores</span>
-              {game.hostId && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(216,173,63,0.16)", color: C.goldSoft, padding: "2px 7px", borderRadius: 99 }}>
-                  <Crown size={11} /> Host: {roster.find((r) => r.id === game.hostId)?.name || "—"}
-                </span>
-              )}
-            </div>
+        <div>
+          <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Partida en curso</div>
+          <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span>{game.date} · {players.length} jugadores</span>
+            {game.hostId && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(216,173,63,0.16)", color: C.goldSoft, padding: "2px 7px", borderRadius: 99 }}>
+                <Crown size={11} /> Host: {roster.find((r) => r.id === game.hostId)?.name || "—"}
+              </span>
+            )}
           </div>
-          {unpaidCount > 0 && (
-            <GhostBtn icon={UtensilsCrossed} onClick={() => setTab && setTab("cena")} color={C.loss}>
-              Cena y servicio ({unpaidCount} sin pagar)
-            </GhostBtn>
-          )}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 14 }}>
-          <ScoreBox label="Lote" value={money(game.loteValue)} />
-          <ScoreBox label="Cash" value={money(totals.cash)} tone="cash" />
-          <ScoreBox label="Virtual" value={money(totals.virtual)} tone="virtual" />
-          <ScoreBox label="Rake" value={money(game.rake)} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 14 }}>
+          <ScoreBox label="Monto del lote" value={money(game.loteValue)} />
+          <ScoreBox label="Rake + estacionamiento" value={money(game.rake)} />
         </div>
       </Panel>
 
-      <PendingRequestsPanel game={game} players={players} onResolve={resolveRequest} />
-
-      <Panel>
-        <SectionTitle icon={Banknote}>Compra de lotes por jugador</SectionTitle>
-        <div style={{ display: "grid", gap: 10 }}>
-          {players.map((p) => (
-            <PlayerBuyRow
-              key={p.id} player={p} game={game} onAdd={addPurchase} onRemoveLast={removeLastPurchase}
-              onAddCustom={addCustomPurchase}
-              dinnerPaid={!!game.dinner.paid?.[p.id]}
-              onGoToDinner={() => setTab && setTab("cena")}
-            />
-          ))}
-        </div>
-      </Panel>
-
-      <PrimaryBtn onClick={() => setFinalizing(true)} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
-        Finalizar partida
-      </PrimaryBtn>
+      <GameStatusBlock game={game} players={players} totals={totals} />
     </div>
   );
 }
@@ -1822,24 +1833,22 @@ function ScoreBox({ label, value, tone }) {
 function buyBtnStyle(color, subtract, disabled) {
   return {
     background: subtract ? "transparent" : color,
-    border: `1.5px solid ${color}`,
+    border: `2px solid ${color}`,
     color: subtract ? color : "#fff",
-    borderRadius: 8,
-    padding: "6px 9px",
+    borderRadius: 10,
+    padding: "14px 20px",
     display: "flex",
     alignItems: "center",
-    gap: 4,
+    gap: 8,
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.35 : 1,
-    fontWeight: 700,
-    fontSize: 12,
+    fontWeight: 800,
+    fontSize: 20,
     ...bodyFont,
   };
 }
 
-function PlayerBuyRow({ player, game, onAdd, onRemoveLast, onAddCustom, dinnerPaid, onGoToDinner }) {
-  const [customAmount, setCustomAmount] = useState("");
-  const [customType, setCustomType] = useState("cash");
+function PlayerBuyRow({ player, game, onAdd, onRemoveLast, dinnerPaid, onGoToDinner }) {
   const entries = game.purchases.filter((p) => p.playerId === player.id);
   const cashLotes = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.lotes, 0);
   const virtualLotes = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.lotes, 0);
@@ -1847,16 +1856,11 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast, onAddCustom, dinnerPa
   const virtualAmount = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.amount, 0);
   const blocked = !dinnerPaid;
 
-  const submitCustom = () => {
-    onAddCustom(player.id, customType, customAmount);
-    setCustomAmount("");
-  };
-
   return (
-    <div style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <Avatar player={player} size={26} />
-        <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{player.name}</span>
+    <div style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <Avatar player={player} size={30} />
+        <span style={{ color: C.card, fontWeight: 700, fontSize: 17 }}>{player.name}</span>
       </div>
 
       {blocked && (
@@ -1873,47 +1877,29 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast, onAddCustom, dinnerPa
         </button>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         <button onClick={() => onAdd(player.id, "cash")} disabled={blocked} style={buyBtnStyle(C.cash, false, blocked)}>
-          <Plus size={12} /> Cash
+          <Plus size={20} /> Cash
         </button>
         <button onClick={() => onRemoveLast(player.id, "cash")} disabled={cashLotes === 0} style={buyBtnStyle(C.cash, true, cashLotes === 0)}>
-          <Minus size={12} /> Cash
+          <Minus size={20} /> Cash
         </button>
-        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: C.cash, whiteSpace: "nowrap" }}>
+        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 20, fontWeight: 800, color: C.cash, whiteSpace: "nowrap" }}>
           {cashLotes} lotes · {money(cashAmount)}
         </span>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <button onClick={() => onAdd(player.id, "virtual")} disabled={blocked} style={buyBtnStyle(C.virtual, false, blocked)}>
-          <Plus size={12} /> Virtual
+          <Plus size={20} /> Virtual
         </button>
         <button onClick={() => onRemoveLast(player.id, "virtual")} disabled={virtualLotes === 0} style={buyBtnStyle(C.virtual, true, virtualLotes === 0)}>
-          <Minus size={12} /> Virtual
+          <Minus size={20} /> Virtual
         </button>
-        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: C.virtual, whiteSpace: "nowrap" }}>
+        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 20, fontWeight: 800, color: C.virtual, whiteSpace: "nowrap" }}>
           {virtualLotes} lotes · {money(virtualAmount)}
         </span>
       </div>
-
-      {!blocked && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.panelLine}`, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 10.5, color: "rgba(244,234,214,0.45)", textTransform: "uppercase" }}>Monto libre</span>
-          <div style={{ display: "flex", background: "rgba(0,0,0,0.24)", borderRadius: 7, padding: 2 }}>
-            <button onClick={() => setCustomType("cash")}
-              style={{ border: "none", cursor: "pointer", borderRadius: 5, padding: "4px 8px", fontSize: 11, fontWeight: 700, ...bodyFont, background: customType === "cash" ? C.cash : "transparent", color: customType === "cash" ? "#fff" : "rgba(244,234,214,0.6)" }}>
-              Cash
-            </button>
-            <button onClick={() => setCustomType("virtual")}
-              style={{ border: "none", cursor: "pointer", borderRadius: 5, padding: "4px 8px", fontSize: 11, fontWeight: 700, ...bodyFont, background: customType === "virtual" ? C.virtual : "transparent", color: customType === "virtual" ? "#fff" : "rgba(244,234,214,0.6)" }}>
-              Virtual
-            </button>
-          </div>
-          <input type="number" min="0" placeholder="0" style={{ ...inputStyle, width: 90, padding: "5px 8px", fontSize: 12.5 }} value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} onFocus={(e) => e.target.select()} />
-          <GhostBtn onClick={submitCustom} icon={Plus} color={C.goldSoft}>Agregar</GhostBtn>
-        </div>
-      )}
     </div>
   );
 }
