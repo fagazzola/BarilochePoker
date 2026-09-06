@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "2.12.07.036";
+const APP_VERSION = "2.13.07.037";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -648,9 +648,9 @@ export default function PokerLedger() {
   // principal para que no quede en una pestaña que ya no existe. Lo mismo si
   // quien no es host queda parado en una pestaña que ahora es solo del host.
   useEffect(() => {
-    if (!hasActive && (tab === "cena" || tab === "loterake" || tab === "compra")) setTab("partida");
+    if (!hasActive && (tab === "cena" || tab === "loterake" || tab === "compra" || tab === "finalizar")) setTab("partida");
     if (hasActive && tab === "historial") setTab("partida");
-    if (hasActive && !isHost && (tab === "cena" || tab === "loterake" || tab === "jugadores")) setTab("partida");
+    if (hasActive && !isHost && (tab === "cena" || tab === "loterake" || tab === "jugadores" || tab === "finalizar")) setTab("partida");
   }, [hasActive, isHost, tab]);
 
   useEffect(() => {
@@ -806,7 +806,7 @@ export default function PokerLedger() {
         {tab === "jugadores" && !hasActive && (
           <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} myPlayerId={myPlayerId} />
         )}
-        {(tab === "partida" || tab === "cena" || tab === "loterake" || tab === "compra" || (tab === "jugadores" && hasActive)) && (
+        {(tab === "partida" || tab === "cena" || tab === "loterake" || tab === "compra" || tab === "finalizar" || (tab === "jugadores" && hasActive)) && (
           <GameTab
             roster={roster}
             activeGame={activeGame}
@@ -817,7 +817,7 @@ export default function PokerLedger() {
             onIdentify={identify}
             adminPassword={adminPassword}
             setTab={setTab}
-            subView={tab === "cena" ? "cena" : tab === "loterake" ? "loterake" : tab === "jugadores" ? "jugadoresPartida" : tab === "compra" ? "compra" : "estatus"}
+            subView={tab === "cena" ? "cena" : tab === "loterake" ? "loterake" : tab === "jugadores" ? "jugadoresPartida" : tab === "compra" ? "compra" : tab === "finalizar" ? "finalizar" : "estatus"}
           />
         )}
         {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} activeGame={activeGame} setActiveGame={setActiveGame} />}
@@ -1471,22 +1471,13 @@ function GameStatusBlock({ game, players, totals }) {
 }
 
 function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify, myPlayerId, view, setTab }) {
-  const [finalizing, setFinalizing] = useState(false);
+  // "Finalizar partida" es una pantalla más, seleccionada igual que cualquier
+  // otra pestaña (a través de "view", que en definitiva viene del estado
+  // "tab" de más arriba) — así, tocar cualquier pestaña del Header mientras
+  // se está finalizando la partida navega ahí directamente en vez de quedar
+  // atascado en esta pantalla (antes esto vivía en un estado local aparte,
+  // que se podía desincronizar de la pestaña activa).
   const effectiveView = view || "estatus";
-
-  // Si el host cambia de pestaña (arriba, en el Header) mientras está en la
-  // pantalla de "Finalizar partida", eso debe sacarlo de esa pantalla — si
-  // no, como "finalizing" es un estado aparte que no depende de la pestaña,
-  // el componente se queda mostrando "Finalizar partida" sin importar qué
-  // pestaña se toque, y da la sensación de que las demás pestañas
-  // desaparecieron/no responden.
-  const prevViewRef = useRef(effectiveView);
-  useEffect(() => {
-    if (prevViewRef.current !== effectiveView) {
-      setFinalizing(false);
-      prevViewRef.current = effectiveView;
-    }
-  }, [effectiveView]);
 
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
   const availableToAdd = roster.filter((p) => p.active && !game.playerIds.includes(p.id));
@@ -1716,11 +1707,11 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
     }));
   };
 
-  if (finalizing) {
+  if (effectiveView === "finalizar") {
     return (
       <FinalizeGame
         game={game} roster={roster} update={update}
-        onBack={() => setFinalizing(false)}
+        onBack={() => setTab && setTab("compra")}
         onConfirm={(finalChips, finalChipsAdjust) => {
           const g2 = { ...game, finalChips, finalChipsAdjust };
           const results = computeSettlement(g2, roster);
@@ -1762,7 +1753,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
             ))}
           </div>
         </Panel>
-        <PrimaryBtn onClick={() => setFinalizing(true)} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
+        <PrimaryBtn onClick={() => setTab && setTab("finalizar")} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
           Finalizar partida
         </PrimaryBtn>
       </div>
