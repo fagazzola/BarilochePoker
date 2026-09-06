@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "2.02.07.026";
+const APP_VERSION = "2.03.07.027";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -719,10 +719,10 @@ function Header({ tab, setTab, hasActive, me, onIdentify, onLogout }) {
   const tabs = hasActive
     ? [
         { id: "partida", label: "Estatus jugada", icon: Activity },
-        { id: "cena", label: "Cena y servicio", icon: UtensilsCrossed },
         { id: "compra", label: "Compra de lotes", icon: Banknote },
-        { id: "loterake", label: "Lote y Rake", icon: Coins },
         { id: "jugadores", label: "Jugadores", icon: Users },
+        { id: "cena", label: "Cena y servicio", icon: UtensilsCrossed },
+        { id: "loterake", label: "Lote y Rakes", icon: Coins },
       ]
     : [
         { id: "partida", label: "Partida", icon: Flame },
@@ -1145,7 +1145,7 @@ function NewGameSetup({ roster, setActiveGame }) {
   const active = roster.filter((p) => p.active);
   const [date, setDate] = useState(todayISO());
   const [loteValue, setLoteValue] = useState(1000);
-  const rakeHost = 1500; // monto fijo, no editable
+  const [rakeHost, setRakeHost] = useState(1500);
   const [rakeAutosCount, setRakeAutosCount] = useState(0);
   const [rakeAutoAmount, setRakeAutoAmount] = useState(250);
   const [selected, setSelected] = useState([]);
@@ -1188,8 +1188,8 @@ function NewGameSetup({ roster, setActiveGame }) {
         </div>
         <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 12 }}>
           <div style={{ ...displayFont, fontSize: 15, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
-          <Field label="Rake para anfitrión (fijo)">
-            <input type="number" style={{ ...inputStyle, opacity: 0.55, cursor: "not-allowed" }} value={rakeHost} disabled />
+          <Field label="Rake para anfitrión">
+            <input type="number" min="0" style={inputStyle} value={rakeHost === 0 ? "" : rakeHost} onChange={(e) => setRakeHost(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
           </Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
             <Field label="Rake para autos — # de autos">
@@ -1404,7 +1404,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
         <div style={{ display: "grid", gap: 16 }}>
           {banner}
           <Panel>
-            <SectionTitle icon={Coins}>Lote y Rake</SectionTitle>
+            <SectionTitle icon={Coins}>Lote y Rakes</SectionTitle>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
               <ScoreBox label="Valor de lote" value={money(game.loteValue)} />
               <ScoreBox label="Rake total" value={money(game.rake)} />
@@ -1497,6 +1497,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
       const rakeAutoAmount = patch.rakeAutoAmount !== undefined ? Number(patch.rakeAutoAmount) || 0 : (g.rakeAutoAmount ?? 250);
       return { rakeHost, rakeAutosCount, rakeAutoAmount, rake: round1(rakeHost + rakeAutosCount * rakeAutoAmount) };
     });
+  const setRakeHost = (v) => setRakeParts({ rakeHost: v });
   const setRakeAutosCount = (v) => setRakeParts({ rakeAutosCount: v });
   const setRakeAutoAmount = (v) => setRakeParts({ rakeAutoAmount: v });
 
@@ -1585,14 +1586,10 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   if (effectiveView === "loterake") {
     return (
       <div style={{ display: "grid", gap: 16 }}>
-        <GameStatusBlock game={game} players={players} totals={totals} />
         <Panel>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
-            <div>
-              <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Lote y Rake</div>
-              <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont }}>{game.date}</div>
-            </div>
-            <GhostBtn icon={X} color={C.loss} onClick={cancelPartida}>Cancelar partida</GhostBtn>
+          <div>
+            <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Lote y Rakes</div>
+            <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont }}>{game.date}</div>
           </div>
           <div style={{ marginTop: 14 }}>
             <Field label="Valor de lote">
@@ -1601,10 +1598,11 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
           </div>
           <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 14 }}>
             <div style={{ ...displayFont, fontSize: 16, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
-            <Field label="Rake para anfitrión (fijo)">
+            <Field label={rakeLocked ? "Rake para anfitrión 🔒" : "Rake para anfitrión"}>
               <input
-                type="number" style={{ ...inputStyle, opacity: 0.55, cursor: "not-allowed" }}
-                value={game.rakeHost || 1500} disabled
+                type="number" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1, cursor: rakeLocked ? "not-allowed" : "text" }}
+                value={game.rakeHost || 0} disabled={rakeLocked}
+                onChange={(e) => setRakeHost(e.target.value)} onFocus={(e) => e.target.select()}
               />
             </Field>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
@@ -1616,7 +1614,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
               </Field>
             </div>
             <div style={{ marginTop: 10 }}>
-              <ScoreBox label="Rake total" value={money(game.rake)} />
+              <ScoreBox label="Rake total (anfitrión + autos)" value={money(game.rake)} />
             </div>
             {rakeLocked && <div style={{ fontSize: 11, color: "rgba(244,234,214,0.4)", marginTop: 8 }}>El rake queda fijo una vez que se hizo la entrega de fichas.</div>}
           </div>
@@ -1629,10 +1627,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
     return (
       <div style={{ display: "grid", gap: 16 }}>
         <Panel>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
-            <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
-            <GhostBtn icon={X} color={C.loss} onClick={cancelPartida}>Cancelar partida</GhostBtn>
-          </div>
+          <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
           <div style={{ display: "grid", gap: 8 }}>
             {players.map((p) => {
               const hasPurchases = game.purchases.some((pu) => pu.playerId === p.id);
@@ -1672,16 +1667,19 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <Panel>
-        <div>
-          <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Partida en curso</div>
-          <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span>{game.date} · {players.length} jugadores</span>
-            {game.hostId && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(216,173,63,0.16)", color: C.goldSoft, padding: "2px 7px", borderRadius: 99 }}>
-                <Crown size={11} /> Host: {roster.find((r) => r.id === game.hostId)?.name || "—"}
-              </span>
-            )}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Partida en curso</div>
+            <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span>{game.date} · {players.length} jugadores</span>
+              {game.hostId && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(216,173,63,0.16)", color: C.goldSoft, padding: "2px 7px", borderRadius: 99 }}>
+                  <Crown size={11} /> Host: {roster.find((r) => r.id === game.hostId)?.name || "—"}
+                </span>
+              )}
+            </div>
           </div>
+          <GhostBtn icon={X} color={C.loss} onClick={cancelPartida}>Cancelar partida</GhostBtn>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 14 }}>
           <ScoreBox label="Monto del lote" value={money(game.loteValue)} />
