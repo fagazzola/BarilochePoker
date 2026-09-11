@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.01.07.038";
+const APP_VERSION = "3.02.07.039";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -2280,6 +2280,8 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   const rowLabelStyle = { fontSize: 10, color: "rgba(244,234,214,0.45)", textTransform: "uppercase", letterSpacing: "0.04em" };
   const blockLabelStyle = { fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 };
   const blockValueStyle = (color) => ({ ...monoFont, fontWeight: 800, fontSize: 20, color });
+  const colLabelStyle = { fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" };
+  const colValueStyle = (color) => ({ ...monoFont, fontWeight: 800, fontSize: 16, color });
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -2321,16 +2323,6 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
         </div>
 
         <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ background: "rgba(216,173,63,0.1)", border: `1px dashed ${C.panelLine}`, borderRadius: 9, padding: "9px 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 26, height: 26, borderRadius: 99, background: "rgba(216,173,63,0.22)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Flame size={13} color={C.gold} />
-              </div>
-              <span style={{ color: C.goldSoft, fontWeight: 700, fontSize: 13.5 }}>Rake (casa)</span>
-              <span style={{ ...monoFont, fontSize: 10.5, color: "rgba(244,234,214,0.4)" }}>se resta automáticamente, no se captura</span>
-            </div>
-            <span style={{ ...monoFont, fontSize: 13.5, color: C.goldSoft, fontWeight: 700 }}>{money(rake)}</span>
-          </div>
           {players.map((p) => {
             const bi = buyIns[p.id];
             const focused = focusedId === p.id;
@@ -2353,25 +2345,39 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
                   <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{p.name}</span>
                 </div>
 
-                <div style={{ display: "grid", gap: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <span style={rowLabelStyle}>Debe virtual:</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.virtual }}>{money(bi.virtual)}</span>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, textAlign: "center" }}>
+                  <div>
+                    <div style={colLabelStyle}>Fichas totales</div>
+                    <div style={colValueStyle(C.goldSoft)}>{money(pv + rem)}</div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <span style={rowLabelStyle}>Paga virtual:</span>
+                  <div>
+                    <div style={colLabelStyle}>Debe virtual</div>
+                    <div style={colValueStyle(C.virtual)}>{money(bi.virtual)}</div>
+                  </div>
+                  <div>
+                    <div style={colLabelStyle}>Paga virtual</div>
                     <input
-                      type="number" min="0" placeholder="0" style={{ ...inputStyle, width: 100, textAlign: "right" }}
+                      type="number" min="0" placeholder="0"
+                      style={{
+                        width: "100%", background: "transparent", border: "none",
+                        borderBottom: `1px solid ${C.panelLine}`, textAlign: "center",
+                        ...monoFont, fontWeight: 800, fontSize: 16, color: C.card, padding: "0 0 2px",
+                      }}
                       value={pagaVirtual[p.id]}
                       onChange={(e) => setPagaVirtual(p.id, e.target.value)}
                       onFocus={(e) => { e.target.select(); setFocusedId(p.id); }}
                       onBlur={() => setFocusedId((cur) => (cur === p.id ? null : cur))}
                     />
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <span style={rowLabelStyle}>Fichas remanentes:</span>
+                  <div>
+                    <div style={colLabelStyle}>Fichas remanentes</div>
                     <input
-                      type="number" min="0" placeholder="0" style={{ ...inputStyle, width: 100, textAlign: "right" }}
+                      type="number" min="0" placeholder="0"
+                      style={{
+                        width: "100%", background: "transparent", border: "none",
+                        borderBottom: `1px solid ${C.panelLine}`, textAlign: "center",
+                        ...monoFont, fontWeight: 800, fontSize: 16, color: C.card, padding: "0 0 2px",
+                      }}
                       value={remanente[p.id]}
                       onChange={(e) => setRemanente(p.id, e.target.value)}
                       onFocus={(e) => { e.target.select(); setFocusedId(p.id); }}
