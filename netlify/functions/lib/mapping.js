@@ -185,9 +185,36 @@ function rowsToResultados(rows) {
     .filter((row) => row.gameId && row.jugador);
 }
 
+/* ---------------- EntregaFichas (auditoría, solo agrega filas) ---------------- */
+// Cada click de "Guardar en Excel ahora" en la pantalla de Entrega de fichas
+// manda un snapshot completo (una fila por jugador) con su propio timestamp
+// — no se sobreescribe nada de lo ya guardado, así queda un historial real
+// de cada push para poder auditar después qué se capturó y cuándo.
+function entregaFichasToRows(gameId, gameDate, rows) {
+  const ts = new Date().toISOString();
+  return (rows || []).map((r) => [
+    ts,
+    gameId,
+    gameDate,
+    r.playerId,
+    r.playerName,
+    r.debeVirtual,
+    r.pagaVirtual,
+    r.fichasRemanentes,
+    r.ajusteManual,
+    r.fichasTotales,
+    r.rake,
+    r.cashDisponible,
+    r.virtualPendiente,
+    r.totalA,
+    r.totalB,
+  ]);
+}
+
 module.exports = {
   rosterToRows, rowsToRoster,
   gamesToRows, rowsToGames,
   metaToRows, rowsToActiveGame, rowsToAdminPassword,
   buildResultadosRows, rowsToResultados,
+  entregaFichasToRows,
 };
