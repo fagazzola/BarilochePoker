@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.06.07.043";
+const APP_VERSION = "3.07.07.044";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -2654,10 +2654,10 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
         </div>
       </Panel>
 
-      {/* Bloque 6: TOTALES — Cash + Subtotal VRT contra Subtotal CSH */}
+      {/* Bloque 6: TOTALES — Cash + Subtotal VRT contra Subtotal CSH, en un mismo recuadro de cuadre */}
       <Panel>
         <SectionTitle icon={CircleDollarSign}>Totales</SectionTitle>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.7fr", gap: 8 }}>
           <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
             <div style={blockLabelStyle}>Cash remanente</div>
             <div style={blockValueStyle(C.cash)}>{money(cashDisponible)}</div>
@@ -2666,22 +2666,24 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
             <div style={blockLabelStyle}>Subtotal VRT</div>
             <div style={blockValueStyle(ORANGE)}>{money(grandTotalA)}</div>
           </div>
-          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Cash + Subtotal VRT</div>
-            <div style={blockValueStyle(C.goldSoft)}>{money(cashPlusSubtotalVRT)}</div>
-          </div>
           <div style={{
-            background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center",
+            background: totalesCuadran ? "rgba(63,191,114,0.14)" : "rgba(226,99,79,0.14)",
             border: `1px solid ${totalesCuadran ? C.win : C.loss}`,
+            borderRadius: 9, padding: "9px 8px",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
           }}>
-            <div style={blockLabelStyle}>Subtotal CSH</div>
-            <div style={blockValueStyle(totalesCuadran ? C.win : C.loss)}>{money(grandTotalB)}</div>
+            <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
+              <div style={blockLabelStyle}>Cash + Subtotal VRT</div>
+              <div style={blockValueStyle(C.card)}>{money(cashPlusSubtotalVRT)}</div>
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: totalesCuadran ? C.win : C.loss, flexShrink: 0 }}>
+              {totalesCuadran ? "=" : "≠"}
+            </div>
+            <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
+              <div style={blockLabelStyle}>Subtotal CSH</div>
+              <div style={blockValueStyle(C.card)}>{money(grandTotalB)}</div>
+            </div>
           </div>
-        </div>
-        <div style={{ marginTop: 10, fontSize: 12, textAlign: "center", color: totalesCuadran ? C.win : "rgba(244,234,214,0.7)" }}>
-          {totalesCuadran
-            ? "Cash + Subtotal VRT = Subtotal CSH — cuadrado ✓"
-            : `Cash + Subtotal VRT (${money(cashPlusSubtotalVRT)}) debería ser igual a Subtotal CSH (${money(grandTotalB)}) — todavía no cuadra.`}
         </div>
       </Panel>
 
@@ -2696,7 +2698,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
           )}
           icon={Trophy} style={{ flex: 1, padding: "12px 16px" }}
         >
-          Calcular resultados
+          Ir a pagos y transferencias
         </PrimaryBtn>
       </div>
     </div>
@@ -2742,49 +2744,163 @@ function ResultRow({ label, value, tone, strong }) {
     </div>
   );
 }
+// Tarjeta de detalle por jugador — compacta por default (solo nombre y
+// balance final); al tocarla se amplía y muestra buy-in cash/virtual/total y
+// cash out. "Balance", "Recibe/Debe Cash" y "Recibe/Debe Transfer" ya no se
+// repiten acá: el balance está siempre visible en el encabezado, y el cash
+// out ya se ve en los bloques "Reparto de efectivo" / "Transferencias
+// sugeridas".
 function PlayerResultCard({ p, player }) {
+  const [expanded, setExpanded] = useState(false);
   const win = p.balance > 0;
   const flat = p.balance === 0;
-  const cashLabel = p.pagoCash > 0 ? "Recibe Cash" : p.pagoCash < 0 ? "Debe Cash" : "Cash";
-  const transferLabel = p.pagoTransfer > 0 ? "Recibe Transfer" : p.pagoTransfer < 0 ? "Debe Transfer" : "Transfer";
   return (
     <div style={{ background: "rgba(0,0,0,0.2)", border: `1px solid ${win ? "rgba(63,191,114,0.35)" : flat ? C.panelLine : "rgba(226,99,79,0.35)"}`, borderRadius: 12, padding: "12px 14px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+      <button
+        onClick={() => setExpanded((e) => !e)}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: 0, marginBottom: expanded ? 6 : 0 }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
           {player ? <Avatar player={player} size={30} /> : null}
-          <span style={{ ...displayFont, fontSize: 19, color: C.card, letterSpacing: "0.03em" }}>{p.name}</span>
+          <span style={{ ...displayFont, fontSize: 19, color: C.card, letterSpacing: "0.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
         </div>
-        <span style={{
-          ...monoFont, fontWeight: 800, fontSize: 15,
-          color: win ? C.win : flat ? "rgba(244,234,214,0.6)" : C.loss,
-        }}>
-          {(p.balance > 0 ? "+" : "") + money(p.balance)}
-        </span>
-      </div>
-      <ResultRow label="Buy-in cash" value={money(p.cashAmount)} tone="cash" />
-      <ResultRow label="Buy-in virtual" value={money(p.virtualAmount)} tone="virtual" />
-      <ResultRow label="Total buy-in" value={money(p.totalBuyIn)} />
-      <ResultRow label="Cash out (fichas)" value={money(p.cashOut)} />
-      <ResultRow label="Balance" value={(p.balance > 0 ? "+" : "") + money(p.balance)} tone={win ? "win" : flat ? undefined : "loss"} strong />
-      <ResultRow label={cashLabel} value={money(Math.abs(p.pagoCash))} tone={p.pagoCash > 0 ? "cash" : undefined} />
-      <ResultRow label={transferLabel} value={money(Math.abs(p.pagoTransfer))} tone={p.pagoTransfer > 0 ? "win" : p.pagoTransfer < 0 ? "loss" : undefined} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <span style={{
+            ...monoFont, fontWeight: 800, fontSize: 15,
+            color: win ? C.win : flat ? "rgba(244,234,214,0.6)" : C.loss,
+          }}>
+            {(p.balance > 0 ? "+" : "") + money(p.balance)}
+          </span>
+          {expanded ? <ChevronUp size={15} color={C.goldSoft} /> : <ChevronDown size={15} color={C.goldSoft} />}
+        </div>
+      </button>
+      {expanded && (
+        <>
+          <ResultRow label="Buy-in cash" value={money(p.cashAmount)} tone="cash" />
+          <ResultRow label="Buy-in virtual" value={money(p.virtualAmount)} tone="virtual" />
+          <ResultRow label="Total buy-in" value={money(p.totalBuyIn)} />
+          <ResultRow label="Cash out (fichas)" value={money(p.cashOut)} />
+        </>
+      )}
     </div>
+  );
+}
+
+// Bloque "Reparto de efectivo": a quién y cuánto cash físico le toca cobrar.
+// Se ordena de mayor a menor monto — así se le da prioridad visual a quien
+// más cash puso (el que más puso es, en general, a quien más cash le toca
+// devolver, ya que el pago en cash de cada jugador nunca supera lo que él
+// mismo aportó en cash).
+function CashRepartoList({ players }) {
+  const withCash = useMemo(
+    () => players.filter((p) => p.pagoCash > 0).sort((a, b) => b.pagoCash - a.pagoCash),
+    [players]
+  );
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {withCash.map((p) => (
+        <div key={p.playerId} style={{ display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
+          <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
+          <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)}</span>
+        </div>
+      ))}
+      {withCash.length === 0 && <Empty>No hay efectivo para repartir.</Empty>}
+    </div>
+  );
+}
+function CashRepartoBlock({ players }) {
+  return (
+    <Panel>
+      <SectionTitle icon={Banknote}>Reparto de efectivo</SectionTitle>
+      <CashRepartoList players={players} />
+    </Panel>
+  );
+}
+
+// Bloque "Transferencias sugeridas": agrupado en tarjetas personales por
+// jugador, con un switch para ver la lista agrupada por quién recibe (default)
+// o por quién paga. Cada tarjeta muestra el nombre y el total (a la derecha),
+// y abajo, indentado, el detalle renglón por renglón con cada contraparte.
+function TransfersList({ transfers }) {
+  const [view, setView] = useState("reciben"); // "reciben" | "pagan"
+
+  const receiverGroups = useMemo(() => {
+    const map = new Map();
+    transfers.forEach((t) => {
+      if (!map.has(t.toId)) map.set(t.toId, { id: t.toId, name: t.to, total: 0, items: [] });
+      const g = map.get(t.toId);
+      g.total = round1(g.total + t.amount);
+      g.items.push({ id: t.fromId, name: t.from, amount: t.amount });
+    });
+    return [...map.values()]
+      .map((g) => ({ ...g, items: [...g.items].sort((a, b) => b.amount - a.amount) }))
+      .sort((a, b) => b.total - a.total);
+  }, [transfers]);
+
+  const payerGroups = useMemo(() => {
+    const map = new Map();
+    transfers.forEach((t) => {
+      if (!map.has(t.fromId)) map.set(t.fromId, { id: t.fromId, name: t.from, total: 0, items: [] });
+      const g = map.get(t.fromId);
+      g.total = round1(g.total + t.amount);
+      g.items.push({ id: t.toId, name: t.to, amount: t.amount });
+    });
+    return [...map.values()]
+      .map((g) => ({ ...g, items: [...g.items].sort((a, b) => b.amount - a.amount) }))
+      .sort((a, b) => b.total - a.total);
+  }, [transfers]);
+
+  const groups = view === "reciben" ? receiverGroups : payerGroups;
+  const toggleBtn = (active) => ({
+    background: active ? C.goldSoft : "transparent",
+    color: active ? "#1a1208" : "rgba(244,234,214,0.6)",
+    border: "none", borderRadius: 18, padding: "5px 10px",
+    fontSize: 11, fontWeight: 700, cursor: "pointer", ...bodyFont, whiteSpace: "nowrap",
+  });
+
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10, marginTop: -4 }}>
+        <div style={{ display: "flex", background: "rgba(0,0,0,0.25)", borderRadius: 20, padding: 2, gap: 2 }}>
+          <button onClick={() => setView("reciben")} style={toggleBtn(view === "reciben")}>Quienes reciben</button>
+          <button onClick={() => setView("pagan")} style={toggleBtn(view === "pagan")}>Quienes pagan</button>
+        </div>
+      </div>
+      <div style={{ display: "grid", gap: 10 }}>
+        {transfers.length === 0 && <Empty>No se requieren transferencias.</Empty>}
+        {groups.map((g) => (
+          <div key={g.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{g.name}</span>
+              <span style={{ ...monoFont, fontWeight: 800, fontSize: 14.5, color: view === "reciben" ? C.win : C.loss }}>{money(g.total)}</span>
+            </div>
+            <div style={{ display: "grid", gap: 4, marginTop: 6, paddingLeft: 14, borderLeft: `2px solid ${C.panelLine}` }}>
+              {g.items.map((it) => (
+                <div key={it.id} style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "rgba(244,234,214,0.7)", fontSize: 12.5 }}>{it.name}</span>
+                  <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.85)" }}>{money(it.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+function TransfersBlock({ transfers }) {
+  return (
+    <Panel>
+      <SectionTitle icon={ArrowRightLeft}>Transferencias sugeridas</SectionTitle>
+      <TransfersList transfers={transfers} />
+    </Panel>
   );
 }
 function FinalizedGame({ game, roster, onClose, setActiveGame, setGames, adminPassword }) {
   const r = useMemo(() => computeSettlement(game, roster), [game, roster]);
   const players = game.playerIds.map((id) => roster.find((p) => p.id === id)).filter(Boolean);
-  const d = game.dinner;
   const winner = [...r.players].sort((a, b) => b.balance - a.balance)[0];
   const winnerPlayer = players.find((pl) => pl.id === winner?.playerId);
-
-  // La cena no afecta el balance de lotes, así que es seguro seguir editando
-  // quién pagó/con qué método incluso después de haber cerrado la partida.
-  const updateDinner = (patch) => {
-    const applyPatch = (dinner) => ({ ...dinner, ...(typeof patch === "function" ? patch(dinner) : patch) });
-    setActiveGame((g) => ({ ...g, dinner: applyPatch(g.dinner) }));
-    setGames((gs) => gs.map((x) => (x.id === game.id ? { ...x, dinner: applyPatch(x.dinner) } : x)));
-  };
 
   // Vuelve a dejar la partida "en curso" para poder corregir lotes, fichas
   // de cierre, rake, etc. La sacamos del historial hasta que se vuelva a
@@ -2801,89 +2917,25 @@ function FinalizedGame({ game, roster, onClose, setActiveGame, setGames, adminPa
     <div style={{ display: "grid", gap: 16 }}>
       <GhostBtn onClick={handleBack} icon={ChevronLeft} color={C.goldSoft}>Reabrir partida</GhostBtn>
 
+      <ChampionBanner winner={winner} player={winnerPlayer} />
+
       <Panel>
         <SectionTitle icon={Trophy}>Resultados de la partida</SectionTitle>
         <div style={{ ...displayFont, fontSize: 18, color: C.goldSoft, marginTop: -4 }}>{game.date}</div>
-        <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", display: "flex", alignItems: "center", gap: 4, marginBottom: 4, marginTop: 2 }}>
+        <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
           <Crown size={12} color={C.gold} /> Operó: {roster.find((pl) => pl.id === game.hostId)?.name || "—"}
         </div>
-        <ChampionBanner winner={winner} player={winnerPlayer} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
-          <ScoreBox label="Rake" value={money(r.rake)} />
-          <ScoreBox label="Total buy-in cash" value={money(r.players.reduce((s, p) => s + p.cashAmount, 0))} tone="cash" />
-          <ScoreBox label="Total buy-in virtual" value={money(r.players.reduce((s, p) => s + p.virtualAmount, 0))} tone="virtual" />
-        </div>
+      </Panel>
 
+      <CashRepartoBlock players={r.players} />
+      <TransfersBlock transfers={r.transfers} />
+
+      <Panel>
+        <SectionTitle icon={Users}>Detalle por jugador</SectionTitle>
         <div style={{ display: "grid", gap: 10 }}>
           {[...r.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
             <PlayerResultCard key={p.playerId} p={p} player={players.find((pl) => pl.id === p.playerId)} />
           ))}
-        </div>
-      </Panel>
-
-      <Panel>
-        <SectionTitle icon={Banknote}>Reparto de efectivo</SectionTitle>
-        <div style={{ display: "grid", gap: 8 }}>
-          {r.players.filter((p) => p.pagoCash > 0).map((p) => (
-            <div key={p.playerId} style={{ display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
-              <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
-              <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)}</span>
-            </div>
-          ))}
-          {r.players.every((p) => p.pagoCash === 0) && <Empty>No hay efectivo para repartir.</Empty>}
-        </div>
-      </Panel>
-
-      <Panel>
-        <SectionTitle icon={ArrowRightLeft}>Transferencias sugeridas</SectionTitle>
-        <div style={{ display: "grid", gap: 8 }}>
-          {r.transfers.length === 0 && <Empty>No se requieren transferencias.</Empty>}
-          {r.transfers.map((t, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "9px 12px" }}>
-              <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{t.from}</span>
-              <ArrowRightLeft size={13} color={C.gold} />
-              <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{t.to}</span>
-              <span style={{ marginLeft: "auto", ...monoFont, color: C.gold, fontWeight: 700 }}>{money(t.amount)}</span>
-            </div>
-          ))}
-        </div>
-      </Panel>
-
-      <Panel>
-        <SectionTitle icon={UtensilsCrossed}>Cargo de cena (no afecta el balance de lotes)</SectionTitle>
-        <div style={{ display: "grid", gap: 6 }}>
-          {players.map((p) => {
-            const alcohol = !!d.alcohol[p.id];
-            const charge = alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0);
-            const paid = !!d.paid?.[p.id];
-            return (
-              <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <button onClick={() => updateDinner((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: !dd.alcohol[p.id] } }))}
-                    style={{ display: "flex", alignItems: "center", gap: 7, background: "transparent", border: "none", cursor: "pointer", color: C.card, flex: 1, minWidth: 0 }}>
-                    <Avatar player={p} size={22} />
-                    <Wine size={14} color={alcohol ? C.virtual : "rgba(244,234,214,0.3)"} style={{ flexShrink: 0 }} />
-                    <span style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-                  </button>
-                  <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)", whiteSpace: "nowrap" }}>{money(charge)}</span>
-                </div>
-                <div style={{ marginTop: 7 }}>
-                  <button onClick={() => updateDinner((dd) => ({ paid: { ...dd.paid, [p.id]: !dd.paid?.[p.id] } }))}
-                    style={{
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
-                      background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
-                      border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "8px 9px",
-                      cursor: "pointer", color: paid ? C.win : "rgba(244,234,214,0.6)", fontSize: 12.5, fontWeight: 700, ...bodyFont,
-                    }}>
-                    <div style={{ width: 15, height: 15, borderRadius: 4, border: `1.5px solid ${paid ? C.win : "rgba(244,234,214,0.4)"}`, background: paid ? C.win : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      {paid && <Check size={11} color="#08251a" />}
-                    </div>
-                    {paid ? "Pagado" : "Confirmar pagado"}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
         </div>
       </Panel>
 
@@ -3035,34 +3087,21 @@ function HistoryTab({ games, roster, setGames, adminPassword, activeGame, setAct
               <ChampionBanner winner={winner} player={roster.find((pl) => pl.id === winner?.playerId)} />
               {open && (
                 <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-                  {[...results.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
-                    <PlayerResultCard key={p.playerId} p={p} player={roster.find((pl) => pl.id === p.playerId)} />
-                  ))}
-
                   <div style={{ marginTop: 6 }}>
                     <SectionTitle icon={Banknote}>Reparto de efectivo</SectionTitle>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {results.players.filter((p) => p.pagoCash > 0).map((p) => (
-                        <div key={p.playerId} style={{ display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
-                          <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
-                          <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)}</span>
-                        </div>
-                      ))}
-                      {results.players.every((p) => p.pagoCash === 0) && <Empty>No hay efectivo para repartir.</Empty>}
-                    </div>
+                    <CashRepartoList players={results.players} />
                   </div>
 
                   <div style={{ marginTop: 6 }}>
                     <SectionTitle icon={ArrowRightLeft}>Transferencias sugeridas</SectionTitle>
+                    <TransfersList transfers={results.transfers} />
+                  </div>
+
+                  <div style={{ marginTop: 6 }}>
+                    <SectionTitle icon={Users}>Detalle por jugador</SectionTitle>
                     <div style={{ display: "grid", gap: 8 }}>
-                      {results.transfers.length === 0 && <Empty>No se requieren transferencias.</Empty>}
-                      {results.transfers.map((t, i) => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "9px 12px" }}>
-                          <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{t.from}</span>
-                          <ArrowRightLeft size={13} color={C.gold} />
-                          <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{t.to}</span>
-                          <span style={{ marginLeft: "auto", ...monoFont, color: C.gold, fontWeight: 700 }}>{money(t.amount)}</span>
-                        </div>
+                      {[...results.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
+                        <PlayerResultCard key={p.playerId} p={p} player={roster.find((pl) => pl.id === p.playerId)} />
                       ))}
                     </div>
                   </div>
