@@ -26,6 +26,10 @@ con estos nombres **exactos** y estos encabezados en la fila 1:
 | key | value |
 |-----|-------|
 
+**Hoja "EntregaFichas"** (auditoría — la llena el botón "Guardar en Excel" de la pantalla de Entrega de fichas; se le van agregando filas, nunca se sobreescribe)
+| timestamp | gameId | fecha | jugadorId | jugador | debeVirtual | pagaVirtual | fichasRemanentes | ajusteManual | fichasTotales | rake | cashDisponible | virtualPendiente | totalA | totalB |
+|-----------|--------|-------|-----------|---------|-------------|-------------|-------------------|---------------|----------------|------|-----------------|-------------------|--------|--------|
+
 No hace falta escribir nada más — la app llena las filas de datos sola.
 
 ## 2. Desplegar en Netlify
