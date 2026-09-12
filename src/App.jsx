@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.05.07.042";
+const APP_VERSION = "3.06.07.043";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -1294,7 +1294,7 @@ function NewGameSetup({ roster, setActiveGame }) {
   const [loteValue, setLoteValue] = useState(1000);
   const [rakeHost, setRakeHost] = useState(1500);
   const [rakeAutosCount, setRakeAutosCount] = useState(0);
-  const [rakeAutoAmount, setRakeAutoAmount] = useState(250);
+  const [rakeAutoAmount, setRakeAutoAmount] = useState(300);
   const [selected, setSelected] = useState([]);
   const [hostId, setHostId] = useState("");
 
@@ -1584,7 +1584,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
               <ScoreBox label="Valor de lote" value={money(game.loteValue)} />
               <ScoreBox label="Rake total" value={money(game.rake)} />
               <ScoreBox label="Rake anfitrión" value={money(game.rakeHost || 0)} />
-              <ScoreBox label={`Rake autos (${game.rakeAutosCount || 0} × ${money(game.rakeAutoAmount ?? 250)})`} value={money((game.rakeAutosCount || 0) * (game.rakeAutoAmount ?? 250))} />
+              <ScoreBox label={`Rake autos (${game.rakeAutosCount || 0} × ${money(game.rakeAutoAmount ?? 300)})`} value={money((game.rakeAutosCount || 0) * (game.rakeAutoAmount ?? 300))} />
             </div>
           </Panel>
         </div>
@@ -1676,7 +1676,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
     update((g) => {
       const rakeHost = patch.rakeHost !== undefined ? Number(patch.rakeHost) || 0 : (Number(g.rakeHost) || 0);
       const rakeAutosCount = patch.rakeAutosCount !== undefined ? Number(patch.rakeAutosCount) || 0 : (Number(g.rakeAutosCount) || 0);
-      const rakeAutoAmount = patch.rakeAutoAmount !== undefined ? Number(patch.rakeAutoAmount) || 0 : (g.rakeAutoAmount ?? 250);
+      const rakeAutoAmount = patch.rakeAutoAmount !== undefined ? Number(patch.rakeAutoAmount) || 0 : (g.rakeAutoAmount ?? 300);
       return { rakeHost, rakeAutosCount, rakeAutoAmount, rake: round1(rakeHost + rakeAutosCount * rakeAutoAmount) };
     });
   const setRakeHost = (v) => setRakeParts({ rakeHost: v });
@@ -1717,8 +1717,11 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
       <FinalizeGame
         game={game} roster={roster} update={update}
         onBack={() => setTab && setTab("compra")}
-        onConfirm={(finalChips, finalChipsAdjust) => {
-          const g2 = { ...game, finalChips, finalChipsAdjust };
+        onConfirm={(finalChips, finalChipsAdjust, finalRake) => {
+          // El rake puede haber sido ajustado a mano en "Entrega de fichas"
+          // (para cuadrar a un número exacto) — ese valor es el que manda
+          // para el cálculo final, no el que quedó cargado en "Lote y Rakes".
+          const g2 = { ...game, finalChips, finalChipsAdjust, rake: Number(finalRake) || 0 };
           const results = computeSettlement(g2, roster);
           const finished = { ...g2, finished: true, results };
           setGame(finished);
@@ -1788,7 +1791,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
                 <input type="number" min="0" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1 }} value={game.rakeAutosCount || 0} disabled={rakeLocked} onChange={(e) => setRakeAutosCount(e.target.value)} onFocus={(e) => e.target.select()} />
               </Field>
               <Field label="Monto por auto">
-                <MoneyInput value={game.rakeAutoAmount ?? 250} onChange={setRakeAutoAmount} disabled={rakeLocked} />
+                <MoneyInput value={game.rakeAutoAmount ?? 300} onChange={setRakeAutoAmount} disabled={rakeLocked} />
               </Field>
             </div>
             <div style={{ marginTop: 10 }}>
@@ -2241,6 +2244,20 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   const setRemanente = (pid, v) => { setRemanenteState((c) => ({ ...c, [pid]: v })); persistField(pid, "remanente", v); };
   const setAdjustment = (pid, v) => { setAdjustmentsState((c) => ({ ...c, [pid]: v })); persistField(pid, "adjust", v); };
 
+  // Ajuste manual del total de Rake+Estacionamiento, por si hay que cuadrar
+  // a un número exacto (por ejemplo, redondear el rake para que el reparto
+  // de billetes salga justo). Si se deja vacío, se usa el total calculado en
+  // "Lote y Rakes" (rakeHost + autos × costo por auto) tal cual.
+  const [rakeOverride, setRakeOverrideState] = useState(() =>
+    (game.finalizeDraft && game.finalizeDraft.rakeOverride !== undefined && game.finalizeDraft.rakeOverride !== null)
+      ? String(game.finalizeDraft.rakeOverride)
+      : ""
+  );
+  const setRakeOverride = (v) => {
+    setRakeOverrideState(v);
+    update((g) => ({ finalizeDraft: { ...(g.finalizeDraft || {}), rakeOverride: v } }));
+  };
+
   // "Guardar en Excel ahora": empuja un snapshot on-demand a la hoja
   // "EntregaFichas" (aparte del guardado automático de "active", que tiene
   // su propia latencia y candado de 3s). Sirve para tener la certeza de que
@@ -2262,7 +2279,8 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
 
   const totalCash = useMemo(() => Object.values(buyIns).reduce((s, b) => s + b.cash, 0), [buyIns]);
   const totalVirtual = useMemo(() => Object.values(buyIns).reduce((s, b) => s + b.virtual, 0), [buyIns]);
-  const rake = Number(game.rake) || 0;
+  const rakeAuto = Number(game.rake) || 0;
+  const rake = (rakeOverride !== "" && !isNaN(Number(rakeOverride))) ? Number(rakeOverride) : rakeAuto;
   const cashDisponible = round1(totalCash - rake);
   const targetTotal = totalCash + totalVirtual;
 
@@ -2294,9 +2312,11 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   // - Subtotal VRT (por jugador) = lotes virtuales que le quedan sin pagar.
   // - Fichas Presentadas (por jugador) = fichas totales que entrega (paga
   //   virtual + remanentes + ajuste manual).
-  // - Fichas remanentes (post-virtual) = Fichas Presentadas menos lo que ya
-  //   se descontó para pagar lotes virtuales (pv).
-  // - Subtotal CSH (por jugador) = suma de las dos columnas anteriores.
+  // - Fichas entregadas (para lotes virtuales) = lo que de esas fichas se usó
+  //   para pagar los lotes virtuales pendientes (pv).
+  // - Subtotal CSH (por jugador) = Fichas Presentadas − Fichas entregadas
+  //   (para lotes virtuales), es decir, lo que le queda al jugador para
+  //   cobrar en cash/transferencia una vez saldado el virtual.
   const rows = useMemo(() => players.map((p) => {
     const bi = buyIns[p.id];
     const pv = Number(pagaVirtual[p.id]) || 0;
@@ -2305,9 +2325,9 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
     const fichasTotales = round1(pv + rem + adj);
     const totalA = round1(bi.virtual - pv);
     const fichasPresentadas = fichasTotales;
-    const fichasRemanentesPostVirtual = round1(fichasPresentadas - pv);
-    const totalB = round1(fichasPresentadas + fichasRemanentesPostVirtual);
-    return { p, bi, pv, rem, adj, fichasTotales, totalA, fichasPresentadas, fichasRemanentesPostVirtual, totalB };
+    const fichasEntregadasVirtual = pv;
+    const totalB = round1(fichasPresentadas - fichasEntregadasVirtual);
+    return { p, bi, pv, rem, adj, fichasTotales, totalA, fichasPresentadas, fichasEntregadasVirtual, totalB };
   }), [players, buyIns, pagaVirtual, remanente, adjustments]);
 
   const grandTotalA = round1(rows.reduce((s, r) => s + r.totalA, 0));
@@ -2407,7 +2427,23 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
           </div>
           <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
             <div style={blockLabelStyle}>menos Rake+Estacionamiento</div>
-            <div style={blockValueStyle(C.card)}>-{money(rake)}</div>
+            <input
+              type="number" step="1" placeholder={String(rakeAuto)}
+              style={{
+                width: "100%", background: "transparent", border: "none",
+                borderBottom: `1px solid ${C.panelLine}`, textAlign: "center",
+                ...monoFont, fontWeight: 800, fontSize: 18, color: C.card, padding: "0 0 2px",
+              }}
+              value={rakeOverride !== "" ? rakeOverride : String(rakeAuto)}
+              onChange={(e) => setRakeOverride(e.target.value)}
+              onFocus={(e) => e.target.select()}
+            />
+            {rakeOverride !== "" && Number(rakeOverride) !== rakeAuto && (
+              <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.45)", marginTop: 3 }}>
+                auto: {money(rakeAuto)}{" · "}
+                <span onClick={() => setRakeOverride("")} style={{ color: C.goldSoft, cursor: "pointer", textDecoration: "underline" }}>usar auto</span>
+              </div>
+            )}
           </div>
           <div style={{ background: "rgba(47,174,102,0.14)", border: `1px solid ${C.cashDeep}`, borderRadius: 9, padding: "10px 8px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
             <div style={blockLabelStyle}>Cash disponible</div>
@@ -2595,7 +2631,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
             <thead><tr>
               <th style={{ ...thStyle, textAlign: "left" }}>Jugador</th>
               <th style={thStyle}>Fichas Presentadas</th>
-              <th style={thStyle}>Fichas remanentes (post-virtual)</th>
+              <th style={thStyle}>Fichas entregadas (para lotes virtuales)</th>
               <th style={thStyle}>Subtotal CSH</th>
             </tr></thead>
             <tbody>
@@ -2603,7 +2639,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
                 <tr key={r.p.id}>
                   <td style={tdNameStyle}>{r.p.name}</td>
                   <td style={{ ...tdStyle, color: C.cash }}>{money(r.fichasPresentadas)}</td>
-                  <td style={tdStyle}>{money(r.fichasRemanentesPostVirtual)}</td>
+                  <td style={tdStyle}>{money(r.fichasEntregadasVirtual)}</td>
                   <td style={{ ...tdStyle, fontWeight: 700, color: C.goldSoft }}>{money(r.totalB)}</td>
                 </tr>
               ))}
@@ -2655,7 +2691,8 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
           disabled={!canConfirm}
           onClick={() => onConfirm(
             Object.fromEntries(players.map((p) => [p.id, (Number(pagaVirtual[p.id]) || 0) + (Number(remanente[p.id]) || 0)])),
-            Object.fromEntries(players.map((p) => [p.id, Number(adjustments[p.id]) || 0]).filter(([, v]) => v !== 0))
+            Object.fromEntries(players.map((p) => [p.id, Number(adjustments[p.id]) || 0]).filter(([, v]) => v !== 0)),
+            rake
           )}
           icon={Trophy} style={{ flex: 1, padding: "12px 16px" }}
         >

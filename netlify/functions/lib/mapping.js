@@ -73,7 +73,7 @@ function gamesToRows(games) {
       requests: g.requests || [],
       rakeHost: g.rakeHost || 0,
       rakeAutosCount: g.rakeAutosCount || 0,
-      rakeAutoAmount: g.rakeAutoAmount ?? 250,
+      rakeAutoAmount: g.rakeAutoAmount ?? 300,
     }),
   ]);
 }
@@ -100,7 +100,7 @@ function rowsToGames(rows) {
         requests: detalle.requests || [],
         rakeHost: detalle.rakeHost || 0,
         rakeAutosCount: detalle.rakeAutosCount || 0,
-        rakeAutoAmount: detalle.rakeAutoAmount ?? 250,
+        rakeAutoAmount: detalle.rakeAutoAmount ?? 300,
         results: null,
       };
     })
