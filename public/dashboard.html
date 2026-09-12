@@ -117,9 +117,8 @@
   let evoView = "table"; // "table" | "chart"  (tabla por default)
   let evoMetric = "balance"; // solo aplica cuando evoView === "chart"
   let evoSort = { key: null, desc: true }; // orden de la tabla de Evolución al hacer click en un encabezado
-  let zoomPlayerId = ""; // jugador seleccionado en "Zoom por jugador"
 
-  // Columnas de la tabla de Evolución (compartidas con "Zoom por jugador").
+  // Columnas de la tabla de Evolución.
   // accessor: valor usado para ordenar; render: contenido de la celda.
   const EVO_COLUMNS = [
     { key: "name", label: "Jugador", sticky: true, accessor: function (st) { return st.player.name; }, render: function (st) { return el("div", { style: "display:flex;align-items:center;gap:6px" }, [avatarEl(st.player, 18), el("span", {}, [st.player.name])]); } },
@@ -132,7 +131,6 @@
     { key: "totalVirtualAmt", label: "Total virtual", accessor: function (st) { return st.totalVirtualAmt; }, render: function (st) { return money(st.totalVirtualAmt); }, cls: "tone-virtual" },
     { key: "totalCV", label: "Total C+V", accessor: function (st) { return st.totalCashAmt + st.totalVirtualAmt; }, render: function (st) { return money(st.totalCashAmt + st.totalVirtualAmt); } },
     { key: "maxCashOut", label: "Mejor cash out", accessor: function (st) { return st.maxCashOut; }, render: function (st) { return money(st.maxCashOut); } },
-    { key: "minCashOut", label: "Peor cash out", accessor: function (st) { return st.minCashOut; }, render: function (st) { return money(st.minCashOut); } },
     { key: "hostCount", label: "Anfitrión", accessor: function (st) { return st.hostCount; }, render: function (st) { return "x" + st.hostCount; } },
     { key: "streak", label: "Racha", accessor: function (st) { return st.curType === "W" ? st.curLen : st.curType === "L" ? -st.curLen : 0; }, render: function (st) { return el("span", { class: "streakBadge " + (st.curType === "W" ? "win" : st.curType === "L" ? "loss" : "") }, [st.curStreakLabel]); } },
   ];
@@ -217,7 +215,7 @@
     roster.forEach((p) => {
       byPlayer[p.id] = {
         player: p, played: 0, wins: 0, losses: 0, ties: 0, totalBalance: 0, hostCount: 0,
-        maxCashOut: 0, minCashOut: Infinity, totalCashAmt: 0, totalVirtualAmt: 0, series: [],
+        maxCashOut: 0, totalCashAmt: 0, totalVirtualAmt: 0, series: [],
         curType: null, curLen: 0, bestWinStreak: 0, bestLossStreak: 0,
       };
     });
@@ -247,7 +245,6 @@
         st.totalVirtualAmt += p.virtualAmount;
         st.series.push({ date: g.date, balance: p.balance, cumulative: 0 });
         if (p.cashOut > st.maxCashOut) st.maxCashOut = p.cashOut;
-        if (p.cashOut < st.minCashOut) st.minCashOut = p.cashOut;
 
         if (!bestNight || p.balance > bestNight.balance) bestNight = { player: st.player, balance: p.balance, date: g.date };
         if (!worstNight || p.balance < worstNight.balance) worstNight = { player: st.player, balance: p.balance, date: g.date };
@@ -268,7 +265,6 @@
       st.winRate = st.played ? Math.round((st.wins / st.played) * 100) : 0;
       st.avgBalance = st.played ? round1(st.totalBalance / st.played) : 0;
       st.curStreakLabel = st.curType === "W" ? "🔥 " + st.curLen + "G" : st.curType === "L" ? "❄️ " + st.curLen + "P" : "—";
-      if (st.minCashOut === Infinity) st.minCashOut = 0;
     });
 
     const leaderboard = Object.values(byPlayer).filter((st) => st.played > 0).sort((a, b) => b.totalBalance - a.totalBalance);
@@ -547,41 +543,6 @@
     return el("div", { class: "tableWrap" }, [table]);
   }
 
-  function buildZoomPanel(stats) {
-    const panel = el("div", { class: "panel" }, [
-      el("div", { class: "sectionTitle" }, ["Zoom por jugador"]),
-      el("div", { class: "sectionSub" }, ["Estadísticas completas de un solo jugador en el período seleccionado."]),
-    ]);
-    if (stats.leaderboard.length === 0) { panel.appendChild(el("div", { class: "empty" }, ["Sin partidas en este período."])); return panel; }
-
-    if (!zoomPlayerId || !stats.leaderboard.some(function (st) { return st.player.id === zoomPlayerId; })) {
-      zoomPlayerId = stats.leaderboard[0].player.id;
-    }
-    const select = el("select", {
-      onchange: function (e) { zoomPlayerId = e.target.value; renderAll(); },
-    }, stats.leaderboard.map(function (st) {
-      return el("option", { value: st.player.id, selected: st.player.id === zoomPlayerId ? "selected" : undefined }, [st.player.name]);
-    }));
-    select.value = zoomPlayerId;
-    panel.appendChild(el("div", { class: "filterRow", style: "margin-bottom:12px" }, [select]));
-
-    const st = stats.leaderboard.filter(function (s) { return s.player.id === zoomPlayerId; })[0];
-    const cols = EVO_COLUMNS.filter(function (c) { return c.key !== "name"; });
-    const table = el("table", { class: "simple" });
-    const tbody = el("tbody");
-    cols.forEach(function (col) {
-      const cell = el("td", { class: "mono", style: col.style ? col.style(st) : undefined }, [col.render(st)]);
-      tbody.appendChild(el("tr", {}, [el("td", {}, [col.label]), cell]));
-    });
-    table.appendChild(tbody);
-    panel.appendChild(el("div", { style: "display:flex;align-items:center;gap:8px;margin-bottom:10px" }, [
-      avatarEl(st.player, 26),
-      el("span", { class: "display", style: "font-size:19px;color:var(--gold-soft)" }, [st.player.name]),
-    ]));
-    panel.appendChild(el("div", { class: "tableWrap" }, [table]));
-    return panel;
-  }
-
   function buildEvoPanel(stats) {
     const header = [el("div", { class: "sectionTitle" }, ["Evolución"])];
     const tag = periodTag();
@@ -695,7 +656,6 @@
     main.appendChild(buildKpiPanel(stats));
     main.appendChild(buildRecordsPanel(stats));
     main.appendChild(buildEvoPanel(stats));
-    main.appendChild(buildZoomPanel(stats));
     main.appendChild(buildVolumePanel(stats));
   }
 
