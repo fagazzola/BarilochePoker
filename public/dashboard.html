@@ -107,7 +107,7 @@
   const MONTHS_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 
   let ROSTER = [], GAMES = [];
-  let period = "month"; // "all" | "year" | "month" | "range"
+  let period = "all"; // "all" | "year" | "month" | "range"
   let rangeFrom = "", rangeTo = "";
   let evoView = "table"; // "table" | "chart"  (tabla por default)
   let evoMetric = "balance"; // solo aplica cuando evoView === "chart"
@@ -197,7 +197,7 @@
       };
     });
 
-    let bestNight = null, worstNight = null, highestCashOut = null;
+    let bestNight = null, worstNight = null, highestCashOut = null, lowestCashOut = null;
     const perGameVolume = [];
     let totalCash = 0, totalVirtual = 0, totalPlayersSum = 0, totalDinner = 0;
 
@@ -226,6 +226,7 @@
         if (!bestNight || p.balance > bestNight.balance) bestNight = { player: st.player, balance: p.balance, date: g.date };
         if (!worstNight || p.balance < worstNight.balance) worstNight = { player: st.player, balance: p.balance, date: g.date };
         if (!highestCashOut || p.cashOut > highestCashOut.amount) highestCashOut = { player: st.player, amount: p.cashOut, date: g.date };
+        if (!lowestCashOut || p.cashOut < lowestCashOut.amount) lowestCashOut = { player: st.player, amount: p.cashOut, date: g.date };
 
         const outcome = p.balance > 0 ? "W" : p.balance < 0 ? "L" : "T";
         if (outcome === st.curType) st.curLen += 1;
@@ -268,7 +269,7 @@
     return {
       leaderboard, totalGames, totalCash, totalVirtual, avgCash, avgVirtual, totalRake, avgPot, avgPlayers,
       totalDinner, avgDinnerPerPlayer,
-      bestNight, worstNight, highestCashOut, mostWins, mostLosses, bestStreak, worstStreak, mostHost,
+      bestNight, worstNight, highestCashOut, lowestCashOut, mostWins, mostLosses, bestStreak, worstStreak, mostHost,
       perGameVolume, sortedGames: games,
     };
   }
@@ -385,7 +386,7 @@
   function buildFilterPanel() {
     const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Período"])]);
     const row = el("div", { class: "filterRow" });
-    ["month", "year", "range", "all"].forEach((p) => {
+    ["all", "month", "year", "range"].forEach((p) => {
       const label = p === "all" ? "Todo" : p === "month" ? "Este mes" : p === "year" ? "Este año" : "Rango";
       row.appendChild(el("button", { class: "btn" + (period === p ? " active" : ""), onclick: function () { period = p; renderAll(); } }, [label]));
     });
@@ -445,9 +446,12 @@
     const grid = el("div", { class: "kpiGrid" });
     let any = false;
 
+    // Orden: por concepto, siempre el bueno arriba y el malo abajo.
     if (stats.bestNight) { any = true; grid.appendChild(recordCard("Mejor noche", playerNameNode(stats.bestNight.player), (stats.bestNight.balance > 0 ? "+" : "") + money(stats.bestNight.balance) + " · " + stats.bestNight.date, moneyTone(stats.bestNight.balance))); }
     if (stats.worstNight) { any = true; grid.appendChild(recordCard("Peor noche", playerNameNode(stats.worstNight.player), money(stats.worstNight.balance) + " · " + stats.worstNight.date, moneyTone(stats.worstNight.balance))); }
-    if (stats.highestCashOut) { any = true; grid.appendChild(recordCard("Mayor cash out", playerNameNode(stats.highestCashOut.player), money(stats.highestCashOut.amount) + " · " + stats.highestCashOut.date, moneyTone(stats.highestCashOut.amount))); }
+
+    if (stats.highestCashOut) { any = true; grid.appendChild(recordCard("Mayor cash out", playerNameNode(stats.highestCashOut.player), money(stats.highestCashOut.amount) + " · " + stats.highestCashOut.date, "win")); }
+    if (stats.lowestCashOut) { any = true; grid.appendChild(recordCard("Peor cash out", playerNameNode(stats.lowestCashOut.player), money(stats.lowestCashOut.amount) + " · " + stats.lowestCashOut.date, "loss")); }
 
     if (stats.mostWins.players.length === 1) { any = true; grid.appendChild(recordCard("📈 Más balances positivos", playerNameNode(stats.mostWins.players[0].player), stats.mostWins.max + " partidas ganadas", "win")); }
     else if (stats.mostWins.players.length > 1) { any = true; grid.appendChild(recordCard("📈 Más balances positivos", variosNode(), "Varios con " + stats.mostWins.max, "win")); }
@@ -458,7 +462,7 @@
     if (stats.bestStreak.players.length === 1) { any = true; grid.appendChild(recordCard("🔥 Mejor racha", playerNameNode(stats.bestStreak.players[0].player), "🔥 " + stats.bestStreak.max + "G", "win")); }
     else if (stats.bestStreak.players.length > 1) { any = true; grid.appendChild(recordCard("🔥 Mejor racha", variosNode(), "🔥 Varios con " + stats.bestStreak.max + "G", "win")); }
 
-    if (stats.worstStreak.players.length === 1) { any = true; grid.appendChild(recordCard("❄️ Peor racha", playerNameNode(stats.worstStreak.players[0].player), "❄️ " + stats.worstStreak.max + " perdidas seguidas", "loss")); }
+    if (stats.worstStreak.players.length === 1) { any = true; grid.appendChild(recordCard("❄️ Peor racha", playerNameNode(stats.worstStreak.players[0].player), "❄️ " + stats.worstStreak.max + "P", "loss")); }
     else if (stats.worstStreak.players.length > 1) { any = true; grid.appendChild(recordCard("❄️ Peor racha", variosNode(), "❄️ Varios con " + stats.worstStreak.max + "P", "loss")); }
 
     if (!any) { panel.appendChild(el("div", { class: "empty" }, ["Sin datos suficientes en este período."])); return panel; }
