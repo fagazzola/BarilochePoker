@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.03.07.040";
+const APP_VERSION = "3.04.07.041";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -1666,15 +1666,12 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   };
 
   const setLote = (v) => update({ loteValue: Number(v) || 0 });
-  // El rake queda fijo apenas se empieza a capturar la entrega de fichas —
-  // ya sea que se haya llegado a cerrar la partida (finalChips) o que
-  // todavía esté en borrador en la pantalla de "Entrega de fichas"
-  // (finalizeDraft), que ahora se guarda solo en cuanto se escribe algo,
-  // sin esperar a tocar "Volver".
-  const hasFinalizeDraft = Object.values(game.finalizeDraft || {}).some(
-    (d) => d && ((d.pagaVirtual !== undefined && d.pagaVirtual !== "") || (d.remanente !== undefined && d.remanente !== ""))
-  );
-  const rakeLocked = Object.keys(game.finalChips || {}).length > 0 || hasFinalizeDraft;
+  // El rake (y el lote) se pueden seguir editando libremente mientras la
+  // partida sigue en curso, incluso si ya se entró a "Entrega de fichas" y
+  // se volvió para corregir algo — solo se congela cuando la partida ya
+  // quedó realmente cerrada ("Calcular resultados"), que es cuando
+  // finalChips deja de estar vacío.
+  const rakeLocked = Object.keys(game.finalChips || {}).length > 0;
   const setRakeParts = (patch) =>
     update((g) => {
       const rakeHost = patch.rakeHost !== undefined ? Number(patch.rakeHost) || 0 : (Number(g.rakeHost) || 0);
@@ -2347,7 +2344,14 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
       });
       if (!res.ok) {
         const t = await res.text();
-        throw new Error(t || `HTTP ${res.status}`);
+        // El backend devuelve {"error": "..."} — mostramos ese mensaje
+        // pelado en vez del JSON crudo, para que se pueda leer en el celular.
+        let msg = t || `HTTP ${res.status}`;
+        try {
+          const parsed = JSON.parse(t);
+          if (parsed && parsed.error) msg = parsed.error;
+        } catch { /* no era JSON, se deja el texto crudo */ }
+        throw new Error(msg);
       }
       setSaveState("ok");
     } catch (e) {
@@ -2374,7 +2378,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
           right={
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {saveState === "ok" && <span style={{ fontSize: 11, color: C.win, ...monoFont }}>Guardado ✓</span>}
-              {saveState === "error" && <span style={{ fontSize: 11, color: C.loss, ...monoFont }} title={saveErrorMsg}>Error al guardar</span>}
+              {saveState === "error" && <span style={{ fontSize: 11, color: C.loss, ...monoFont }}>Error al guardar</span>}
               <GhostBtn onClick={saveExcelNow} icon={Save} color={C.goldSoft}>
                 {saveState === "saving" ? "Guardando…" : "Guardar en Excel"}
               </GhostBtn>
@@ -2386,6 +2390,14 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
         <div style={{ color: "rgba(244,234,214,0.6)", fontSize: 12.5, marginBottom: 10 }}>
           De las fichas que entrega cada jugador, primero se pagan los lotes virtuales pendientes; lo que sobra son sus fichas remanentes (a cobrar en cash o transferencia). El botón "Guardar en Excel" empuja este avance al Excel al instante, sin esperar a la sincronización automática.
         </div>
+        {saveState === "error" && (
+          <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginBottom: 10, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
+            <AlertCircle size={15} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.85)", ...monoFont, wordBreak: "break-word" }}>
+              <strong style={{ ...bodyFont }}>No se pudo guardar en Excel:</strong> {saveErrorMsg || "error desconocido"}
+            </div>
+          </div>
+        )}
 
         {/* Bloques 1 y 2: Cash (arriba) y Virtual (justo debajo, alineados por columna) */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.3fr", gap: 8, marginBottom: 14 }}>
