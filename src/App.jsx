@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.02.07.039";
+const APP_VERSION = "3.03.07.040";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -2191,6 +2191,10 @@ function DinnerSection({ game, players, update }) {
 }
 
 /* ----- Finalize: enter chips returned per player ----- */
+// Color fijo para "Virtual pendiente" (bloque 2) y las columnas relacionadas
+// con virtuales — no es ninguno de los tonos ya usados (cash/virtual/win/loss).
+const ORANGE = "#f2883c";
+
 function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   // Orden alfabético, igual que el resto de las pantallas de la partida.
   const players = useMemo(
@@ -2240,6 +2244,14 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   const setRemanente = (pid, v) => { setRemanenteState((c) => ({ ...c, [pid]: v })); persistField(pid, "remanente", v); };
   const setAdjustment = (pid, v) => { setAdjustmentsState((c) => ({ ...c, [pid]: v })); persistField(pid, "adjust", v); };
 
+  // "Guardar en Excel ahora": empuja un snapshot on-demand a la hoja
+  // "EntregaFichas" (aparte del guardado automático de "active", que tiene
+  // su propia latencia y candado de 3s). Sirve para tener la certeza de que
+  // lo capturado hasta este momento ya quedó en el Excel, y deja un
+  // historial con timestamp para auditorías posteriores.
+  const [saveState, setSaveState] = useState("idle"); // idle | saving | ok | error
+  const [saveErrorMsg, setSaveErrorMsg] = useState("");
+
   const buyIns = useMemo(() => {
     const map = {};
     players.forEach((p) => {
@@ -2263,11 +2275,15 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   const virtualPendiente = round1(totalVirtual - pagaVirtualTotal);
 
   // El dinero total en juego (para el "cuadre") se basa en las fichas tal
-  // cual se entregaron (paga virtual + fichas remanentes) — el ajuste manual
-  // NO se suma aquí: no representa dinero nuevo, solo corrige de qué
-  // bolsillo (cash) se le reconoce a cada quien lo que ya cuadró.
+  // cual se entregaron — paga virtual + fichas remanentes + ajuste manual.
+  // El ajuste manual SÍ altera las fichas disponibles del jugador (positiva
+  // o negativamente) y por lo tanto el total general: si corrige un mal
+  // conteo, ese dinero corregido tiene que reflejarse en el cuadre.
   const enteredCount = players.filter((p) => pagaVirtual[p.id] !== "" || remanente[p.id] !== "").length;
-  const totalFinalValue = players.reduce((s, p) => s + (Number(pagaVirtual[p.id]) || 0) + (Number(remanente[p.id]) || 0), 0) + rake;
+  const totalFinalValue = players.reduce(
+    (s, p) => s + (Number(pagaVirtual[p.id]) || 0) + (Number(remanente[p.id]) || 0) + (Number(adjustments[p.id]) || 0),
+    0
+  ) + rake;
   const runningDiff = round1(totalFinalValue - targetTotal);
 
   const ready = players.every((p) => (pagaVirtual[p.id] === "" || !isNaN(Number(pagaVirtual[p.id]))) && (remanente[p.id] === "" || !isNaN(Number(remanente[p.id]))));
@@ -2277,48 +2293,122 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
 
   const cuadra = runningDiff === 0;
 
+  // Filas concentradas por jugador para los bloques 4 (VIRTUALES) y 5 (CASH):
+  // - Total A (por jugador) = lotes virtuales que le quedan sin pagar.
+  // - Total B (por jugador) = fichas remanentes + ajuste manual, es decir,
+  //   lo que le queda a ese jugador una vez separado lo que paga de virtual
+  //   (que ya se contabilizó en Total A). Sumando todos los Total A y Total B
+  //   se puede volver a armar la misma ecuación de cuadre que ya usa la
+  //   pantalla (Cash remanente + Total A = Total B), pero mirándola desde el
+  //   ángulo de cash vs. virtual en vez del total genérico.
+  const rows = useMemo(() => players.map((p) => {
+    const bi = buyIns[p.id];
+    const pv = Number(pagaVirtual[p.id]) || 0;
+    const rem = Number(remanente[p.id]) || 0;
+    const adj = Number(adjustments[p.id]) || 0;
+    const fichasTotales = round1(pv + rem + adj);
+    const totalA = round1(bi.virtual - pv);
+    const fichasEntregadas = round1(rem);
+    const fichasRemanentesPostVirtual = round1(adj);
+    const totalB = round1(fichasEntregadas + fichasRemanentesPostVirtual);
+    return { p, bi, pv, rem, adj, fichasTotales, totalA, fichasEntregadas, fichasRemanentesPostVirtual, totalB };
+  }), [players, buyIns, pagaVirtual, remanente, adjustments]);
+
+  const grandTotalA = round1(rows.reduce((s, r) => s + r.totalA, 0));
+  const grandTotalB = round1(rows.reduce((s, r) => s + r.totalB, 0));
+  const totalesCuadran = round1(cashDisponible + grandTotalA - grandTotalB) === 0;
+
+  const saveExcelNow = async () => {
+    setSaveState("saving");
+    setSaveErrorMsg("");
+    try {
+      const payload = {
+        gameId: game.id,
+        gameDate: game.date,
+        rows: rows.map((r) => ({
+          playerId: r.p.id,
+          playerName: r.p.name,
+          debeVirtual: r.bi.virtual,
+          pagaVirtual: r.pv,
+          fichasRemanentes: r.rem,
+          ajusteManual: r.adj,
+          fichasTotales: r.fichasTotales,
+          rake,
+          cashDisponible,
+          virtualPendiente,
+          totalA: r.totalA,
+          totalB: r.totalB,
+        })),
+      };
+      const res = await fetch("/api/store?key=entregaFichas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || `HTTP ${res.status}`);
+      }
+      setSaveState("ok");
+    } catch (e) {
+      console.error("guardar en Excel (EntregaFichas) falló", e);
+      setSaveState("error");
+      setSaveErrorMsg(String((e && e.message) || e));
+    }
+  };
+
   const rowLabelStyle = { fontSize: 10, color: "rgba(244,234,214,0.45)", textTransform: "uppercase", letterSpacing: "0.04em" };
   const blockLabelStyle = { fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 };
-  const blockValueStyle = (color) => ({ ...monoFont, fontWeight: 800, fontSize: 20, color });
+  const blockValueStyle = (color, big) => ({ ...monoFont, fontWeight: 800, fontSize: big ? 30 : 18, color });
   const colLabelStyle = { fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" };
   const colValueStyle = (color) => ({ ...monoFont, fontWeight: 800, fontSize: 16, color });
+  const thStyle = { textAlign: "right", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.03em", color: "rgba(244,234,214,0.42)", fontWeight: 600, padding: "0 8px 8px", whiteSpace: "nowrap" };
+  const tdStyle = { textAlign: "right", padding: "7px 8px", ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.85)", borderTop: "1px solid rgba(255,255,255,0.06)", whiteSpace: "nowrap" };
+  const tdNameStyle = { ...tdStyle, textAlign: "left", ...bodyFont, fontWeight: 600, color: C.card };
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <Panel>
-        <SectionTitle icon={Trophy}>Entrega de fichas</SectionTitle>
+        <SectionTitle
+          icon={Trophy}
+          right={
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {saveState === "ok" && <span style={{ fontSize: 11, color: C.win, ...monoFont }}>Guardado ✓</span>}
+              {saveState === "error" && <span style={{ fontSize: 11, color: C.loss, ...monoFont }} title={saveErrorMsg}>Error al guardar</span>}
+              <GhostBtn onClick={saveExcelNow} icon={Save} color={C.goldSoft}>
+                {saveState === "saving" ? "Guardando…" : "Guardar en Excel"}
+              </GhostBtn>
+            </div>
+          }
+        >
+          Entrega de fichas
+        </SectionTitle>
         <div style={{ color: "rgba(244,234,214,0.6)", fontSize: 12.5, marginBottom: 10 }}>
-          De las fichas que entrega cada jugador, primero se pagan los lotes virtuales pendientes; lo que sobra son sus fichas remanentes (a cobrar en cash o transferencia).
+          De las fichas que entrega cada jugador, primero se pagan los lotes virtuales pendientes; lo que sobra son sus fichas remanentes (a cobrar en cash o transferencia). El botón "Guardar en Excel" empuja este avance al Excel al instante, sin esperar a la sincronización automática.
         </div>
 
-        {/* Bloque 1: Cash */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 10 }}>
-          <div style={{ background: "rgba(47,174,102,0.12)", border: `1px solid ${C.cashDeep}`, borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
+        {/* Bloques 1 y 2: Cash (arriba) y Virtual (justo debajo, alineados por columna) */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.3fr", gap: 8, marginBottom: 14 }}>
+          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
             <div style={blockLabelStyle}>Cash</div>
-            <div style={blockValueStyle(C.cash)}>{money(totalCash)}</div>
+            <div style={blockValueStyle(C.card)}>{money(totalCash)}</div>
           </div>
           <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
             <div style={blockLabelStyle}>menos Rake+Estacionamiento</div>
-            <div style={blockValueStyle(C.goldSoft)}>-{money(rake)}</div>
+            <div style={blockValueStyle(C.card)}>-{money(rake)}</div>
+          </div>
+          <div style={{ background: "rgba(47,174,102,0.14)", border: `1px solid ${C.cashDeep}`, borderRadius: 9, padding: "10px 8px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <div style={blockLabelStyle}>Cash disponible</div>
+            <div style={blockValueStyle(C.cash, true)}>{money(cashDisponible)}</div>
+          </div>
+
+          <div style={{ gridColumn: "1 / 3", background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
+            <div style={blockLabelStyle}>Virtual</div>
+            <div style={blockValueStyle(C.card)}>{money(totalVirtual)}</div>
           </div>
           <div style={{ background: "rgba(0,0,0,0.22)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Cash disponible</div>
-            <div style={blockValueStyle(C.card)}>{money(cashDisponible)}</div>
-          </div>
-        </div>
-
-        {/* Bloque 2: Virtual */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginBottom: 14 }}>
-          <div style={{ background: "rgba(139,107,240,0.12)", border: `1px solid ${C.virtualDeep}`, borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Virtual</div>
-            <div style={blockValueStyle(C.virtual)}>{money(totalVirtual)}</div>
-          </div>
-          <div style={{
-            background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center",
-            border: `1px solid ${virtualPendiente === 0 ? C.win : C.panelLine}`,
-          }}>
             <div style={blockLabelStyle}>Virtual pendiente</div>
-            <div style={blockValueStyle(virtualPendiente === 0 ? C.win : C.card)}>{money(virtualPendiente)}</div>
+            <div style={blockValueStyle(ORANGE)}>{money(virtualPendiente)}</div>
           </div>
         </div>
 
@@ -2346,10 +2436,6 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, textAlign: "center" }}>
-                  <div>
-                    <div style={colLabelStyle}>Fichas totales</div>
-                    <div style={colValueStyle(C.goldSoft)}>{money(pv + rem)}</div>
-                  </div>
                   <div>
                     <div style={colLabelStyle}>Debe virtual</div>
                     <div style={colValueStyle(C.virtual)}>{money(bi.virtual)}</div>
@@ -2387,6 +2473,10 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
                       }}
                       step="100"
                     />
+                  </div>
+                  <div>
+                    <div style={colLabelStyle}>Fichas totales</div>
+                    <div style={colValueStyle(C.goldSoft)}>{money(fichasAjustadas)}</div>
                   </div>
                 </div>
 
@@ -2452,6 +2542,95 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
             </div>
           </div>
         )}
+      </Panel>
+
+      {/* Bloque 4: VIRTUALES — tabla concentrada, no editable, para cuadrar */}
+      <Panel>
+        <SectionTitle icon={Coins}>Virtuales</SectionTitle>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>
+              <th style={{ ...thStyle, textAlign: "left" }}>Jugador</th>
+              <th style={thStyle}>Lotes virtuales</th>
+              <th style={thStyle}>Lotes virtuales pagados</th>
+              <th style={thStyle}>Total A</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.p.id}>
+                  <td style={tdNameStyle}>{r.p.name}</td>
+                  <td style={{ ...tdStyle, color: C.virtual }}>{money(r.bi.virtual)}</td>
+                  <td style={tdStyle}>{money(r.pv)}</td>
+                  <td style={{ ...tdStyle, color: r.totalA === 0 ? C.win : ORANGE, fontWeight: 700 }}>{money(r.totalA)}</td>
+                </tr>
+              ))}
+              <tr>
+                <td style={{ ...tdNameStyle, fontWeight: 800 }}>Total A</td>
+                <td style={tdStyle} />
+                <td style={tdStyle} />
+                <td style={{ ...tdStyle, fontWeight: 800, color: grandTotalA === 0 ? C.win : ORANGE }}>{money(grandTotalA)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      {/* Bloque 5: CASH — tabla concentrada, no editable, para cuadrar */}
+      <Panel>
+        <SectionTitle icon={Banknote}>Cash</SectionTitle>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>
+              <th style={{ ...thStyle, textAlign: "left" }}>Jugador</th>
+              <th style={thStyle}>Fichas entregadas</th>
+              <th style={thStyle}>Fichas remanentes (post-virtual)</th>
+              <th style={thStyle}>Total B</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.p.id}>
+                  <td style={tdNameStyle}>{r.p.name}</td>
+                  <td style={{ ...tdStyle, color: C.cash }}>{money(r.fichasEntregadas)}</td>
+                  <td style={tdStyle}>{money(r.fichasRemanentesPostVirtual)}</td>
+                  <td style={{ ...tdStyle, fontWeight: 700, color: C.goldSoft }}>{money(r.totalB)}</td>
+                </tr>
+              ))}
+              <tr>
+                <td style={{ ...tdNameStyle, fontWeight: 800 }}>Total B</td>
+                <td style={tdStyle} />
+                <td style={tdStyle} />
+                <td style={{ ...tdStyle, fontWeight: 800, color: C.goldSoft }}>{money(grandTotalB)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      {/* Bloque 6: TOTALES — Cash remanente + Total A debe ser igual a Total B */}
+      <Panel>
+        <SectionTitle icon={CircleDollarSign}>Totales</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
+            <div style={blockLabelStyle}>Cash remanente</div>
+            <div style={blockValueStyle(C.cash)}>{money(cashDisponible)}</div>
+          </div>
+          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
+            <div style={blockLabelStyle}>Total A</div>
+            <div style={blockValueStyle(ORANGE)}>{money(grandTotalA)}</div>
+          </div>
+          <div style={{
+            background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center",
+            border: `1px solid ${totalesCuadran ? C.win : C.loss}`,
+          }}>
+            <div style={blockLabelStyle}>Total B</div>
+            <div style={blockValueStyle(totalesCuadran ? C.win : C.loss)}>{money(grandTotalB)}</div>
+          </div>
+        </div>
+        <div style={{ marginTop: 10, fontSize: 12, textAlign: "center", color: totalesCuadran ? C.win : "rgba(244,234,214,0.7)" }}>
+          {totalesCuadran
+            ? "Cash remanente + Total A = Total B — cuadrado ✓"
+            : `Cash remanente + Total A (${money(round1(cashDisponible + grandTotalA))}) debería ser igual a Total B (${money(grandTotalB)}) — todavía no cuadra.`}
+        </div>
       </Panel>
 
       <div style={{ display: "flex", gap: 10 }}>
