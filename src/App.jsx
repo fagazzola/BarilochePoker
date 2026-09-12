@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.04.07.041";
+const APP_VERSION = "3.05.07.042";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -2291,13 +2291,12 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   const cuadra = runningDiff === 0;
 
   // Filas concentradas por jugador para los bloques 4 (VIRTUALES) y 5 (CASH):
-  // - Total A (por jugador) = lotes virtuales que le quedan sin pagar.
-  // - Total B (por jugador) = fichas remanentes + ajuste manual, es decir,
-  //   lo que le queda a ese jugador una vez separado lo que paga de virtual
-  //   (que ya se contabilizó en Total A). Sumando todos los Total A y Total B
-  //   se puede volver a armar la misma ecuación de cuadre que ya usa la
-  //   pantalla (Cash remanente + Total A = Total B), pero mirándola desde el
-  //   ángulo de cash vs. virtual en vez del total genérico.
+  // - Subtotal VRT (por jugador) = lotes virtuales que le quedan sin pagar.
+  // - Fichas Presentadas (por jugador) = fichas totales que entrega (paga
+  //   virtual + remanentes + ajuste manual).
+  // - Fichas remanentes (post-virtual) = Fichas Presentadas menos lo que ya
+  //   se descontó para pagar lotes virtuales (pv).
+  // - Subtotal CSH (por jugador) = suma de las dos columnas anteriores.
   const rows = useMemo(() => players.map((p) => {
     const bi = buyIns[p.id];
     const pv = Number(pagaVirtual[p.id]) || 0;
@@ -2305,15 +2304,16 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
     const adj = Number(adjustments[p.id]) || 0;
     const fichasTotales = round1(pv + rem + adj);
     const totalA = round1(bi.virtual - pv);
-    const fichasEntregadas = round1(rem);
-    const fichasRemanentesPostVirtual = round1(adj);
-    const totalB = round1(fichasEntregadas + fichasRemanentesPostVirtual);
-    return { p, bi, pv, rem, adj, fichasTotales, totalA, fichasEntregadas, fichasRemanentesPostVirtual, totalB };
+    const fichasPresentadas = fichasTotales;
+    const fichasRemanentesPostVirtual = round1(fichasPresentadas - pv);
+    const totalB = round1(fichasPresentadas + fichasRemanentesPostVirtual);
+    return { p, bi, pv, rem, adj, fichasTotales, totalA, fichasPresentadas, fichasRemanentesPostVirtual, totalB };
   }), [players, buyIns, pagaVirtual, remanente, adjustments]);
 
   const grandTotalA = round1(rows.reduce((s, r) => s + r.totalA, 0));
   const grandTotalB = round1(rows.reduce((s, r) => s + r.totalB, 0));
-  const totalesCuadran = round1(cashDisponible + grandTotalA - grandTotalB) === 0;
+  const cashPlusSubtotalVRT = round1(cashDisponible + grandTotalA);
+  const totalesCuadran = round1(cashPlusSubtotalVRT - grandTotalB) === 0;
 
   const saveExcelNow = async () => {
     setSaveState("saving");
@@ -2388,7 +2388,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
           Entrega de fichas
         </SectionTitle>
         <div style={{ color: "rgba(244,234,214,0.6)", fontSize: 12.5, marginBottom: 10 }}>
-          De las fichas que entrega cada jugador, primero se pagan los lotes virtuales pendientes; lo que sobra son sus fichas remanentes (a cobrar en cash o transferencia). El botón "Guardar en Excel" empuja este avance al Excel al instante, sin esperar a la sincronización automática.
+          El botón "Guardar en Excel" empuja este avance al Excel al instante, sin esperar a la sincronización automática.
         </div>
         {saveState === "error" && (
           <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginBottom: 10, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
@@ -2420,7 +2420,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
           </div>
           <div style={{ background: "rgba(0,0,0,0.22)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
             <div style={blockLabelStyle}>Virtual pendiente</div>
-            <div style={blockValueStyle(ORANGE)}>{money(virtualPendiente)}</div>
+            <div style={blockValueStyle(ORANGE, true)}>{money(virtualPendiente)}</div>
           </div>
         </div>
 
@@ -2565,7 +2565,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
               <th style={{ ...thStyle, textAlign: "left" }}>Jugador</th>
               <th style={thStyle}>Lotes virtuales</th>
               <th style={thStyle}>Lotes virtuales pagados</th>
-              <th style={thStyle}>Total A</th>
+              <th style={thStyle}>Subtotal VRT</th>
             </tr></thead>
             <tbody>
               {rows.map((r) => (
@@ -2577,7 +2577,7 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
                 </tr>
               ))}
               <tr>
-                <td style={{ ...tdNameStyle, fontWeight: 800 }}>Total A</td>
+                <td style={{ ...tdNameStyle, fontWeight: 800 }}>Subtotal VRT</td>
                 <td style={tdStyle} />
                 <td style={tdStyle} />
                 <td style={{ ...tdStyle, fontWeight: 800, color: grandTotalA === 0 ? C.win : ORANGE }}>{money(grandTotalA)}</td>
@@ -2594,21 +2594,21 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr>
               <th style={{ ...thStyle, textAlign: "left" }}>Jugador</th>
-              <th style={thStyle}>Fichas entregadas</th>
+              <th style={thStyle}>Fichas Presentadas</th>
               <th style={thStyle}>Fichas remanentes (post-virtual)</th>
-              <th style={thStyle}>Total B</th>
+              <th style={thStyle}>Subtotal CSH</th>
             </tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.p.id}>
                   <td style={tdNameStyle}>{r.p.name}</td>
-                  <td style={{ ...tdStyle, color: C.cash }}>{money(r.fichasEntregadas)}</td>
+                  <td style={{ ...tdStyle, color: C.cash }}>{money(r.fichasPresentadas)}</td>
                   <td style={tdStyle}>{money(r.fichasRemanentesPostVirtual)}</td>
                   <td style={{ ...tdStyle, fontWeight: 700, color: C.goldSoft }}>{money(r.totalB)}</td>
                 </tr>
               ))}
               <tr>
-                <td style={{ ...tdNameStyle, fontWeight: 800 }}>Total B</td>
+                <td style={{ ...tdNameStyle, fontWeight: 800 }}>Subtotal CSH</td>
                 <td style={tdStyle} />
                 <td style={tdStyle} />
                 <td style={{ ...tdStyle, fontWeight: 800, color: C.goldSoft }}>{money(grandTotalB)}</td>
@@ -2618,30 +2618,34 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
         </div>
       </Panel>
 
-      {/* Bloque 6: TOTALES — Cash remanente + Total A debe ser igual a Total B */}
+      {/* Bloque 6: TOTALES — Cash + Subtotal VRT contra Subtotal CSH */}
       <Panel>
         <SectionTitle icon={CircleDollarSign}>Totales</SectionTitle>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
           <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
             <div style={blockLabelStyle}>Cash remanente</div>
             <div style={blockValueStyle(C.cash)}>{money(cashDisponible)}</div>
           </div>
           <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Total A</div>
+            <div style={blockLabelStyle}>Subtotal VRT</div>
             <div style={blockValueStyle(ORANGE)}>{money(grandTotalA)}</div>
+          </div>
+          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
+            <div style={blockLabelStyle}>Cash + Subtotal VRT</div>
+            <div style={blockValueStyle(C.goldSoft)}>{money(cashPlusSubtotalVRT)}</div>
           </div>
           <div style={{
             background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center",
             border: `1px solid ${totalesCuadran ? C.win : C.loss}`,
           }}>
-            <div style={blockLabelStyle}>Total B</div>
+            <div style={blockLabelStyle}>Subtotal CSH</div>
             <div style={blockValueStyle(totalesCuadran ? C.win : C.loss)}>{money(grandTotalB)}</div>
           </div>
         </div>
         <div style={{ marginTop: 10, fontSize: 12, textAlign: "center", color: totalesCuadran ? C.win : "rgba(244,234,214,0.7)" }}>
           {totalesCuadran
-            ? "Cash remanente + Total A = Total B — cuadrado ✓"
-            : `Cash remanente + Total A (${money(round1(cashDisponible + grandTotalA))}) debería ser igual a Total B (${money(grandTotalB)}) — todavía no cuadra.`}
+            ? "Cash + Subtotal VRT = Subtotal CSH — cuadrado ✓"
+            : `Cash + Subtotal VRT (${money(cashPlusSubtotalVRT)}) debería ser igual a Subtotal CSH (${money(grandTotalB)}) — todavía no cuadra.`}
         </div>
       </Panel>
 

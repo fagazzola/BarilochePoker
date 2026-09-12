@@ -1,9 +1,10 @@
-const { getRows, setRows } = require("./lib/sheets");
+const { getRows, setRows, appendRows } = require("./lib/sheets");
 const {
   rosterToRows, rowsToRoster,
   gamesToRows, rowsToGames,
   metaToRows, rowsToActiveGame, rowsToAdminPassword,
   buildResultadosRows, rowsToResultados,
+  entregaFichasToRows,
 } = require("./lib/mapping");
 
 const HEADERS = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
@@ -18,11 +19,13 @@ const KEY_MAP = {
   "poker-active-game": "active",
   "poker-admin-password": "adminPassword",
   "poker-resultados": "resultados",
+  "poker-entrega-fichas": "entregaFichas",
   "roster": "roster",
   "games": "games",
   "active": "active",
   "adminPassword": "adminPassword",
   "resultados": "resultados",
+  "entregaFichas": "entregaFichas",
 };
 
 exports.handler = async (event) => {
@@ -88,6 +91,19 @@ exports.handler = async (event) => {
         const existingRows = await getRows("meta");
         const currentPassword = rowsToAdminPassword(existingRows);
         await setRows("meta", metaToRows(value, currentPassword));
+        return respond(200, { ok: true });
+      }
+      if (key === "entregaFichas") {
+        // Guardado on-demand desde el botón "Guardar en Excel ahora" de la
+        // pantalla de Entrega de fichas: agrega un snapshot con timestamp a
+        // la hoja "EntregaFichas" (nunca sobreescribe lo ya guardado), para
+        // no depender del ciclo de sincronización automático (con su
+        // latencia y su candado de 3s) y dejar un historial auditable.
+        const { gameId, gameDate, rows } = body;
+        if (!gameId || !Array.isArray(rows)) {
+          return respond(400, { error: "faltan gameId o rows para entregaFichas" });
+        }
+        await appendRows("entregaFichas", entregaFichasToRows(gameId, gameDate, rows));
         return respond(200, { ok: true });
       }
       // No se expone un POST para "adminPassword" ni "resultados": la primera
