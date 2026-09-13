@@ -126,15 +126,27 @@
     { key: "played", label: "Partidas", accessor: function (st) { return st.played; }, render: function (st) { return String(st.played); } },
     { key: "wins", label: "G/P", accessor: function (st) { return st.wins; }, render: function (st) { return st.wins + "/" + st.losses; } },
     { key: "winRate", label: "% Efect.", accessor: function (st) { return st.winRate; }, render: function (st) { return st.winRate + "%"; } },
-    { key: "avgBalance", label: "Promedio", accessor: function (st) { return st.avgBalance; }, render: function (st) { return money(st.avgBalance); } },
-    { key: "totalBalance", label: "Balance total", accessor: function (st) { return st.totalBalance; }, render: function (st) { return (st.totalBalance > 0 ? "+" : "") + money(st.totalBalance); }, style: function (st) { return "color:" + (st.totalBalance >= 0 ? "var(--win)" : "var(--loss)"); } },
     { key: "totalCashAmt", label: "Total cash", accessor: function (st) { return st.totalCashAmt; }, render: function (st) { return money(st.totalCashAmt); }, cls: "tone-cash" },
     { key: "totalVirtualAmt", label: "Total virtual", accessor: function (st) { return st.totalVirtualAmt; }, render: function (st) { return money(st.totalVirtualAmt); }, cls: "tone-virtual" },
     { key: "totalCV", label: "Total C+V", accessor: function (st) { return st.totalCashAmt + st.totalVirtualAmt; }, render: function (st) { return money(st.totalCashAmt + st.totalVirtualAmt); } },
+    { key: "totalBalance", label: "Balance", accessor: function (st) { return st.totalBalance; }, render: function (st) { return (st.totalBalance > 0 ? "+" : "") + money(st.totalBalance); }, style: function (st) { return "color:" + (st.totalBalance >= 0 ? "var(--win)" : "var(--loss)"); } },
+    { key: "roi", label: "ROI %", accessor: function (st) { return roiPct(st.totalBalance, st.totalCashAmt + st.totalVirtualAmt); }, render: function (st) { return roiLabel(st.totalBalance, st.totalCashAmt + st.totalVirtualAmt); }, style: function (st) { const r = roiPct(st.totalBalance, st.totalCashAmt + st.totalVirtualAmt); return r === null ? undefined : "color:" + (r >= 0 ? "var(--win)" : "var(--loss)"); } },
     { key: "maxCashOut", label: "Mejor cash out", accessor: function (st) { return st.maxCashOut; }, render: function (st) { return money(st.maxCashOut); } },
     { key: "hostCount", label: "Anfitrión", accessor: function (st) { return st.hostCount; }, render: function (st) { return "x" + st.hostCount; } },
     { key: "streak", label: "Racha", accessor: function (st) { return st.curType === "W" ? st.curLen : st.curType === "L" ? -st.curLen : 0; }, render: function (st) { return el("span", { class: "streakBadge " + (st.curType === "W" ? "win" : st.curType === "L" ? "loss" : "") }, [st.curStreakLabel]); } },
   ];
+
+  // ROI % = ((Balance / Total C+V) - 1) * 100 — la utilidad del período contra
+  // lo invertido en cash+virtual durante ese mismo período (fórmula pedida por el usuario).
+  function roiPct(balance, totalCV) {
+    if (!totalCV) return null;
+    return round1(((balance / totalCV) - 1) * 100);
+  }
+  function roiLabel(balance, totalCV) {
+    const r = roiPct(balance, totalCV);
+    if (r === null) return "—";
+    return (r > 0 ? "+" : "") + r + "%";
+  }
 
   async function loadKey(key, fallback) {
     const res = await fetch("/api/store?key=" + encodeURIComponent(key));
@@ -589,13 +601,11 @@
       const totalVirtual = rows.reduce(function (s, r) { return s + r.virtualAmount; }, 0);
       const totalCV = totalCash + totalVirtual;
       const totalBalance = round1(rows.reduce(function (s, r) { return s + r.balance; }, 0));
-      const avgTotal = round1(totalCV / rows.length);
+      const roi = roiPct(totalBalance, totalCV);
       const totalsGrid = el("div", { class: "kpiGrid", style: "flex:1;min-width:260px" }, [
-        statCard("Monto cash", money(totalCash), null, "cash"),
-        statCard("Monto virtual", money(totalVirtual), null, "virtual"),
         statCard("Total C+V", money(totalCV)),
         statCard("Balance total", (totalBalance > 0 ? "+" : "") + money(totalBalance), null, moneyTone(totalBalance)),
-        statCard("Promedio total $", money(avgTotal)),
+        statCard("ROI %", roiLabel(totalBalance, totalCV), null, roi === null ? undefined : (roi >= 0 ? "win" : "loss")),
       ]);
       headerRow.appendChild(totalsGrid);
     }
