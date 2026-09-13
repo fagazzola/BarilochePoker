@@ -17,6 +17,12 @@ const SHEETS = {
   resultados: { name: "Resultados", cols: 12 },
   meta: { name: "Meta", cols: 2 },
   entregaFichas: { name: "EntregaFichas", cols: 15, maxRows: 5000 },
+  // "logPetLotes" registra, en tiempo real, cada evento de compra/solicitud
+  // de lotes durante la partida (compra directa del host, solicitud de un
+  // jugador, aprobación, rechazo, cancelación) — un renglón por evento, con
+  // hora exacta. Como se genera automáticamente durante toda la noche (no
+  // con un solo click como EntregaFichas), reserva bastantes más filas.
+  logPetLotes: { name: "LogPetLotes", cols: 11, maxRows: 20000 },
 };
 
 // Cantidad de filas de datos reservadas por hoja, por defecto (de sobra para

@@ -79,11 +79,6 @@
   .streakBadge { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 99px; font-weight: 700; font-size: 10.5px; }
   .streakBadge.win { background: rgba(63,191,114,0.18); color: var(--win); }
   .streakBadge.loss { background: rgba(226,99,79,0.18); color: var(--loss); }
-  /* Récords: cada columna es una categoría (bueno arriba, malo abajo) */
-  .recordsGrid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, 1fr); gap: 8px; overflow-x: auto; padding-bottom: 2px; }
-  .recordsGrid > * { min-width: 150px; }
-  th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
-  th.sortable .arrow { color: var(--gold-soft); margin-left: 3px; }
 </style>
 </head>
 <body>
@@ -112,41 +107,10 @@
   const MONTHS_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 
   let ROSTER = [], GAMES = [];
-  let period = "all"; // "all" | "year" | "month" | "range"
+  let period = "month"; // "all" | "year" | "month" | "range"
   let rangeFrom = "", rangeTo = "";
   let evoView = "table"; // "table" | "chart"  (tabla por default)
   let evoMetric = "balance"; // solo aplica cuando evoView === "chart"
-  let evoSort = { key: null, desc: true }; // orden de la tabla de Evolución al hacer click en un encabezado
-  let zoomPlayerId = ""; // jugador seleccionado en "Zoom por jugador"
-
-  // Columnas de la tabla de Evolución.
-  // accessor: valor usado para ordenar; render: contenido de la celda.
-  const EVO_COLUMNS = [
-    { key: "name", label: "Jugador", sticky: true, accessor: function (st) { return st.player.name; }, render: function (st) { return el("div", { style: "display:flex;align-items:center;gap:6px" }, [avatarEl(st.player, 18), el("span", {}, [st.player.name])]); } },
-    { key: "played", label: "Partidas", accessor: function (st) { return st.played; }, render: function (st) { return String(st.played); } },
-    { key: "wins", label: "G/P", accessor: function (st) { return st.wins; }, render: function (st) { return st.wins + "/" + st.losses; } },
-    { key: "winRate", label: "% Efect.", accessor: function (st) { return st.winRate; }, render: function (st) { return st.winRate + "%"; } },
-    { key: "totalCashAmt", label: "Total cash", accessor: function (st) { return st.totalCashAmt; }, render: function (st) { return money(st.totalCashAmt); }, cls: "tone-cash" },
-    { key: "totalVirtualAmt", label: "Total virtual", accessor: function (st) { return st.totalVirtualAmt; }, render: function (st) { return money(st.totalVirtualAmt); }, cls: "tone-virtual" },
-    { key: "totalCV", label: "Total C+V", accessor: function (st) { return st.totalCashAmt + st.totalVirtualAmt; }, render: function (st) { return money(st.totalCashAmt + st.totalVirtualAmt); } },
-    { key: "totalBalance", label: "Balance", accessor: function (st) { return st.totalBalance; }, render: function (st) { return (st.totalBalance > 0 ? "+" : "") + money(st.totalBalance); }, style: function (st) { return "color:" + (st.totalBalance >= 0 ? "var(--win)" : "var(--loss)"); } },
-    { key: "roi", label: "ROI %", accessor: function (st) { return roiPct(st.totalBalance, st.totalCashAmt + st.totalVirtualAmt); }, render: function (st) { return roiLabel(st.totalBalance, st.totalCashAmt + st.totalVirtualAmt); }, style: function (st) { const r = roiPct(st.totalBalance, st.totalCashAmt + st.totalVirtualAmt); return r === null ? undefined : "color:" + (r >= 0 ? "var(--win)" : "var(--loss)"); } },
-    { key: "maxCashOut", label: "Mejor cash out", accessor: function (st) { return st.maxCashOut; }, render: function (st) { return money(st.maxCashOut); } },
-    { key: "hostCount", label: "Anfitrión", accessor: function (st) { return st.hostCount; }, render: function (st) { return "x" + st.hostCount; } },
-    { key: "streak", label: "Racha", accessor: function (st) { return st.curType === "W" ? st.curLen : st.curType === "L" ? -st.curLen : 0; }, render: function (st) { return el("span", { class: "streakBadge " + (st.curType === "W" ? "win" : st.curType === "L" ? "loss" : "") }, [st.curStreakLabel]); } },
-  ];
-
-  // ROI % = ((Balance / Total C+V) - 1) * 100 — la utilidad del período contra
-  // lo invertido en cash+virtual durante ese mismo período (fórmula pedida por el usuario).
-  function roiPct(balance, totalCV) {
-    if (!totalCV) return null;
-    return round1(((balance / totalCV) - 1) * 100);
-  }
-  function roiLabel(balance, totalCV) {
-    const r = roiPct(balance, totalCV);
-    if (r === null) return "—";
-    return (r > 0 ? "+" : "") + r.toFixed(1) + "%";
-  }
 
   async function loadKey(key, fallback) {
     const res = await fetch("/api/store?key=" + encodeURIComponent(key));
@@ -233,7 +197,7 @@
       };
     });
 
-    let bestNight = null, worstNight = null, highestCashOut = null, lowestCashOut = null;
+    let bestNight = null, worstNight = null, highestCashOut = null;
     const perGameVolume = [];
     let totalCash = 0, totalVirtual = 0, totalPlayersSum = 0, totalDinner = 0;
 
@@ -262,7 +226,6 @@
         if (!bestNight || p.balance > bestNight.balance) bestNight = { player: st.player, balance: p.balance, date: g.date };
         if (!worstNight || p.balance < worstNight.balance) worstNight = { player: st.player, balance: p.balance, date: g.date };
         if (!highestCashOut || p.cashOut > highestCashOut.amount) highestCashOut = { player: st.player, amount: p.cashOut, date: g.date };
-        if (!lowestCashOut || p.cashOut < lowestCashOut.amount) lowestCashOut = { player: st.player, amount: p.cashOut, date: g.date };
 
         const outcome = p.balance > 0 ? "W" : p.balance < 0 ? "L" : "T";
         if (outcome === st.curType) st.curLen += 1;
@@ -288,11 +251,6 @@
     const avgVirtual = totalGames ? round1(totalVirtual / totalGames) : 0;
     const avgDinnerPerPlayer = avgPlayers ? round1(totalDinner / avgPlayers) : 0;
     const totalRake = games.reduce((s, g) => s + (computeSettlement(g, roster).rake || 0), 0);
-    // El rake se compone de "rake anfitrión" (monto fijo cargado a mano) más
-    // "estacionamiento" (cantidad de autos × tarifa por auto) — ambos campos
-    // se guardan por partida desde la reforma de "Lote y Rakes" de la app.
-    const totalRakeHost = games.reduce((s, g) => s + (Number(g.rakeHost) || 0), 0);
-    const totalParking = games.reduce((s, g) => s + (Number(g.rakeAutosCount) || 0) * (g.rakeAutoAmount ?? 300), 0);
 
     // Récords con posibles empates ("Varios")
     function topByField(field, minVal) {
@@ -308,9 +266,9 @@
     const mostHost = topByField("hostCount");
 
     return {
-      leaderboard, totalGames, totalCash, totalVirtual, avgCash, avgVirtual, totalRake, totalRakeHost, totalParking, avgPot, avgPlayers,
+      leaderboard, totalGames, totalCash, totalVirtual, avgCash, avgVirtual, totalRake, avgPot, avgPlayers,
       totalDinner, avgDinnerPerPlayer,
-      bestNight, worstNight, highestCashOut, lowestCashOut, mostWins, mostLosses, bestStreak, worstStreak, mostHost,
+      bestNight, worstNight, highestCashOut, mostWins, mostLosses, bestStreak, worstStreak, mostHost,
       perGameVolume, sortedGames: games,
     };
   }
@@ -427,7 +385,7 @@
   function buildFilterPanel() {
     const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Período"])]);
     const row = el("div", { class: "filterRow" });
-    ["all", "month", "year", "range"].forEach((p) => {
+    ["month", "year", "range", "all"].forEach((p) => {
       const label = p === "all" ? "Todo" : p === "month" ? "Este mes" : p === "year" ? "Este año" : "Rango";
       row.appendChild(el("button", { class: "btn" + (period === p ? " active" : ""), onclick: function () { period = p; renderAll(); } }, [label]));
     });
@@ -454,8 +412,9 @@
     const generalGrid = el("div", { class: "kpiGrid" });
     generalGrid.appendChild(statCard("Partidas jugadas", stats.totalGames));
     generalGrid.appendChild(statCard("Jugadores promedio/partida", stats.avgPlayers.toFixed(1)));
-    generalGrid.appendChild(statCard("Rake anfitrión", money(stats.totalRakeHost), null, "gold"));
-    generalGrid.appendChild(statCard("Estacionamiento", money(stats.totalParking), null, "gold"));
+    generalGrid.appendChild(statCard("Rake acumulado", money(stats.totalRake), null, "gold"));
+    if (stats.mostHost.players.length === 1) generalGrid.appendChild(statCard("👑 Más veces anfitrión", stats.mostHost.players[0].player.name, stats.mostHost.max + " veces"));
+    else if (stats.mostHost.players.length > 1) generalGrid.appendChild(statCard("👑 Más veces anfitrión", "Varios", "con " + stats.mostHost.max + " veces"));
     panel.appendChild(generalGrid);
 
     panel.appendChild(subHeading("Cash"));
@@ -483,15 +442,12 @@
 
   function buildRecordsPanel(stats) {
     const panel = el("div", { class: "panel" }, [el("div", { class: "sectionTitle" }, ["Récords históricos"])]);
-    const grid = el("div", { class: "recordsGrid" });
+    const grid = el("div", { class: "kpiGrid" });
     let any = false;
 
-    // Orden: por concepto, siempre el bueno arriba y el malo abajo.
     if (stats.bestNight) { any = true; grid.appendChild(recordCard("Mejor noche", playerNameNode(stats.bestNight.player), (stats.bestNight.balance > 0 ? "+" : "") + money(stats.bestNight.balance) + " · " + stats.bestNight.date, moneyTone(stats.bestNight.balance))); }
     if (stats.worstNight) { any = true; grid.appendChild(recordCard("Peor noche", playerNameNode(stats.worstNight.player), money(stats.worstNight.balance) + " · " + stats.worstNight.date, moneyTone(stats.worstNight.balance))); }
-
-    if (stats.highestCashOut) { any = true; grid.appendChild(recordCard("Mayor cash out", playerNameNode(stats.highestCashOut.player), money(stats.highestCashOut.amount) + " · " + stats.highestCashOut.date, "win")); }
-    if (stats.lowestCashOut) { any = true; grid.appendChild(recordCard("Peor cash out", playerNameNode(stats.lowestCashOut.player), money(stats.lowestCashOut.amount) + " · " + stats.lowestCashOut.date, "loss")); }
+    if (stats.highestCashOut) { any = true; grid.appendChild(recordCard("Mayor cash out", playerNameNode(stats.highestCashOut.player), money(stats.highestCashOut.amount) + " · " + stats.highestCashOut.date, moneyTone(stats.highestCashOut.amount))); }
 
     if (stats.mostWins.players.length === 1) { any = true; grid.appendChild(recordCard("📈 Más balances positivos", playerNameNode(stats.mostWins.players[0].player), stats.mostWins.max + " partidas ganadas", "win")); }
     else if (stats.mostWins.players.length > 1) { any = true; grid.appendChild(recordCard("📈 Más balances positivos", variosNode(), "Varios con " + stats.mostWins.max, "win")); }
@@ -502,141 +458,11 @@
     if (stats.bestStreak.players.length === 1) { any = true; grid.appendChild(recordCard("🔥 Mejor racha", playerNameNode(stats.bestStreak.players[0].player), "🔥 " + stats.bestStreak.max + "G", "win")); }
     else if (stats.bestStreak.players.length > 1) { any = true; grid.appendChild(recordCard("🔥 Mejor racha", variosNode(), "🔥 Varios con " + stats.bestStreak.max + "G", "win")); }
 
-    if (stats.worstStreak.players.length === 1) { any = true; grid.appendChild(recordCard("❄️ Peor racha", playerNameNode(stats.worstStreak.players[0].player), "❄️ " + stats.worstStreak.max + "P", "loss")); }
+    if (stats.worstStreak.players.length === 1) { any = true; grid.appendChild(recordCard("❄️ Peor racha", playerNameNode(stats.worstStreak.players[0].player), "❄️ " + stats.worstStreak.max + " perdidas seguidas", "loss")); }
     else if (stats.worstStreak.players.length > 1) { any = true; grid.appendChild(recordCard("❄️ Peor racha", variosNode(), "❄️ Varios con " + stats.worstStreak.max + "P", "loss")); }
 
     if (!any) { panel.appendChild(el("div", { class: "empty" }, ["Sin datos suficientes en este período."])); return panel; }
     panel.appendChild(grid);
-    return panel;
-  }
-
-  // Tabla ordenable: clickear un encabezado ordena de mayor a menor; volver
-  // a clickear el mismo encabezado invierte a menor a mayor.
-  function buildEvoTable(rows) {
-    const sorted = rows.slice();
-    if (evoSort.key) {
-      const col = EVO_COLUMNS.filter(function (c) { return c.key === evoSort.key; })[0];
-      sorted.sort(function (a, b) {
-        const va = col.accessor(a), vb = col.accessor(b);
-        let cmp;
-        if (typeof va === "string") cmp = va.localeCompare(vb);
-        else cmp = va - vb;
-        return evoSort.desc ? -cmp : cmp;
-      });
-    }
-    const table = el("table", { class: "simple" });
-    const headRow = el("tr", {}, EVO_COLUMNS.map(function (col) {
-      const isSorted = evoSort.key === col.key;
-      const arrowTxt = isSorted ? (evoSort.desc ? "▼" : "▲") : "";
-      return el("th", {
-        class: "sortable" + (col.sticky ? " stickyCol" : ""),
-        onclick: function () {
-          if (evoSort.key === col.key) evoSort.desc = !evoSort.desc;
-          else { evoSort.key = col.key; evoSort.desc = true; }
-          renderAll();
-        },
-      }, [col.label, arrowTxt ? el("span", { class: "arrow" }, [arrowTxt]) : null]);
-    }));
-    table.appendChild(el("thead", {}, [headRow]));
-    const tbody = el("tbody");
-    sorted.forEach(function (st) {
-      tbody.appendChild(el("tr", {}, EVO_COLUMNS.map(function (col) {
-        let cls = col.key === "name" ? undefined : col.key === "streak" ? undefined : "mono";
-        if (col.cls) cls = (cls ? cls + " " : "") + col.cls;
-        if (col.sticky) cls = (cls ? cls + " " : "") + "stickyCol";
-        const attrs = {};
-        if (cls) attrs.class = cls;
-        if (col.style) attrs.style = col.style(st);
-        return el("td", attrs, [col.render(st)]);
-      })));
-    });
-    table.appendChild(tbody);
-    return el("div", { class: "tableWrap" }, [table]);
-  }
-
-  // Mismo formato de tabla que Evolución (encabezado arriba, valores en fila),
-  // pero con una sola fila: la del jugador elegido en el combo.
-  function buildZoomPanel(stats) {
-    const panel = el("div", { class: "panel" }, [
-      el("div", { class: "sectionTitle" }, ["Zoom por jugador"]),
-      el("div", { class: "sectionSub" }, ["Todas las partidas de un jugador en el período seleccionado."]),
-    ]);
-    if (stats.leaderboard.length === 0) { panel.appendChild(el("div", { class: "empty" }, ["Sin partidas en este período."])); return panel; }
-
-    if (!zoomPlayerId || !stats.leaderboard.some(function (st) { return st.player.id === zoomPlayerId; })) {
-      zoomPlayerId = stats.leaderboard[0].player.id;
-    }
-    const select = el("select", {
-      onchange: function (e) { zoomPlayerId = e.target.value; renderAll(); },
-    }, stats.leaderboard.map(function (st) {
-      return el("option", { value: st.player.id, selected: st.player.id === zoomPlayerId ? "selected" : undefined }, [st.player.name]);
-    }));
-    select.value = zoomPlayerId;
-    panel.appendChild(el("div", { class: "filterRow", style: "margin-bottom:12px" }, [select]));
-
-    const stEntry = stats.leaderboard.filter(function (s) { return s.player.id === zoomPlayerId; })[0];
-
-    const myGames = stats.sortedGames.filter(function (g) { return g.playerIds.indexOf(zoomPlayerId) !== -1; });
-
-    // Precalculamos las filas una sola vez: se usan para la tabla y para los totales de arriba.
-    const rows = myGames.map(function (g) {
-      const purchases = (g.purchases || []).filter(function (pu) { return pu.playerId === zoomPlayerId; });
-      const cashPurchases = purchases.filter(function (pu) { return pu.type === "cash"; });
-      const virtualPurchases = purchases.filter(function (pu) { return pu.type === "virtual"; });
-      const cashAmount = cashPurchases.reduce(function (s, pu) { return s + pu.amount; }, 0);
-      const virtualAmount = virtualPurchases.reduce(function (s, pu) { return s + pu.amount; }, 0);
-      const cashOut = Number((g.finalChips || {})[zoomPlayerId]) || 0;
-      const balance = round1(cashOut - (cashAmount + virtualAmount));
-      return { game: g, cashPurchases: cashPurchases, virtualPurchases: virtualPurchases, cashAmount: cashAmount, virtualAmount: virtualAmount, balance: balance, isHost: g.hostId === zoomPlayerId };
-    });
-
-    const headerRow = el("div", { style: "display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px" }, [
-      el("div", { style: "display:flex;align-items:center;gap:8px" }, [
-        avatarEl(stEntry.player, 26),
-        el("span", { class: "display", style: "font-size:19px;color:var(--gold-soft)" }, [stEntry.player.name]),
-      ]),
-    ]);
-    if (rows.length > 0) {
-      const totalCash = rows.reduce(function (s, r) { return s + r.cashAmount; }, 0);
-      const totalVirtual = rows.reduce(function (s, r) { return s + r.virtualAmount; }, 0);
-      const totalCV = totalCash + totalVirtual;
-      const totalBalance = round1(rows.reduce(function (s, r) { return s + r.balance; }, 0));
-      const roi = roiPct(totalBalance, totalCV);
-      const totalsGrid = el("div", { class: "kpiGrid", style: "flex:1;min-width:260px" }, [
-        statCard("Total C+V", money(totalCV)),
-        statCard("Balance total", (totalBalance > 0 ? "+" : "") + money(totalBalance), null, moneyTone(totalBalance)),
-        statCard("ROI %", roiLabel(totalBalance, totalCV), null, roi === null ? undefined : (roi >= 0 ? "win" : "loss")),
-      ]);
-      headerRow.appendChild(totalsGrid);
-    }
-    panel.appendChild(headerRow);
-
-    if (myGames.length === 0) {
-      panel.appendChild(el("div", { class: "empty" }, ["Este jugador no participó en partidas de este período."]));
-      return panel;
-    }
-
-    const table = el("table", { class: "simple" });
-    table.appendChild(el("thead", {}, [el("tr", {}, [
-      "Partida", "G/P", "Lotes cash", "Monto cash", "Lotes virtual", "Monto virtual", "Total C+V", "Balance", "Anfitrión",
-    ].map(function (label) { return el("th", {}, [label]); }))]));
-    const tbody = el("tbody");
-    rows.forEach(function (r) {
-      const g = r.game;
-      tbody.appendChild(el("tr", {}, [
-        el("td", { class: "mono" }, [g.date]),
-        el("td", {}, [el("span", { class: "streakBadge " + (r.balance > 0 ? "win" : "loss") }, [r.balance > 0 ? "G" : "P"])]),
-        el("td", { class: "mono" }, [String(r.cashPurchases.length)]),
-        el("td", { class: "mono tone-cash" }, [money(r.cashAmount)]),
-        el("td", { class: "mono" }, [String(r.virtualPurchases.length)]),
-        el("td", { class: "mono tone-virtual" }, [money(r.virtualAmount)]),
-        el("td", { class: "mono" }, [money(r.cashAmount + r.virtualAmount)]),
-        el("td", { class: "mono", style: "color:" + (r.balance >= 0 ? "var(--win)" : "var(--loss)") }, [(r.balance > 0 ? "+" : "") + money(r.balance)]),
-        el("td", {}, [r.isHost ? "S" : "N"]),
-      ]));
-    });
-    table.appendChild(tbody);
-    panel.appendChild(el("div", { class: "tableWrap" }, [table]));
     return panel;
   }
 
@@ -665,7 +491,31 @@
     if (stats.leaderboard.length === 0) { panel.appendChild(el("div", { class: "empty" }, ["Sin partidas en este período."])); return panel; }
 
     if (evoView === "table") {
-      panel.appendChild(buildEvoTable(stats.leaderboard));
+      const table = el("table", { class: "simple" });
+      table.appendChild(el("thead", {}, [el("tr", {}, [
+        el("th", { class: "stickyCol" }, ["Jugador"]), el("th", {}, ["Partidas"]), el("th", {}, ["G/P"]), el("th", {}, ["% Efect."]),
+        el("th", {}, ["Promedio"]), el("th", {}, ["Balance total"]), el("th", {}, ["Total cash"]), el("th", {}, ["Total virtual"]),
+        el("th", {}, ["Total C+V"]), el("th", {}, ["Mejor cash out"]), el("th", {}, ["Anfitrión"]), el("th", {}, ["Racha"]),
+      ])]));
+      const tbody = el("tbody");
+      stats.leaderboard.forEach(function (st) {
+        tbody.appendChild(el("tr", {}, [
+          el("td", { class: "stickyCol" }, [(function () { const w = el("div", { style: "display:flex;align-items:center;gap:6px" }, [avatarEl(st.player, 18), el("span", {}, [st.player.name])]); return w; })()]),
+          el("td", { class: "mono" }, [String(st.played)]),
+          el("td", { class: "mono" }, [st.wins + "/" + st.losses]),
+          el("td", { class: "mono" }, [st.winRate + "%"]),
+          el("td", { class: "mono" }, [money(st.avgBalance)]),
+          el("td", { class: "mono", style: "color:" + (st.totalBalance >= 0 ? "var(--win)" : "var(--loss)") }, [(st.totalBalance > 0 ? "+" : "") + money(st.totalBalance)]),
+          el("td", { class: "mono tone-cash" }, [money(st.totalCashAmt)]),
+          el("td", { class: "mono tone-virtual" }, [money(st.totalVirtualAmt)]),
+          el("td", { class: "mono" }, [money(st.totalCashAmt + st.totalVirtualAmt)]),
+          el("td", { class: "mono" }, [money(st.maxCashOut)]),
+          el("td", { class: "mono" }, ["x" + st.hostCount]),
+          el("td", {}, [el("span", { class: "streakBadge " + (st.curType === "W" ? "win" : st.curType === "L" ? "loss" : "") }, [st.curStreakLabel])]),
+        ]));
+      });
+      table.appendChild(tbody);
+      panel.appendChild(el("div", { class: "tableWrap" }, [table]));
     } else {
       if (stats.sortedGames.length < 2) {
         panel.appendChild(el("div", { class: "empty" }, ["Se necesitan al menos 2 partidas en este período para graficar."]));
@@ -753,7 +603,6 @@
     main.appendChild(buildKpiPanel(stats));
     main.appendChild(buildRecordsPanel(stats));
     main.appendChild(buildEvoPanel(stats));
-    main.appendChild(buildZoomPanel(stats));
     main.appendChild(buildVolumePanel(stats));
   }
 

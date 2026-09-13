@@ -30,6 +30,12 @@ con estos nombres **exactos** y estos encabezados en la fila 1:
 | timestamp | gameId | fecha | jugadorId | jugador | debeVirtual | pagaVirtual | fichasRemanentes | ajusteManual | fichasTotales | rake | cashDisponible | virtualPendiente | totalA | totalB |
 |-----------|--------|-------|-----------|---------|-------------|-------------|-------------------|---------------|----------------|------|-----------------|-------------------|--------|--------|
 
+**Hoja "LogPetLotes"** (auditoría — la llena sola la pantalla "Log Compras" de la partida en curso, un renglón por cada evento de compra/solicitud de lotes, con hora exacta; se le van agregando filas, nunca se sobreescribe)
+| timestamp | gameId | fecha | jugadorId | jugador | tipo | accion | origen | lotes | monto | valorLote |
+|-----------|--------|-------|-----------|---------|------|--------|--------|-------|-------|-----------|
+
+`tipo` es `cash` o `virtual`. `accion` es una de: `compra directa` (el host le suma un lote a mano), `solicitud enviada`, `solicitud aprobada`, `solicitud rechazada` (pedido de un jugador desde su celular) o `cancelación` (el host deshace la última compra de ese tipo). `origen` es `host` o `jugador`. `lotes`/`monto` van en negativo en una `cancelación`; en una `solicitud enviada` o `solicitud rechazada` llevan el monto que se pidió aunque no haya generado ninguna compra real (la compra real solo queda contabilizada en `compra directa` y `solicitud aprobada`). Por eso esta hoja es un registro narrativo para auditar la actividad — para totales de buy-in siempre hay que usar la hoja "Partidas" (columna `detalleJson.purchases`) o "Resultados", nunca sumar esta.
+
 No hace falta escribir nada más — la app llena las filas de datos sola.
 
 ## 2. Desplegar en Netlify

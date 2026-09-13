@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.07.07.044";
+const APP_VERSION = "3.08.07.045";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -806,7 +806,7 @@ export default function PokerLedger() {
         {tab === "jugadores" && !hasActive && (
           <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} myPlayerId={myPlayerId} />
         )}
-        {(tab === "partida" || tab === "cena" || tab === "loterake" || tab === "compra" || tab === "finalizar" || (tab === "jugadores" && hasActive)) && (
+        {(tab === "partida" || tab === "cena" || tab === "loterake" || tab === "compra" || tab === "logcompras" || tab === "finalizar" || (tab === "jugadores" && hasActive)) && (
           <GameTab
             roster={roster}
             activeGame={activeGame}
@@ -817,7 +817,7 @@ export default function PokerLedger() {
             onIdentify={identify}
             adminPassword={adminPassword}
             setTab={setTab}
-            subView={tab === "cena" ? "cena" : tab === "loterake" ? "loterake" : tab === "jugadores" ? "jugadoresPartida" : tab === "compra" ? "compra" : tab === "finalizar" ? "finalizar" : "estatus"}
+            subView={tab === "cena" ? "cena" : tab === "loterake" ? "loterake" : tab === "jugadores" ? "jugadoresPartida" : tab === "compra" ? "compra" : tab === "logcompras" ? "logcompras" : tab === "finalizar" ? "finalizar" : "estatus"}
           />
         )}
         {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} activeGame={activeGame} setActiveGame={setActiveGame} />}
@@ -839,13 +839,15 @@ function Header({ tab, setTab, hasActive, isHost, me, onIdentify, onLogout }) {
         ? [
             { id: "partida", label: "Estatus jugada", icon: Activity },
             { id: "compra", label: "Compra de lotes", icon: Banknote },
+            { id: "logcompras", label: "Log Compras", icon: History },
+            { id: "loterake", label: "Lote y Rakes", icon: Coins },
             { id: "jugadores", label: "Jugadores", icon: Users },
             { id: "cena", label: "Cena y servicio", icon: UtensilsCrossed },
-            { id: "loterake", label: "Lote y Rakes", icon: Coins },
           ]
         : [
             { id: "partida", label: "Estatus jugada", icon: Activity },
             { id: "compra", label: "Compra de lotes", icon: Banknote },
+            { id: "logcompras", label: "Log Compras", icon: History },
           ])
     : [
         { id: "partida", label: "Partida", icon: Flame },
@@ -1316,6 +1318,7 @@ function NewGameSetup({ roster, setActiveGame }) {
       playerIds: selected, hostId, startedAt: Date.now(),
       purchases: [],
       requests: [],
+      purchaseLog: [], purchaseLogSyncError: "",
       dinner: { amountNoAlcohol: 0, amountAlcohol: 0, alcohol: {}, paid: {}, paymentMethod: {} },
       finalChips: {}, finalizeDraft: {}, finished: false, results: null,
     });
@@ -1497,6 +1500,51 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   const update = (patch) =>
     setGame((g) => ({ ...g, ...(typeof patch === "function" ? patch(g) : patch) }));
 
+  // Log de compras/solicitudes de lotes ("Log Compras" en la app / hoja
+  // "LogPetLotes" en el Excel): cada evento (compra directa del host,
+  // solicitud enviada/aprobada/rechazada, cancelación) se agrega localmente
+  // a game.purchaseLog con "synced: false" y se empuja de una al Excel; si el
+  // push falla, el evento queda marcado como pendiente para poder
+  // reintentarlo desde la propia pantalla "Log Compras", sin depender del
+  // ciclo de sincronización general (que solo guarda el estado más reciente,
+  // no un historial evento por evento).
+  const nameOf = (pid) => roster.find((r) => r.id === pid)?.name || "?";
+  const pushLogEntries = async (entries) => {
+    if (!entries || entries.length === 0) return;
+    try {
+      const res = await fetch("/api/store?key=logPetLotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId: game.id,
+          gameDate: game.date,
+          rows: entries.map((e) => ({
+            ts: e.ts, playerId: e.playerId, playerName: e.playerName,
+            type: e.type, action: e.action, origin: e.origin,
+            lotes: e.lotes, amount: e.amount, loteValue: e.loteValue,
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const ids = entries.map((e) => e.id);
+      update((g) => ({
+        purchaseLog: (g.purchaseLog || []).map((x) => (ids.includes(x.id) ? { ...x, synced: true } : x)),
+        purchaseLogSyncError: "",
+      }));
+    } catch (e) {
+      update((g) => ({ purchaseLogSyncError: String((e && e.message) || e) }));
+    }
+  };
+  const logEvent = (partial) => {
+    const entry = {
+      id: uid(), ts: Date.now(), synced: false, loteValue: game.loteValue,
+      playerName: nameOf(partial.playerId),
+      ...partial,
+    };
+    update((g) => ({ purchaseLog: [...(g.purchaseLog || []), entry] }));
+    pushLogEntries([entry]);
+  };
+
   // Solicitudes de fichas: cualquier jugador identificado en la mesa puede
   // pedir un lote (cash o virtual) o un monto libre; solo el host puede
   // aceptarla (se vuelve una compra normal) o rechazarla.
@@ -1505,6 +1553,10 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
     const amt = Math.round(Number(amount) || 0);
     if (!myPlayerId || amt <= 0) return;
     update((g) => ({ requests: [...(g.requests || []), { id: uid(), playerId: myPlayerId, type, amount: amt, status: "pending", ts: Date.now() }] }));
+    logEvent({
+      playerId: myPlayerId, type, origin: "jugador", action: "solicitud enviada",
+      lotes: game.loteValue ? round1(amt / game.loteValue) : 0, amount: amt,
+    });
   };
   // Alguien que ya se identificó con su PIN pero todavía no está sentado en
   // esta mesa (no llegó a tiempo para el alta inicial, o se sumó a mitad de
@@ -1519,6 +1571,7 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
     });
   };
   const resolveRequest = (reqId, approve) => {
+    const reqBefore = (game.requests || []).find((r) => r.id === reqId);
     update((g) => {
       const req = (g.requests || []).find((r) => r.id === reqId);
       if (!req || req.status !== "pending") return {};
@@ -1537,6 +1590,17 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
       }
       return { requests: g.requests.map((r) => (r.id === reqId ? { ...r, status: "rejected" } : r)) };
     });
+    // El log queda aparte del updater de arriba (que puede volver a
+    // ejecutarse con el estado más reciente): usamos el request tal cual
+    // estaba antes de resolverlo para no duplicar el evento.
+    if (reqBefore && reqBefore.status === "pending" && reqBefore.type !== "join") {
+      logEvent({
+        playerId: reqBefore.playerId, type: reqBefore.type, origin: "jugador",
+        action: approve ? "solicitud aprobada" : "solicitud rechazada",
+        lotes: game.loteValue ? round1(reqBefore.amount / game.loteValue) : 0,
+        amount: reqBefore.amount,
+      });
+    }
   };
 
   // Solo el host de la partida puede modificar algo (comprar lotes, tocar la
@@ -1623,6 +1687,15 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
       );
     }
 
+    if (effectiveView === "logcompras") {
+      return (
+        <div style={{ display: "grid", gap: 16 }}>
+          {banner}
+          <PurchaseLogPanel game={game} onRetry={pushLogEntries} />
+        </div>
+      );
+    }
+
     return (
       <div style={{ display: "grid", gap: 16 }}>
         {banner}
@@ -1655,8 +1728,17 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
       const entry = { id: uid(), playerId, type, lotes: 1, amount: g.loteValue, ts: Date.now() };
       return { purchases: [...g.purchases, entry] };
     });
+    logEvent({ playerId, type, origin: "host", action: "compra directa", lotes: 1, amount: game.loteValue });
   };
   const removeLastPurchase = (playerId, type) => {
+    const entriesBefore = game.purchases.filter((p) => p.playerId === playerId && p.type === type);
+    const lastBefore = entriesBefore[entriesBefore.length - 1];
+    if (lastBefore) {
+      logEvent({
+        playerId, type, origin: "host", action: "cancelación",
+        lotes: -(Number(lastBefore.lotes) || 0), amount: -(Number(lastBefore.amount) || 0),
+      });
+    }
     update((g) => {
       const entries = g.purchases.filter((p) => p.playerId === playerId && p.type === type);
       if (entries.length === 0) return {};
@@ -1764,6 +1846,14 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
         <PrimaryBtn onClick={() => setTab && setTab("finalizar")} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
           Finalizar partida
         </PrimaryBtn>
+      </div>
+    );
+  }
+
+  if (effectiveView === "logcompras") {
+    return (
+      <div style={{ display: "grid", gap: 16 }}>
+        <PurchaseLogPanel game={game} onRetry={pushLogEntries} />
       </div>
     );
   }
@@ -1905,6 +1995,74 @@ function PendingRequestsPanel({ game, roster, onResolve }) {
             </div>
           );
         })}
+      </div>
+    </Panel>
+  );
+}
+
+// "Log Compras": historial detallado, evento por evento y con hora exacta,
+// de toda la actividad de compra/solicitud de lotes de la partida en curso
+// (compras directas del host, solicitudes de jugadores y su resolución,
+// cancelaciones). Sirve para reconstruir sin dudas el total de lotes
+// comprados durante la noche. Cada evento se empuja solo a la hoja "LogPetLotes"
+// del Excel apenas ocurre; acá se puede ver el estado de esa sincronización y
+// reintentarla si algo falló.
+function PurchaseLogPanel({ game, onRetry }) {
+  const log = game.purchaseLog || [];
+  const sorted = useMemo(() => [...log].sort((a, b) => b.ts - a.ts), [log]);
+  const pending = log.filter((e) => !e.synced);
+
+  const actionColor = (action) => {
+    if (action === "solicitud rechazada") return "rgba(244,234,214,0.45)";
+    if (action === "cancelación") return C.loss;
+    return C.win;
+  };
+
+  return (
+    <Panel>
+      <SectionTitle
+        icon={History}
+        right={
+          pending.length > 0 ? (
+            <GhostBtn icon={ArrowRightLeft} color={C.goldSoft} onClick={() => onRetry(pending)}>
+              Reintentar ({pending.length})
+            </GhostBtn>
+          ) : null
+        }
+      >
+        Log Compras
+      </SectionTitle>
+
+      {game.purchaseLogSyncError && (
+        <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginBottom: 10, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
+          <AlertCircle size={15} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.85)", ...monoFont, wordBreak: "break-word" }}>
+            <strong style={{ ...bodyFont }}>No se pudo sincronizar con Excel:</strong> {game.purchaseLogSyncError}
+          </div>
+        </div>
+      )}
+
+      {sorted.length === 0 && <Empty>Todavía no hay actividad de compra en esta partida.</Empty>}
+
+      <div style={{ display: "grid", gap: 6 }}>
+        {sorted.map((e) => (
+          <div key={e.id} style={{
+            display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+            background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "7px 10px",
+            opacity: e.synced ? 1 : 0.75,
+          }}>
+            <span style={{ ...monoFont, fontSize: 11, color: "rgba(244,234,214,0.45)", whiteSpace: "nowrap" }}>{formatClock(e.ts)}</span>
+            <span style={{ color: C.card, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.playerName}</span>
+            <span style={{ ...monoFont, fontSize: 11, fontWeight: 700, color: e.type === "cash" ? C.cash : C.virtual, textTransform: "uppercase" }}>{e.type === "cash" ? "Cash" : "Virtual"}</span>
+            <span style={{ fontSize: 12, color: actionColor(e.action), fontWeight: 600 }}>
+              {e.action}{e.origin === "host" ? " (host)" : ""}
+            </span>
+            {!e.synced && <span title="Pendiente de sincronizar con Excel" style={{ fontSize: 10, color: C.goldSoft }}>⏳</span>}
+            <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: e.amount < 0 ? C.loss : "rgba(244,234,214,0.85)" }}>
+              {e.lotes ? `${e.lotes > 0 ? "+" : ""}${e.lotes} lote${Math.abs(e.lotes) === 1 ? "" : "s"} · ` : ""}{money(e.amount)}
+            </span>
+          </div>
+        ))}
       </div>
     </Panel>
   );

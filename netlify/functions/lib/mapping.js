@@ -71,6 +71,7 @@ function gamesToRows(games) {
       finalChipsAdjust: g.finalChipsAdjust || {},
       startedAt: g.startedAt || null,
       requests: g.requests || [],
+      purchaseLog: g.purchaseLog || [],
       rakeHost: g.rakeHost || 0,
       rakeAutosCount: g.rakeAutosCount || 0,
       rakeAutoAmount: g.rakeAutoAmount ?? 300,
@@ -98,6 +99,7 @@ function rowsToGames(rows) {
         finalChipsAdjust: detalle.finalChipsAdjust || {},
         startedAt: detalle.startedAt || null,
         requests: detalle.requests || [],
+        purchaseLog: detalle.purchaseLog || [],
         rakeHost: detalle.rakeHost || 0,
         rakeAutosCount: detalle.rakeAutosCount || 0,
         rakeAutoAmount: detalle.rakeAutoAmount ?? 300,
@@ -211,10 +213,33 @@ function entregaFichasToRows(gameId, gameDate, rows) {
   ]);
 }
 
+/* ---------------- LogPetLotes (auditoría, solo agrega filas) ---------------- */
+// Cada evento de compra/solicitud de lotes durante la partida (compra directa
+// del host, solicitud de un jugador, aprobación, rechazo o cancelación) se
+// manda acá apenas ocurre — no se sobreescribe nada de lo ya guardado, para
+// poder reconstruir después, renglón por renglón y con hora exacta, toda la
+// actividad de compra de la noche.
+function logPetLotesToRows(gameId, gameDate, rows) {
+  return (rows || []).map((r) => [
+    new Date(r.ts || Date.now()).toISOString(),
+    gameId,
+    gameDate,
+    r.playerId,
+    r.playerName,
+    r.type,
+    r.action,
+    r.origin,
+    r.lotes,
+    r.amount,
+    r.loteValue,
+  ]);
+}
+
 module.exports = {
   rosterToRows, rowsToRoster,
   gamesToRows, rowsToGames,
   metaToRows, rowsToActiveGame, rowsToAdminPassword,
   buildResultadosRows, rowsToResultados,
   entregaFichasToRows,
+  logPetLotesToRows,
 };

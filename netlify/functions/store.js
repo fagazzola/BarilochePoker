@@ -5,6 +5,7 @@ const {
   metaToRows, rowsToActiveGame, rowsToAdminPassword,
   buildResultadosRows, rowsToResultados,
   entregaFichasToRows,
+  logPetLotesToRows,
 } = require("./lib/mapping");
 
 const HEADERS = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
@@ -20,12 +21,14 @@ const KEY_MAP = {
   "poker-admin-password": "adminPassword",
   "poker-resultados": "resultados",
   "poker-entrega-fichas": "entregaFichas",
+  "poker-log-pet-lotes": "logPetLotes",
   "roster": "roster",
   "games": "games",
   "active": "active",
   "adminPassword": "adminPassword",
   "resultados": "resultados",
   "entregaFichas": "entregaFichas",
+  "logPetLotes": "logPetLotes",
 };
 
 exports.handler = async (event) => {
@@ -104,6 +107,17 @@ exports.handler = async (event) => {
           return respond(400, { error: "faltan gameId o rows para entregaFichas" });
         }
         await appendRows("entregaFichas", entregaFichasToRows(gameId, gameDate, rows));
+        return respond(200, { ok: true });
+      }
+      if (key === "logPetLotes") {
+        // Log en tiempo real de la pantalla "Log Compras": cada evento de
+        // compra/solicitud de lotes (uno o varios a la vez) se agrega como
+        // fila nueva a "LogPetLotes", nunca se sobreescribe lo ya guardado.
+        const { gameId, gameDate, rows } = body;
+        if (!gameId || !Array.isArray(rows)) {
+          return respond(400, { error: "faltan gameId o rows para logPetLotes" });
+        }
+        await appendRows("logPetLotes", logPetLotesToRows(gameId, gameDate, rows));
         return respond(200, { ok: true });
       }
       // No se expone un POST para "adminPassword" ni "resultados": la primera
