@@ -444,8 +444,6 @@
     generalGrid.appendChild(statCard("Jugadores promedio/partida", stats.avgPlayers.toFixed(1)));
     generalGrid.appendChild(statCard("Rake anfitrión", money(stats.totalRakeHost), null, "gold"));
     generalGrid.appendChild(statCard("Estacionamiento", money(stats.totalParking), null, "gold"));
-    if (stats.mostHost.players.length === 1) generalGrid.appendChild(statCard("👑 Más veces anfitrión", stats.mostHost.players[0].player.name, stats.mostHost.max + " veces"));
-    else if (stats.mostHost.players.length > 1) generalGrid.appendChild(statCard("👑 Más veces anfitrión", "Varios", "con " + stats.mostHost.max + " veces"));
     panel.appendChild(generalGrid);
 
     panel.appendChild(subHeading("Cash"));
@@ -549,7 +547,7 @@
   function buildZoomPanel(stats) {
     const panel = el("div", { class: "panel" }, [
       el("div", { class: "sectionTitle" }, ["Zoom por jugador"]),
-      el("div", { class: "sectionSub" }, ["Estadísticas completas de un jugador en todas las partidas del período seleccionado."]),
+      el("div", { class: "sectionSub" }, ["Todas las partidas de un jugador en el período seleccionado."]),
     ]);
     if (stats.leaderboard.length === 0) { panel.appendChild(el("div", { class: "empty" }, ["Sin partidas en este período."])); return panel; }
 
@@ -564,23 +562,45 @@
     select.value = zoomPlayerId;
     panel.appendChild(el("div", { class: "filterRow", style: "margin-bottom:12px" }, [select]));
 
-    const st = stats.leaderboard.filter(function (s) { return s.player.id === zoomPlayerId; })[0];
-    const cols = EVO_COLUMNS.filter(function (c) { return c.key !== "name"; });
-    const table = el("table", { class: "simple" });
-    table.appendChild(el("thead", {}, [el("tr", {}, cols.map(function (col) { return el("th", {}, [col.label]); }))]));
-    const row = el("tr", {}, cols.map(function (col) {
-      let cls = col.key === "streak" ? undefined : "mono";
-      if (col.cls) cls = (cls ? cls + " " : "") + col.cls;
-      const attrs = {};
-      if (cls) attrs.class = cls;
-      if (col.style) attrs.style = col.style(st);
-      return el("td", attrs, [col.render(st)]);
-    }));
-    table.appendChild(el("tbody", {}, [row]));
+    const stEntry = stats.leaderboard.filter(function (s) { return s.player.id === zoomPlayerId; })[0];
     panel.appendChild(el("div", { style: "display:flex;align-items:center;gap:8px;margin-bottom:10px" }, [
-      avatarEl(st.player, 26),
-      el("span", { class: "display", style: "font-size:19px;color:var(--gold-soft)" }, [st.player.name]),
+      avatarEl(stEntry.player, 26),
+      el("span", { class: "display", style: "font-size:19px;color:var(--gold-soft)" }, [stEntry.player.name]),
     ]));
+
+    const myGames = stats.sortedGames.filter(function (g) { return g.playerIds.indexOf(zoomPlayerId) !== -1; });
+    if (myGames.length === 0) {
+      panel.appendChild(el("div", { class: "empty" }, ["Este jugador no participó en partidas de este período."]));
+      return panel;
+    }
+
+    const table = el("table", { class: "simple" });
+    table.appendChild(el("thead", {}, [el("tr", {}, [
+      "Partida", "G/P", "Lotes cash", "Monto cash", "Lotes virtual", "Monto virtual", "Total C+V", "Balance", "Anfitrión",
+    ].map(function (label) { return el("th", {}, [label]); }))]));
+    const tbody = el("tbody");
+    myGames.forEach(function (g) {
+      const purchases = (g.purchases || []).filter(function (pu) { return pu.playerId === zoomPlayerId; });
+      const cashPurchases = purchases.filter(function (pu) { return pu.type === "cash"; });
+      const virtualPurchases = purchases.filter(function (pu) { return pu.type === "virtual"; });
+      const cashAmount = cashPurchases.reduce(function (s, pu) { return s + pu.amount; }, 0);
+      const virtualAmount = virtualPurchases.reduce(function (s, pu) { return s + pu.amount; }, 0);
+      const cashOut = Number((g.finalChips || {})[zoomPlayerId]) || 0;
+      const balance = round1(cashOut - (cashAmount + virtualAmount));
+      const isHost = g.hostId === zoomPlayerId;
+      tbody.appendChild(el("tr", {}, [
+        el("td", { class: "mono" }, [g.date]),
+        el("td", {}, [el("span", { class: "streakBadge " + (balance > 0 ? "win" : "loss") }, [balance > 0 ? "G" : "P"])]),
+        el("td", { class: "mono" }, [String(cashPurchases.length)]),
+        el("td", { class: "mono tone-cash" }, [money(cashAmount)]),
+        el("td", { class: "mono" }, [String(virtualPurchases.length)]),
+        el("td", { class: "mono tone-virtual" }, [money(virtualAmount)]),
+        el("td", { class: "mono" }, [money(cashAmount + virtualAmount)]),
+        el("td", { class: "mono", style: "color:" + (balance >= 0 ? "var(--win)" : "var(--loss)") }, [(balance > 0 ? "+" : "") + money(balance)]),
+        el("td", {}, [isHost ? "S" : "N"]),
+      ]));
+    });
+    table.appendChild(tbody);
     panel.appendChild(el("div", { class: "tableWrap" }, [table]));
     return panel;
   }
