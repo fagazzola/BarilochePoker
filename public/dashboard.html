@@ -563,12 +563,44 @@
     panel.appendChild(el("div", { class: "filterRow", style: "margin-bottom:12px" }, [select]));
 
     const stEntry = stats.leaderboard.filter(function (s) { return s.player.id === zoomPlayerId; })[0];
-    panel.appendChild(el("div", { style: "display:flex;align-items:center;gap:8px;margin-bottom:10px" }, [
-      avatarEl(stEntry.player, 26),
-      el("span", { class: "display", style: "font-size:19px;color:var(--gold-soft)" }, [stEntry.player.name]),
-    ]));
 
     const myGames = stats.sortedGames.filter(function (g) { return g.playerIds.indexOf(zoomPlayerId) !== -1; });
+
+    // Precalculamos las filas una sola vez: se usan para la tabla y para los totales de arriba.
+    const rows = myGames.map(function (g) {
+      const purchases = (g.purchases || []).filter(function (pu) { return pu.playerId === zoomPlayerId; });
+      const cashPurchases = purchases.filter(function (pu) { return pu.type === "cash"; });
+      const virtualPurchases = purchases.filter(function (pu) { return pu.type === "virtual"; });
+      const cashAmount = cashPurchases.reduce(function (s, pu) { return s + pu.amount; }, 0);
+      const virtualAmount = virtualPurchases.reduce(function (s, pu) { return s + pu.amount; }, 0);
+      const cashOut = Number((g.finalChips || {})[zoomPlayerId]) || 0;
+      const balance = round1(cashOut - (cashAmount + virtualAmount));
+      return { game: g, cashPurchases: cashPurchases, virtualPurchases: virtualPurchases, cashAmount: cashAmount, virtualAmount: virtualAmount, balance: balance, isHost: g.hostId === zoomPlayerId };
+    });
+
+    const headerRow = el("div", { style: "display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px" }, [
+      el("div", { style: "display:flex;align-items:center;gap:8px" }, [
+        avatarEl(stEntry.player, 26),
+        el("span", { class: "display", style: "font-size:19px;color:var(--gold-soft)" }, [stEntry.player.name]),
+      ]),
+    ]);
+    if (rows.length > 0) {
+      const totalCash = rows.reduce(function (s, r) { return s + r.cashAmount; }, 0);
+      const totalVirtual = rows.reduce(function (s, r) { return s + r.virtualAmount; }, 0);
+      const totalCV = totalCash + totalVirtual;
+      const totalBalance = round1(rows.reduce(function (s, r) { return s + r.balance; }, 0));
+      const avgTotal = round1(totalCV / rows.length);
+      const totalsGrid = el("div", { class: "kpiGrid", style: "flex:1;min-width:260px" }, [
+        statCard("Monto cash", money(totalCash), null, "cash"),
+        statCard("Monto virtual", money(totalVirtual), null, "virtual"),
+        statCard("Total C+V", money(totalCV)),
+        statCard("Balance total", (totalBalance > 0 ? "+" : "") + money(totalBalance), null, moneyTone(totalBalance)),
+        statCard("Promedio total $", money(avgTotal)),
+      ]);
+      headerRow.appendChild(totalsGrid);
+    }
+    panel.appendChild(headerRow);
+
     if (myGames.length === 0) {
       panel.appendChild(el("div", { class: "empty" }, ["Este jugador no participó en partidas de este período."]));
       return panel;
@@ -579,25 +611,18 @@
       "Partida", "G/P", "Lotes cash", "Monto cash", "Lotes virtual", "Monto virtual", "Total C+V", "Balance", "Anfitrión",
     ].map(function (label) { return el("th", {}, [label]); }))]));
     const tbody = el("tbody");
-    myGames.forEach(function (g) {
-      const purchases = (g.purchases || []).filter(function (pu) { return pu.playerId === zoomPlayerId; });
-      const cashPurchases = purchases.filter(function (pu) { return pu.type === "cash"; });
-      const virtualPurchases = purchases.filter(function (pu) { return pu.type === "virtual"; });
-      const cashAmount = cashPurchases.reduce(function (s, pu) { return s + pu.amount; }, 0);
-      const virtualAmount = virtualPurchases.reduce(function (s, pu) { return s + pu.amount; }, 0);
-      const cashOut = Number((g.finalChips || {})[zoomPlayerId]) || 0;
-      const balance = round1(cashOut - (cashAmount + virtualAmount));
-      const isHost = g.hostId === zoomPlayerId;
+    rows.forEach(function (r) {
+      const g = r.game;
       tbody.appendChild(el("tr", {}, [
         el("td", { class: "mono" }, [g.date]),
-        el("td", {}, [el("span", { class: "streakBadge " + (balance > 0 ? "win" : "loss") }, [balance > 0 ? "G" : "P"])]),
-        el("td", { class: "mono" }, [String(cashPurchases.length)]),
-        el("td", { class: "mono tone-cash" }, [money(cashAmount)]),
-        el("td", { class: "mono" }, [String(virtualPurchases.length)]),
-        el("td", { class: "mono tone-virtual" }, [money(virtualAmount)]),
-        el("td", { class: "mono" }, [money(cashAmount + virtualAmount)]),
-        el("td", { class: "mono", style: "color:" + (balance >= 0 ? "var(--win)" : "var(--loss)") }, [(balance > 0 ? "+" : "") + money(balance)]),
-        el("td", {}, [isHost ? "S" : "N"]),
+        el("td", {}, [el("span", { class: "streakBadge " + (r.balance > 0 ? "win" : "loss") }, [r.balance > 0 ? "G" : "P"])]),
+        el("td", { class: "mono" }, [String(r.cashPurchases.length)]),
+        el("td", { class: "mono tone-cash" }, [money(r.cashAmount)]),
+        el("td", { class: "mono" }, [String(r.virtualPurchases.length)]),
+        el("td", { class: "mono tone-virtual" }, [money(r.virtualAmount)]),
+        el("td", { class: "mono" }, [money(r.cashAmount + r.virtualAmount)]),
+        el("td", { class: "mono", style: "color:" + (r.balance >= 0 ? "var(--win)" : "var(--loss)") }, [(r.balance > 0 ? "+" : "") + money(r.balance)]),
+        el("td", {}, [r.isHost ? "S" : "N"]),
       ]));
     });
     table.appendChild(tbody);
