@@ -117,6 +117,7 @@
   let evoView = "table"; // "table" | "chart"  (tabla por default)
   let evoMetric = "balance"; // solo aplica cuando evoView === "chart"
   let evoSort = { key: null, desc: true }; // orden de la tabla de Evolución al hacer click en un encabezado
+  let zoomPlayerId = ""; // jugador seleccionado en "Zoom por jugador"
 
   // Columnas de la tabla de Evolución.
   // accessor: valor usado para ordenar; render: contenido de la celda.
@@ -543,6 +544,47 @@
     return el("div", { class: "tableWrap" }, [table]);
   }
 
+  // Mismo formato de tabla que Evolución (encabezado arriba, valores en fila),
+  // pero con una sola fila: la del jugador elegido en el combo.
+  function buildZoomPanel(stats) {
+    const panel = el("div", { class: "panel" }, [
+      el("div", { class: "sectionTitle" }, ["Zoom por jugador"]),
+      el("div", { class: "sectionSub" }, ["Estadísticas completas de un jugador en todas las partidas del período seleccionado."]),
+    ]);
+    if (stats.leaderboard.length === 0) { panel.appendChild(el("div", { class: "empty" }, ["Sin partidas en este período."])); return panel; }
+
+    if (!zoomPlayerId || !stats.leaderboard.some(function (st) { return st.player.id === zoomPlayerId; })) {
+      zoomPlayerId = stats.leaderboard[0].player.id;
+    }
+    const select = el("select", {
+      onchange: function (e) { zoomPlayerId = e.target.value; renderAll(); },
+    }, stats.leaderboard.map(function (st) {
+      return el("option", { value: st.player.id, selected: st.player.id === zoomPlayerId ? "selected" : undefined }, [st.player.name]);
+    }));
+    select.value = zoomPlayerId;
+    panel.appendChild(el("div", { class: "filterRow", style: "margin-bottom:12px" }, [select]));
+
+    const st = stats.leaderboard.filter(function (s) { return s.player.id === zoomPlayerId; })[0];
+    const cols = EVO_COLUMNS.filter(function (c) { return c.key !== "name"; });
+    const table = el("table", { class: "simple" });
+    table.appendChild(el("thead", {}, [el("tr", {}, cols.map(function (col) { return el("th", {}, [col.label]); }))]));
+    const row = el("tr", {}, cols.map(function (col) {
+      let cls = col.key === "streak" ? undefined : "mono";
+      if (col.cls) cls = (cls ? cls + " " : "") + col.cls;
+      const attrs = {};
+      if (cls) attrs.class = cls;
+      if (col.style) attrs.style = col.style(st);
+      return el("td", attrs, [col.render(st)]);
+    }));
+    table.appendChild(el("tbody", {}, [row]));
+    panel.appendChild(el("div", { style: "display:flex;align-items:center;gap:8px;margin-bottom:10px" }, [
+      avatarEl(st.player, 26),
+      el("span", { class: "display", style: "font-size:19px;color:var(--gold-soft)" }, [st.player.name]),
+    ]));
+    panel.appendChild(el("div", { class: "tableWrap" }, [table]));
+    return panel;
+  }
+
   function buildEvoPanel(stats) {
     const header = [el("div", { class: "sectionTitle" }, ["Evolución"])];
     const tag = periodTag();
@@ -656,6 +698,7 @@
     main.appendChild(buildKpiPanel(stats));
     main.appendChild(buildRecordsPanel(stats));
     main.appendChild(buildEvoPanel(stats));
+    main.appendChild(buildZoomPanel(stats));
     main.appendChild(buildVolumePanel(stats));
   }
 
