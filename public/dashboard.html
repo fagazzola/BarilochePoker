@@ -145,7 +145,7 @@
   function roiLabel(balance, totalCV) {
     const r = roiPct(balance, totalCV);
     if (r === null) return "—";
-    return (r > 0 ? "+" : "") + r + "%";
+    return (r > 0 ? "+" : "") + r.toFixed(1) + "%";
   }
 
   async function loadKey(key, fallback) {
