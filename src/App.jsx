@@ -79,7 +79,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.08.07.045";
+const APP_VERSION = "3.09.07.046";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -1545,19 +1545,12 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
     pushLogEntries([entry]);
   };
 
-  // Solicitudes de fichas: cualquier jugador identificado en la mesa puede
-  // pedir un lote (cash o virtual) o un monto libre; solo el host puede
-  // aceptarla (se vuelve una compra normal) o rechazarla.
+  // Los jugadores ya NO pueden solicitar lotes desde su celular — los lotes
+  // los asigna siempre el host directamente desde "Compra de lotes". Se deja
+  // `myRequests` (usado por el flujo de "unirse a la mesa") y se mantiene la
+  // rama de `resolveRequest` para tipo cash/virtual por si quedó alguna
+  // solicitud vieja pendiente de antes de este cambio.
   const myRequests = (game.requests || []).filter((r) => r.playerId === myPlayerId);
-  const submitRequest = (type, amount) => {
-    const amt = Math.round(Number(amount) || 0);
-    if (!myPlayerId || amt <= 0) return;
-    update((g) => ({ requests: [...(g.requests || []), { id: uid(), playerId: myPlayerId, type, amount: amt, status: "pending", ts: Date.now() }] }));
-    logEvent({
-      playerId: myPlayerId, type, origin: "jugador", action: "solicitud enviada",
-      lotes: game.loteValue ? round1(amt / game.loteValue) : 0, amount: amt,
-    });
-  };
   // Alguien que ya se identificó con su PIN pero todavía no está sentado en
   // esta mesa (no llegó a tiempo para el alta inicial, o se sumó a mitad de
   // la noche) no puede simplemente entrar solo: le manda al host una
@@ -1679,7 +1672,10 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
         <div style={{ display: "grid", gap: 16 }}>
           {banner}
           {iAmInGame ? (
-            <RequestChipsPanel loteValue={game.loteValue} myRequests={myRequests} onSubmit={submitRequest} />
+            <Panel>
+              <SectionTitle icon={Banknote}>Compra de lotes</SectionTitle>
+              <Empty>Los lotes los asigna el host directamente — pedíselos de palabra.</Empty>
+            </Panel>
           ) : (
             myPlayerId && <JoinRequestPanel myRequests={myRequests} onSubmit={submitJoinRequest} />
           )}
@@ -2371,17 +2367,20 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
     return v !== undefined && v !== null ? String(v) : "";
   };
 
-  const [pagaVirtual, setPagaVirtualState] = useState(() =>
-    Object.fromEntries(players.map((p) => [p.id, draftFor(p.id, "pagaVirtual")]))
+  // Un único campo editable por jugador: "Fichas totales" (lo que el
+  // jugador entrega en mano). "Debe Virtual", "Paga Virtual" y "Fichas
+  // remanentes" se derivan solos de ese número (ver `rows` más abajo) — ya
+  // no hay que repartir manualmente entre dos campos.
+  const [fichasTotalesInput, setFichasTotalesState] = useState(() =>
+    Object.fromEntries(players.map((p) => [p.id, draftFor(p.id, "fichasTotales")]))
   );
-  const [remanente, setRemanenteState] = useState(() =>
-    Object.fromEntries(players.map((p) => [p.id, draftFor(p.id, "remanente")]))
-  );
-  // Ajuste manual por jugador (+/-): corrige el monto de fichas con el que se
-  // presenta a cobrar (un billete mal contado, una ficha que apareció
-  // después, etc.) sin tener que tocar los campos principales.
-  const [adjustments, setAdjustmentsState] = useState(() =>
-    Object.fromEntries(players.map((p) => [p.id, draftFor(p.id, "adjust")]))
+  // Ajuste manual único de toda la partida (+/-), para corregir una
+  // descuadratura (un billete mal contado, etc.) — se asigna siempre al
+  // host, no por jugador.
+  const [globalAdjust, setGlobalAdjustState] = useState(() =>
+    (game.finalizeDraft && game.finalizeDraft.globalAdjust !== undefined && game.finalizeDraft.globalAdjust !== null)
+      ? String(game.finalizeDraft.globalAdjust)
+      : ""
   );
   // Qué jugador tiene un campo enfocado ahora mismo — el aviso de "pendiente
   // por cuadrar" se muestra pegado a esa fila, para que se vea sin que el
@@ -2398,9 +2397,11 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
       },
     }));
   };
-  const setPagaVirtual = (pid, v) => { setPagaVirtualState((c) => ({ ...c, [pid]: v })); persistField(pid, "pagaVirtual", v); };
-  const setRemanente = (pid, v) => { setRemanenteState((c) => ({ ...c, [pid]: v })); persistField(pid, "remanente", v); };
-  const setAdjustment = (pid, v) => { setAdjustmentsState((c) => ({ ...c, [pid]: v })); persistField(pid, "adjust", v); };
+  const setFichasTotales = (pid, v) => { setFichasTotalesState((c) => ({ ...c, [pid]: v })); persistField(pid, "fichasTotales", v); };
+  const setGlobalAdjust = (v) => {
+    setGlobalAdjustState(v);
+    update((g) => ({ finalizeDraft: { ...(g.finalizeDraft || {}), globalAdjust: v } }));
+  };
 
   // Ajuste manual del total de Rake+Estacionamiento, por si hay que cuadrar
   // a un número exacto (por ejemplo, redondear el rake para que el reparto
@@ -2442,51 +2443,56 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
   const cashDisponible = round1(totalCash - rake);
   const targetTotal = totalCash + totalVirtual;
 
+  const globalAdjustNum = Number(globalAdjust) || 0;
+  const hostPlayer = players.find((p) => p.id === game.hostId) || null;
+
+  // Filas concentradas por jugador — derivadas de un único número por
+  // jugador ("Fichas totales") más el ajuste único de descuadratura
+  // (asignado siempre al host):
+  // - Debe Virtual = lo que ese jugador compró en lotes virtuales (dato fijo).
+  // - Paga Virtual = lo que de las fichas totales entregadas alcanza para
+  //   saldar ese virtual: min(fichas totales ajustadas, debe virtual), sin
+  //   bajar de 0.
+  // - Fichas remanentes = lo que le queda después de pagar el virtual
+  //   (fichas totales ajustadas − paga virtual) — siempre ≥ 0.
+  // - Subtotal VRT (por jugador) = lotes virtuales que le quedan sin pagar.
+  // - Subtotal CSH (por jugador) = fichas totales ajustadas − lo usado para
+  //   pagar virtual, es decir, lo que le queda al jugador para cobrar en
+  //   cash/transferencia una vez saldado el virtual.
+  const rows = useMemo(() => players.map((p) => {
+    const bi = buyIns[p.id];
+    const ft = Number(fichasTotalesInput[p.id]) || 0;
+    const adj = p.id === game.hostId ? globalAdjustNum : 0;
+    const fichasTotales = round1(ft + adj);
+    const pv = Math.max(0, Math.min(fichasTotales, bi.virtual));
+    const rem = round1(fichasTotales - pv);
+    const totalA = round1(bi.virtual - pv);
+    const fichasPresentadas = fichasTotales;
+    const fichasEntregadasVirtual = pv;
+    const totalB = round1(fichasPresentadas - fichasEntregadasVirtual);
+    return { p, bi, ft, adj, pv, rem, fichasTotales, totalA, fichasPresentadas, fichasEntregadasVirtual, totalB };
+  }), [players, buyIns, fichasTotalesInput, globalAdjustNum, game.hostId]);
+
   // "Paga virtual" que ya se fue capturando por jugador — es lo que reduce
   // el virtual pendiente a nivel de toda la partida (bloque 2).
-  const pagaVirtualTotal = players.reduce((s, p) => s + (Number(pagaVirtual[p.id]) || 0), 0);
+  const pagaVirtualTotal = rows.reduce((s, r) => s + r.pv, 0);
   const virtualPendiente = round1(totalVirtual - pagaVirtualTotal);
 
   // El dinero total en juego (para el "cuadre") se basa en las fichas tal
-  // cual se entregaron — paga virtual + fichas remanentes + ajuste manual.
-  // El ajuste manual SÍ altera las fichas disponibles del jugador (positiva
-  // o negativamente) y por lo tanto el total general: si corrige un mal
-  // conteo, ese dinero corregido tiene que reflejarse en el cuadre.
-  const enteredCount = players.filter((p) => pagaVirtual[p.id] !== "" || remanente[p.id] !== "").length;
-  const totalFinalValue = players.reduce(
-    (s, p) => s + (Number(pagaVirtual[p.id]) || 0) + (Number(remanente[p.id]) || 0) + (Number(adjustments[p.id]) || 0),
-    0
-  ) + rake;
+  // cual se entregaron (fichas totales + ajuste del host, si lo hay). El
+  // ajuste SÍ altera las fichas disponibles del host y por lo tanto el
+  // total general: si corrige un mal conteo, ese dinero corregido tiene que
+  // reflejarse en el cuadre.
+  const enteredCount = players.filter((p) => fichasTotalesInput[p.id] !== "").length;
+  const totalFinalValue = round1(rows.reduce((s, r) => s + r.fichasTotales, 0)) + rake;
   const runningDiff = round1(totalFinalValue - targetTotal);
 
-  const ready = players.every((p) => (pagaVirtual[p.id] === "" || !isNaN(Number(pagaVirtual[p.id]))) && (remanente[p.id] === "" || !isNaN(Number(remanente[p.id]))));
+  const ready = players.every((p) => fichasTotalesInput[p.id] === "" || !isNaN(Number(fichasTotalesInput[p.id])));
   // Regla de la app: no se puede cerrar la partida si lo entregado (fichas +
   // rake) no cuadra exactamente contra el total comprado (cash + virtual).
   const canConfirm = ready && enteredCount > 0 && runningDiff === 0;
 
   const cuadra = runningDiff === 0;
-
-  // Filas concentradas por jugador para los bloques 4 (VIRTUALES) y 5 (CASH):
-  // - Subtotal VRT (por jugador) = lotes virtuales que le quedan sin pagar.
-  // - Fichas Presentadas (por jugador) = fichas totales que entrega (paga
-  //   virtual + remanentes + ajuste manual).
-  // - Fichas entregadas (para lotes virtuales) = lo que de esas fichas se usó
-  //   para pagar los lotes virtuales pendientes (pv).
-  // - Subtotal CSH (por jugador) = Fichas Presentadas − Fichas entregadas
-  //   (para lotes virtuales), es decir, lo que le queda al jugador para
-  //   cobrar en cash/transferencia una vez saldado el virtual.
-  const rows = useMemo(() => players.map((p) => {
-    const bi = buyIns[p.id];
-    const pv = Number(pagaVirtual[p.id]) || 0;
-    const rem = Number(remanente[p.id]) || 0;
-    const adj = Number(adjustments[p.id]) || 0;
-    const fichasTotales = round1(pv + rem + adj);
-    const totalA = round1(bi.virtual - pv);
-    const fichasPresentadas = fichasTotales;
-    const fichasEntregadasVirtual = pv;
-    const totalB = round1(fichasPresentadas - fichasEntregadasVirtual);
-    return { p, bi, pv, rem, adj, fichasTotales, totalA, fichasPresentadas, fichasEntregadasVirtual, totalB };
-  }), [players, buyIns, pagaVirtual, remanente, adjustments]);
 
   const grandTotalA = round1(rows.reduce((s, r) => s + r.totalA, 0));
   const grandTotalB = round1(rows.reduce((s, r) => s + r.totalB, 0));
@@ -2620,104 +2626,75 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
 
         <div style={{ display: "grid", gap: 10 }}>
           {players.map((p) => {
-            const bi = buyIns[p.id];
+            const row = rows.find((r) => r.p.id === p.id);
+            const bi = row.bi;
             const focused = focusedId === p.id;
-            const pv = Number(pagaVirtual[p.id]) || 0;
-            const rem = Number(remanente[p.id]) || 0;
-            const adj = Number(adjustments[p.id]) || 0;
-            // El ajuste manual corrige las fichas realmente entregadas (paga
-            // virtual + remanentes), sin tocar esos campos principales, y
-            // esas fichas ajustadas son las que saldan primero el buy-in
-            // virtual (igual que antes).
-            const fichasAjustadas = round1(pv + rem + adj);
-            const virtualPagado = Math.max(0, Math.min(fichasAjustadas, bi.virtual));
-            const cashOutPendiente = round1(fichasAjustadas - bi.virtual);
-            const debeVirtual = cashOutPendiente < 0;
-            const cashAjustado = round1(bi.cash + adj);
+            const isHost = p.id === game.hostId;
+            const cashOutPendiente = round1(row.fichasTotales - bi.virtual);
+            const debeVirtualPendiente = cashOutPendiente < 0;
             return (
               <div key={p.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "12px 14px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 }}>
                   <Avatar player={p} size={22} />
                   <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{p.name}</span>
+                  {isHost && <span style={{ fontSize: 10, color: C.goldSoft, border: `1px solid ${C.goldSoft}`, borderRadius: 6, padding: "1px 6px", textTransform: "uppercase", letterSpacing: "0.04em" }}>Host</span>}
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, textAlign: "center" }}>
-                  <div>
-                    <div style={colLabelStyle}>Debe virtual</div>
-                    <div style={colValueStyle(C.virtual)}>{money(bi.virtual)}</div>
-                  </div>
-                  <div>
-                    <div style={colLabelStyle}>Paga virtual</div>
+                {/* Orden vertical pedido (de arriba hacia abajo): Fichas
+                    totales (único campo editable) → Debe Virtual → Paga
+                    Virtual → Fichas remanentes (los tres últimos, derivados
+                    solos y no editables). */}
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={colLabelStyle}>Fichas totales</div>
                     <input
                       type="number" min="0" placeholder="0"
                       style={{
                         width: "100%", background: "transparent", border: "none",
                         borderBottom: `1px solid ${C.panelLine}`, textAlign: "center",
-                        ...monoFont, fontWeight: 800, fontSize: 16, color: C.card, padding: "0 0 2px",
+                        ...monoFont, fontWeight: 800, fontSize: 22, color: C.goldSoft, padding: "0 0 2px",
                       }}
-                      value={pagaVirtual[p.id]}
-                      onChange={(e) => setPagaVirtual(p.id, e.target.value)}
-                      onFocus={(e) => { e.target.select(); setFocusedId(p.id); }}
-                      onBlur={() => setFocusedId((cur) => (cur === p.id ? null : cur))}
-                    />
-                  </div>
-                  <div>
-                    <div style={colLabelStyle}>Fichas remanentes</div>
-                    <input
-                      type="number" min="0" placeholder="0"
-                      style={{
-                        width: "100%", background: "transparent", border: "none",
-                        borderBottom: `1px solid ${C.panelLine}`, textAlign: "center",
-                        ...monoFont, fontWeight: 800, fontSize: 16, color: C.card, padding: "0 0 2px",
-                      }}
-                      value={remanente[p.id]}
-                      onChange={(e) => setRemanente(p.id, e.target.value)}
+                      value={fichasTotalesInput[p.id]}
+                      onChange={(e) => setFichasTotales(p.id, e.target.value)}
                       onFocus={(e) => { e.target.select(); setFocusedId(p.id); }}
                       onBlur={(e) => {
-                        if (e.target.value !== "") setRemanente(p.id, String(roundTo100(e.target.value)));
+                        if (e.target.value !== "") setFichasTotales(p.id, String(roundTo100(e.target.value)));
                         setFocusedId((cur) => (cur === p.id ? null : cur));
                       }}
                       step="100"
                     />
                   </div>
-                  <div>
-                    <div style={colLabelStyle}>Fichas totales</div>
-                    <div style={colValueStyle(C.goldSoft)}>{money(fichasAjustadas)}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={rowLabelStyle}>Debe Virtual</span>
+                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.virtual }}>{money(bi.virtual)}</span>
                   </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={rowLabelStyle}>Paga Virtual</span>
+                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.win }}>{money(row.pv)}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={rowLabelStyle}>Fichas remanentes</span>
+                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.card }}>{money(row.rem)}</span>
+                  </div>
+                  {debeVirtualPendiente && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <span style={rowLabelStyle}>Debe virtual pendiente</span>
+                      <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.loss }}>{money(Math.abs(cashOutPendiente))}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: "grid", gap: 8, borderTop: `1px solid ${C.panelLine}`, marginTop: 10, paddingTop: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <span style={rowLabelStyle}>Cash</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.cash }}>
-                      {money(bi.cash)}
-                      {adj !== 0 && (
-                        <>
-                          <span style={{ color: "rgba(244,234,214,0.35)" }}> · </span>
-                          <span style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase", fontWeight: 700 }}>Cash ajustado </span>
-                          {money(cashAjustado)}
-                        </>
-                      )}
-                    </span>
+                    <span style={rowLabelStyle}>Cash (buy-in)</span>
+                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.cash }}>{money(bi.cash)}</span>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <span style={rowLabelStyle}>Virtual pagado</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.win }}>{money(virtualPagado)}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <span style={rowLabelStyle}>{debeVirtual ? "Debe virtual" : "Cash out pendiente"}</span>
-                    <span style={{ ...monoFont, fontSize: 22, fontWeight: 800, color: debeVirtual ? C.loss : C.win }}>
-                      {money(Math.abs(cashOutPendiente))}
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <span style={rowLabelStyle}>Ajuste manual (+/-)</span>
-                    <input
-                      type="number" placeholder="0" style={{ ...inputStyle, width: 100, textAlign: "right" }}
-                      value={adjustments[p.id]} onChange={(e) => setAdjustment(p.id, e.target.value)}
-                      onFocus={(e) => e.target.select()}
-                    />
-                  </div>
+                  {!debeVirtualPendiente && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                      <span style={rowLabelStyle}>Cash out pendiente</span>
+                      <span style={{ ...monoFont, fontSize: 22, fontWeight: 800, color: C.win }}>{money(Math.abs(cashOutPendiente))}</span>
+                    </div>
+                  )}
                 </div>
 
                 {focused && (
@@ -2739,6 +2716,22 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
               </div>
             );
           })}
+
+          {/* Único ajuste manual de toda la partida (para descuadraturas),
+              asignado siempre al host. */}
+          <div style={{ background: "rgba(255,205,90,0.08)", border: `1px solid ${C.goldSoft}`, borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ ...rowLabelStyle, fontSize: 11 }}>
+                Ajuste manual por descuadratura (+/-){hostPlayer ? ` — se asigna a ${hostPlayer.name} (host)` : " — se asigna al host"}
+              </span>
+              <input
+                type="number" placeholder="0" style={{ ...inputStyle, width: 110, textAlign: "right" }}
+                value={globalAdjust}
+                onChange={(e) => setGlobalAdjust(e.target.value)}
+                onFocus={(e) => e.target.select()}
+              />
+            </div>
+          </div>
         </div>
         {ready && enteredCount > 0 && runningDiff !== 0 && (
           <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginTop: 12, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
@@ -2850,8 +2843,8 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
         <PrimaryBtn
           disabled={!canConfirm}
           onClick={() => onConfirm(
-            Object.fromEntries(players.map((p) => [p.id, (Number(pagaVirtual[p.id]) || 0) + (Number(remanente[p.id]) || 0)])),
-            Object.fromEntries(players.map((p) => [p.id, Number(adjustments[p.id]) || 0]).filter(([, v]) => v !== 0)),
+            Object.fromEntries(rows.map((r) => [r.p.id, r.ft])),
+            globalAdjustNum !== 0 ? { [game.hostId]: globalAdjustNum } : {},
             rake
           )}
           icon={Trophy} style={{ flex: 1, padding: "12px 16px" }}
