@@ -3,8 +3,7 @@ import {
   Plus, Minus, Trash2, Pencil, Users, UtensilsCrossed, Wine,
   Trophy, ArrowRightLeft, Save, X, Check, ChevronDown, ChevronUp, ChevronLeft,
   Banknote, Landmark, Flame, History, UserPlus, UserX, UserCheck,
-  Play, Square, AlertCircle, Crown, DollarSign, CircleDollarSign, Coins,
-  BarChart3, Activity
+  Play, Square, AlertCircle, Crown, DollarSign, CircleDollarSign, Coins
 } from "lucide-react";
 
 /* ----------------------------------------------------------------------
@@ -73,248 +72,6 @@ async function saveKey(key, value) {
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-// Versión de la app, formato 1.AA.BB.CCC:
-//   AA  = cantidad de rondas de cambios entregadas a src/App.jsx (esta app)
-//   BB  = cantidad de rondas de cambios entregadas a public/dashboard.html
-//   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
-//         otro archivo, p. ej. netlify/functions) — nunca baja.
-// Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.09.07.046";
-
-// Identidad del jugador en este dispositivo: se guarda en localStorage, así
-// que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
-// No es un login "de verdad" (no hay servidor de autenticación), es un PIN
-// simple para que la app sepa quién eres tú y así poder distinguir al host
-// del resto durante una partida.
-const MY_ID_STORAGE_KEY = "bariloche_myPlayerId";
-let _showIdentityModal = null;
-function requestIdentity(roster) {
-  return new Promise((resolve) => {
-    if (!_showIdentityModal) { resolve(null); return; }
-    _showIdentityModal(roster, resolve);
-  });
-}
-function IdentityModal({ setRoster }) {
-  const [pending, setPending] = useState(null); // { roster, onSubmit }
-  const [pickedId, setPickedId] = useState("");
-  const [pin, setPin] = useState("");
-  const [newPin, setNewPin] = useState("");
-  const [newPinConfirm, setNewPinConfirm] = useState("");
-  const [err, setErr] = useState("");
-
-  useEffect(() => {
-    _showIdentityModal = (roster, onSubmit) => {
-      setPickedId(""); setPin(""); setNewPin(""); setNewPinConfirm(""); setErr("");
-      setPending({ roster, onSubmit });
-    };
-    return () => { _showIdentityModal = null; };
-  }, []);
-
-  if (!pending) return null;
-  const players = pending.roster.filter((p) => p.active).sort((a, b) => a.name.localeCompare(b.name));
-  const picked = players.find((p) => p.id === pickedId);
-
-  const finish = (id) => {
-    const cb = pending.onSubmit;
-    setPending(null);
-    cb(id);
-  };
-  const submitPin = () => {
-    if (!picked) return;
-    if (picked.pin && picked.pin !== pin) { setErr("PIN incorrecto."); return; }
-    finish(picked.id);
-  };
-  // El Excel (hoja "roster") es la fuente de verdad de los PIN. Si este
-  // jugador todavía no tiene uno ahí, lo obligamos a crearlo aquí mismo antes
-  // de dejarlo entrar, para que quede registrado desde ya.
-  const submitNewPin = () => {
-    if (!picked) return;
-    if (!/^\d{4}$/.test(newPin)) { setErr("El PIN debe ser numérico, de exactamente 4 dígitos."); return; }
-    if (newPin !== newPinConfirm) { setErr("Los PIN no coinciden."); return; }
-    setRoster((r) => r.map((p) => (p.id === picked.id ? { ...p, pin: newPin } : p)));
-    finish(picked.id);
-  };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => finish(null)}>
-      <div style={{ background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14, padding: 20, width: "min(360px, 100%)", boxShadow: "0 12px 32px rgba(0,0,0,0.4)" }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ ...displayFont, fontSize: 19, color: C.card, marginBottom: 4 }}>¿QUIÉN ERES?</div>
-        {!picked ? (
-          <>
-            <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 12 }}>
-              Elige tu nombre para identificarte en este celular. Así la app sabe cuando eres tú el host de la partida.
-            </div>
-            <div style={{ display: "grid", gap: 6, maxHeight: 320, overflowY: "auto" }}>
-              {players.map((p) => (
-                <button key={p.id} onClick={() => setPickedId(p.id)}
-                  style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "rgba(0,0,0,0.18)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "9px 10px", cursor: "pointer", ...bodyFont }}>
-                  <Avatar player={p} size={26} />
-                  <span style={{ color: C.card, fontSize: 14 }}>{p.name}</span>
-                  {p.pin && <span title="Tiene PIN configurado" style={{ marginLeft: "auto", fontSize: 12, color: "rgba(244,234,214,0.35)" }}>🔒</span>}
-                </button>
-              ))}
-            </div>
-            <div style={{ marginTop: 14 }}>
-              <GhostBtn onClick={() => finish(null)}>Cancelar</GhostBtn>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-              <Avatar player={picked} size={32} />
-              <span style={{ color: C.card, fontSize: 16, fontWeight: 700 }}>{picked.name}</span>
-            </div>
-            {picked.pin ? (
-              <>
-                <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>Ingresa tu PIN:</div>
-                <input
-                  type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle}
-                  value={pin} onChange={(e) => { setPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") submitPin(); if (e.key === "Escape") finish(null); }}
-                />
-                {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
-                <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-                  <GhostBtn onClick={() => { setPickedId(""); setPin(""); setErr(""); }}>Atrás</GhostBtn>
-                  <PrimaryBtn onClick={submitPin}>Entrar</PrimaryBtn>
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>
-                  Todavía no tienes un PIN registrado. Crea uno de 4 dígitos para poder identificarte en tus celulares:
-                </div>
-                <div style={{ display: "grid", gap: 8 }}>
-                  <input
-                    type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle} placeholder="Nuevo PIN (4 dígitos)"
-                    value={newPin} onChange={(e) => { setNewPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                  />
-                  <input
-                    type="password" inputMode="numeric" maxLength={4} style={inputStyle} placeholder="Confirma tu PIN"
-                    value={newPinConfirm} onChange={(e) => { setNewPinConfirm(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") submitNewPin(); if (e.key === "Escape") finish(null); }}
-                  />
-                </div>
-                {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
-                <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-                  <GhostBtn onClick={() => { setPickedId(""); setNewPin(""); setNewPinConfirm(""); setErr(""); }}>Atrás</GhostBtn>
-                  <PrimaryBtn onClick={submitNewPin}>Crear PIN y entrar</PrimaryBtn>
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Pantalla completa (no un modal descartable): mientras nadie se identificó
-// en este celular, no se puede navegar por la app en absoluto — a diferencia
-// del modal de "cambiar identidad" (que sí se puede cancelar porque ahí ya
-// estabas identificado), esta pantalla no tiene forma de saltearse.
-function IdentityGateScreen({ roster, setRoster, onIdentified }) {
-  const [pickedId, setPickedId] = useState("");
-  const [pin, setPin] = useState("");
-  const [newPin, setNewPin] = useState("");
-  const [newPinConfirm, setNewPinConfirm] = useState("");
-  const [err, setErr] = useState("");
-
-  const players = roster.filter((p) => p.active).sort((a, b) => a.name.localeCompare(b.name));
-  const picked = players.find((p) => p.id === pickedId);
-
-  const submitPin = () => {
-    if (!picked) return;
-    if (picked.pin && picked.pin !== pin) { setErr("PIN incorrecto."); return; }
-    onIdentified(picked.id);
-  };
-  // Igual que en el modal de identidad: si el jugador no tiene PIN en el
-  // Excel, lo obligamos a crear uno antes de dejarlo pasar.
-  const submitNewPin = () => {
-    if (!picked) return;
-    if (!/^\d{4}$/.test(newPin)) { setErr("El PIN debe ser numérico, de exactamente 4 dígitos."); return; }
-    if (newPin !== newPinConfirm) { setErr("Los PIN no coinciden."); return; }
-    setRoster((r) => r.map((p) => (p.id === picked.id ? { ...p, pin: newPin } : p)));
-    onIdentified(picked.id);
-  };
-
-  return (
-    <div style={{ minHeight: "100vh", background: `radial-gradient(ellipse at top, ${C.panel} 0%, ${C.felt} 45%, ${C.feltDeep} 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, ...bodyFont }}>
-      <div style={{ width: "min(420px, 100%)" }}>
-        <div style={{ textAlign: "center", marginBottom: 18 }}>
-          <div style={{ ...displayFont, fontSize: 36, color: C.gold, lineHeight: 1 }}>BARILOCHE</div>
-          <div style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: 4 }}>
-            registro de poker
-          </div>
-        </div>
-        <div style={{ background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14, padding: 22, boxShadow: "0 12px 32px rgba(0,0,0,0.4)" }}>
-          <div style={{ ...displayFont, fontSize: 22, color: C.card, marginBottom: 4 }}>¿QUIÉN ERES?</div>
-          {!picked ? (
-            <>
-              <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 14 }}>
-                Elige tu nombre para poder usar la app en este celular. Así la app sabe cuando eres tú el host de la partida.
-              </div>
-              <div style={{ display: "grid", gap: 8, maxHeight: 380, overflowY: "auto" }}>
-                {players.map((p) => (
-                  <button key={p.id} onClick={() => setPickedId(p.id)}
-                    style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "rgba(0,0,0,0.18)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "10px 12px", cursor: "pointer", ...bodyFont }}>
-                    <Avatar player={p} size={28} />
-                    <span style={{ color: C.card, fontSize: 15 }}>{p.name}</span>
-                    {p.pin && <span title="Tiene PIN configurado" style={{ marginLeft: "auto", fontSize: 13, color: "rgba(244,234,214,0.35)" }}>🔒</span>}
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <Avatar player={picked} size={34} />
-                <span style={{ color: C.card, fontSize: 17, fontWeight: 700 }}>{picked.name}</span>
-              </div>
-              {picked.pin ? (
-                <>
-                  <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>Ingresa tu PIN:</div>
-                  <input
-                    type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle}
-                    value={pin} onChange={(e) => { setPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") submitPin(); }}
-                  />
-                  {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
-                  <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-                    <GhostBtn onClick={() => { setPickedId(""); setPin(""); setErr(""); }}>Atrás</GhostBtn>
-                    <PrimaryBtn onClick={submitPin}>Entrar</PrimaryBtn>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>
-                    Todavía no tienes un PIN registrado. Crea uno de 4 dígitos para poder identificarte en tus celulares:
-                  </div>
-                  <div style={{ display: "grid", gap: 8 }}>
-                    <input
-                      type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle} placeholder="Nuevo PIN (4 dígitos)"
-                      value={newPin} onChange={(e) => { setNewPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                    />
-                    <input
-                      type="password" inputMode="numeric" maxLength={4} style={inputStyle} placeholder="Confirma tu PIN"
-                      value={newPinConfirm} onChange={(e) => { setNewPinConfirm(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") submitNewPin(); }}
-                    />
-                  </div>
-                  {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
-                  <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-                    <GhostBtn onClick={() => { setPickedId(""); setNewPin(""); setNewPinConfirm(""); setErr(""); }}>Atrás</GhostBtn>
-                    <PrimaryBtn onClick={submitNewPin}>Crear PIN y entrar</PrimaryBtn>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const money = (n) =>
   "$" + Math.round(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -327,148 +84,20 @@ const roundTo100 = (n) => Math.round((Number(n) || 0) / 100) * 100;
 // Pide la contraseña de administrador (cargada a mano en la hoja "Meta" del
 // Excel) antes de dejar pasar una acción destructiva. No es seguridad real
 // (no hay login), es solo una traba para evitar borrados accidentales.
-// La UI es un modal propio (ver <AdminPasswordModal/>, montado una sola vez
-// en la raíz de la app) con input enmascarado tipo password — a diferencia
-// de window.prompt(), que no se puede estilizar ni ocultar el texto tipeado.
-let _showAdminPasswordModal = null;
 function requestAdminPassword(adminPassword, actionLabel) {
-  return new Promise((resolve) => {
-    if (!adminPassword) {
-      alert(`Todavía no hay una contraseña de administrador configurada en el Excel (hoja "Meta", fila con key=admin_password). Agregala ahí para poder ${actionLabel}.`);
-      resolve(false);
-      return;
-    }
-    if (!_showAdminPasswordModal) {
-      resolve(false);
-      return;
-    }
-    _showAdminPasswordModal(actionLabel, (entered) => {
-      if (entered === null) { resolve(false); return; }
-      if (entered !== adminPassword) {
-        alert("Contraseña incorrecta.");
-        resolve(false);
-        return;
-      }
-      resolve(true);
-    });
-  });
-}
-function AdminPasswordModal() {
-  const [pending, setPending] = useState(null); // { actionLabel, onSubmit }
-  const [value, setValue] = useState("");
-
-  useEffect(() => {
-    _showAdminPasswordModal = (actionLabel, onSubmit) => {
-      setValue("");
-      setPending({ actionLabel, onSubmit });
-    };
-    return () => { _showAdminPasswordModal = null; };
-  }, []);
-
-  if (!pending) return null;
-  const submit = (entered) => {
-    const cb = pending.onSubmit;
-    setPending(null);
-    cb(entered);
-  };
-
-  return (
-    <div
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 1000, padding: 16,
-      }}
-      onClick={() => submit(null)}
-    >
-      <div
-        style={{
-          background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14,
-          padding: 20, width: "min(340px, 100%)", boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ ...displayFont, fontSize: 17, color: C.card, marginBottom: 4 }}>Contraseña de administrador</div>
-        <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 14 }}>Para {pending.actionLabel}:</div>
-        <input
-          type="password"
-          autoFocus
-          style={inputStyle}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submit(value);
-            if (e.key === "Escape") submit(null);
-          }}
-        />
-        <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-          <GhostBtn onClick={() => submit(null)}>Cancelar</GhostBtn>
-          <PrimaryBtn onClick={() => submit(value)}>Confirmar</PrimaryBtn>
-        </div>
-      </div>
-    </div>
-  );
+  if (!adminPassword) {
+    alert(`Todavía no hay una contraseña de administrador configurada en el Excel (hoja "Meta", fila con key=admin_password). Agregala ahí para poder ${actionLabel}.`);
+    return false;
+  }
+  const entered = window.prompt(`Contraseña de administrador para ${actionLabel}:`);
+  if (entered === null) return false;
+  if (entered !== adminPassword) {
+    alert("Contraseña incorrecta.");
+    return false;
+  }
+  return true;
 }
 const ceilTo100 = (n) => Math.ceil((Number(n) || 0) / 50) * 50;
-
-// Confirmación con el look de la app, para reemplazar el confirm() nativo del
-// navegador (que no se puede estilizar) en acciones destructivas.
-let _showConfirmModal = null;
-function requestConfirm({ title, message, confirmLabel = "Confirmar", cancelLabel = "Cancelar", danger = true }) {
-  return new Promise((resolve) => {
-    if (!_showConfirmModal) { resolve(false); return; }
-    _showConfirmModal({ title, message, confirmLabel, cancelLabel, danger }, resolve);
-  });
-}
-function ConfirmModal() {
-  const [pending, setPending] = useState(null); // { opts, onSubmit }
-
-  useEffect(() => {
-    _showConfirmModal = (opts, onSubmit) => setPending({ opts, onSubmit });
-    return () => { _showConfirmModal = null; };
-  }, []);
-
-  if (!pending) return null;
-  const { opts, onSubmit } = pending;
-  const submit = (result) => {
-    setPending(null);
-    onSubmit(result);
-  };
-
-  return (
-    <div
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 1000, padding: 16,
-      }}
-      onClick={() => submit(false)}
-    >
-      <div
-        style={{
-          background: C.panel, border: `1px solid ${opts.danger ? "rgba(226,99,79,0.5)" : C.panelLine}`, borderRadius: 14,
-          padding: 20, width: "min(360px, 100%)", boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          {opts.danger && <AlertCircle size={18} color={C.loss} />}
-          <div style={{ ...displayFont, fontSize: 19, color: C.card }}>{opts.title}</div>
-        </div>
-        <div style={{ fontSize: 13.5, color: "rgba(244,234,214,0.75)", lineHeight: 1.5, marginBottom: 18 }}>{opts.message}</div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <GhostBtn onClick={() => submit(false)}>{opts.cancelLabel}</GhostBtn>
-          <PrimaryBtn
-            onClick={() => submit(true)}
-            style={opts.danger ? { background: `linear-gradient(180deg, #e2634f, #c94d3b)`, color: "#fff" } : undefined}
-          >
-            {opts.confirmLabel}
-          </PrimaryBtn>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* Icon choices for player avatars */
 const AVATAR_ICONS = [
@@ -505,6 +134,22 @@ function Avatar({ player, size = 30 }) {
   );
 }
 
+/* Break an amount (assumed multiple of 100) into bills of 500/200/100 */
+function billsFor(amount) {
+  let a = Math.max(0, Math.round(amount / 100) * 100);
+  const b500 = Math.floor(a / 500); a -= b500 * 500;
+  const b200 = Math.floor(a / 200); a -= b200 * 200;
+  const b100 = Math.round(a / 100);
+  return { 500: b500, 200: b200, 100: b100 };
+}
+function billsLabel(bd) {
+  const parts = [];
+  if (bd[500]) parts.push(`${bd[500]}×$500`);
+  if (bd[200]) parts.push(`${bd[200]}×$200`);
+  if (bd[100]) parts.push(`${bd[100]}×$100`);
+  return parts.length ? parts.join(" + ") : "—";
+}
+
 /* ----------------------------------------------------------------------
    SETTLEMENT ENGINE
 ---------------------------------------------------------------------- */
@@ -518,27 +163,17 @@ function computeSettlement(game, roster) {
     const cashOut = Number(game.finalChips[pid]) || 0; // lo reportado en fichas
     const balance = round1(cashOut - totalBuyIn); // balance neto informativo (gana/pierde en total)
 
-    // Ajuste manual capturado al entregar fichas: corrige las fichas
-    // realmente entregadas (un billete/ficha mal contado, etc.), sin tocar
-    // el campo principal de fichas ni el cuadre total de dinero de la
-    // partida. Como las fichas entregadas son lo que primero salda el
-    // buy-in virtual, el ajuste impacta ese cálculo (y por lo tanto cuánto
-    // termina cobrando en cash vs. transferencia).
-    const cashAdjust = Number((game.finalChipsAdjust || {})[pid]) || 0;
-    const fichasAjustadas = round1(cashOut + cashAdjust);
-
-    // Regla: el cash out (ya ajustado) primero salda el buy-in virtual. Lo
-    // que sobra de eso ("netClaim") es lo que el jugador realmente puede
-    // reclamar del pozo de cash real — no el balance total. Si netClaim <= 0,
-    // ni siquiera alcanzó para saldar el virtual, y esa diferencia se debe
-    // por transferencia.
-    const netClaim = round1(fichasAjustadas - virtualAmount);
+    // Regla: el cash out primero salda el buy-in virtual. Lo que sobra de eso
+    // ("netClaim") es lo que el jugador realmente puede reclamar del pozo de
+    // cash real — no el balance total. Si netClaim <= 0, ni siquiera alcanzó
+    // para saldar el virtual, y esa diferencia se debe por transferencia.
+    const netClaim = round1(cashOut - virtualAmount);
 
     let pagoCash = 0;
     let pagoTransfer = 0;
     if (netClaim > 0) {
-      // Puede cobrar en cash hasta lo que él mismo puso en cash; el resto
-      // del reclamo (si lo hay) se cobra por transferencia.
+      // Puede cobrar en cash hasta lo que él mismo puso en cash; el resto del
+      // reclamo (si lo hay) se cobra por transferencia.
       pagoCash = round1(Math.min(cashAmount, netClaim));
       pagoTransfer = round1(netClaim - pagoCash);
     } else {
@@ -617,42 +252,6 @@ export default function PokerLedger() {
   const [tab, setTab] = useState("partida");
   const [adminPassword, setAdminPassword] = useState("");
 
-  // Identidad del dispositivo: quién eres tú, persistida en localStorage.
-  const [myPlayerId, setMyPlayerIdState] = useState(() => {
-    try { return localStorage.getItem(MY_ID_STORAGE_KEY) || ""; } catch { return ""; }
-  });
-  const setMyPlayerId = (id) => {
-    setMyPlayerIdState(id || "");
-    try { if (id) localStorage.setItem(MY_ID_STORAGE_KEY, id); else localStorage.removeItem(MY_ID_STORAGE_KEY); } catch {}
-  };
-  const identify = async () => {
-    const id = await requestIdentity(roster);
-    if (id) setMyPlayerId(id);
-  };
-  const logout = async () => {
-    const ok = await requestConfirm({
-      title: "¿Cerrar tu sesión en este celular?",
-      message: "Vas a dejar de estar identificado en este dispositivo. La próxima vez que quieras hacer cambios durante una partida, vas a tener que volver a identificarte con tu PIN.",
-      confirmLabel: "Sí, cerrar sesión",
-      cancelLabel: "Cancelar",
-      danger: false,
-    });
-    if (ok) setMyPlayerId("");
-  };
-  const hasActive = !!activeGame && !activeGame.finished;
-  const isHost = hasActive && !!myPlayerId && myPlayerId === activeGame.hostId;
-
-  // Si una partida en curso termina o se cancela mientras alguien está parado
-  // en una de las pestañas exclusivas de "partida en curso" (Cena, Lote y
-  // Rake, o Jugadores-de-la-partida), lo mandamos de vuelta a la pestaña
-  // principal para que no quede en una pestaña que ya no existe. Lo mismo si
-  // quien no es host queda parado en una pestaña que ahora es solo del host.
-  useEffect(() => {
-    if (!hasActive && (tab === "cena" || tab === "loterake" || tab === "compra" || tab === "finalizar")) setTab("partida");
-    if (hasActive && tab === "historial") setTab("partida");
-    if (hasActive && !isHost && (tab === "cena" || tab === "loterake" || tab === "jugadores" || tab === "finalizar")) setTab("partida");
-  }, [hasActive, isHost, tab]);
-
   useEffect(() => {
     (async () => {
       const [r, g, a, pw] = await Promise.all([
@@ -674,83 +273,21 @@ export default function PokerLedger() {
   const skipNextGamesSave = useRef(true);
   const skipNextActiveSave = useRef(true);
 
-  // Mientras este dispositivo tiene un cambio propio recién guardándose, el
-  // polling (más abajo) no debe pisarlo con lo que todavía estaba en el
-  // Excel un instante antes — si no, se ve como que el cambio "no pegó" por
-  // un segundo. Cada guardado local extiende su propio "candado" unos
-  // segundos; pasado ese tiempo, el polling ya puede volver a sincronizar
-  // libremente desde el Excel (por ejemplo, para traer los cambios que hizo
-  // OTRO dispositivo).
-  const rosterLockUntil = useRef(0);
-  const gamesLockUntil = useRef(0);
-  const activeLockUntil = useRef(0);
-  const LOCK_MS = 3000;
-
   useEffect(() => {
     if (loading) return;
     if (skipNextRosterSave.current) { skipNextRosterSave.current = false; return; }
-    rosterLockUntil.current = Date.now() + LOCK_MS;
     saveKey(KEYS.roster, roster);
   }, [roster, loading]);
   useEffect(() => {
     if (loading) return;
     if (skipNextGamesSave.current) { skipNextGamesSave.current = false; return; }
-    gamesLockUntil.current = Date.now() + LOCK_MS;
     saveKey(KEYS.games, games);
   }, [games, loading]);
   useEffect(() => {
     if (loading) return;
     if (skipNextActiveSave.current) { skipNextActiveSave.current = false; return; }
-    activeLockUntil.current = Date.now() + LOCK_MS;
     saveKey(KEYS.active, activeGame);
   }, [activeGame, loading]);
-
-  // Este ledger no tiene tiempo real (no hay websockets): cada celular
-  // guarda sus cambios al Excel, pero para ENTERARSE de lo que hicieron los
-  // demás dispositivos (el host inició la partida, otro jugador pidió
-  // fichas, el host la aceptó, etc.) hace falta ir a preguntarle al Excel
-  // de vez en cuando. Sin este polling, cada quien se quedaba viendo una
-  // foto congelada de cuando entró a la app.
-  const POLL_MS = 4000;
-  useEffect(() => {
-    if (loading) return;
-    const interval = setInterval(async () => {
-      try {
-        const [r, g, a] = await Promise.all([
-          loadKey(KEYS.roster, []),
-          loadKey(KEYS.games, []),
-          loadKey(KEYS.active, null),
-        ]);
-        const now = Date.now();
-        if (now >= rosterLockUntil.current) {
-          setRoster((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(r)) return prev;
-            skipNextRosterSave.current = true;
-            return r;
-          });
-        }
-        if (now >= gamesLockUntil.current) {
-          setGames((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(g)) return prev;
-            skipNextGamesSave.current = true;
-            return g;
-          });
-        }
-        if (now >= activeLockUntil.current) {
-          setActiveGame((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(a)) return prev;
-            skipNextActiveSave.current = true;
-            return a;
-          });
-        }
-      } catch {
-        // Si falla una vuelta de polling (por ejemplo, sin conexión un
-        // instante), simplemente se reintenta en la siguiente — no vale la
-        // pena molestar al usuario por esto.
-      }
-    }, POLL_MS);
-    return () => clearInterval(interval);
-  }, [loading]);
 
   const playerStats = useCallback(
     (playerId) => {
@@ -776,14 +313,6 @@ export default function PokerLedger() {
     );
   }
 
-  // Sin identificarte, no se puede navegar por ninguna parte de la app.
-  // Excepción: si el roster todavía está vacío (recién desplegada, sin
-  // jugadores dados de alta), no hay nadie para elegir — se deja pasar para
-  // que se pueda cargar al primer jugador desde la pestaña Jugadores.
-  if (roster.length > 0 && !myPlayerId) {
-    return <IdentityGateScreen roster={roster} setRoster={setRoster} onIdentified={setMyPlayerId} />;
-  }
-
   return (
     <div style={{ minHeight: "100vh", background: `radial-gradient(ellipse at top, ${C.panel} 0%, ${C.felt} 45%, ${C.feltDeep} 100%)`, ...bodyFont }}>
       <style>{`
@@ -800,32 +329,23 @@ export default function PokerLedger() {
         .scrollbar-thin::-webkit-scrollbar-thumb { background: ${C.panelLine}; border-radius: 3px; }
       `}</style>
 
-      <Header tab={tab} setTab={setTab} hasActive={hasActive} isHost={isHost} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} onLogout={logout} />
+      <Header tab={tab} setTab={setTab} hasActive={!!activeGame} />
 
       <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 14px 60px" }}>
-        {tab === "jugadores" && !hasActive && (
-          <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} myPlayerId={myPlayerId} />
+        {tab === "jugadores" && (
+          <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} />
         )}
-        {(tab === "partida" || tab === "cena" || tab === "loterake" || tab === "compra" || tab === "logcompras" || tab === "finalizar" || (tab === "jugadores" && hasActive)) && (
+        {tab === "partida" && (
           <GameTab
             roster={roster}
             activeGame={activeGame}
             setActiveGame={setActiveGame}
             games={games}
             setGames={setGames}
-            myPlayerId={myPlayerId}
-            onIdentify={identify}
-            adminPassword={adminPassword}
-            setTab={setTab}
-            subView={tab === "cena" ? "cena" : tab === "loterake" ? "loterake" : tab === "jugadores" ? "jugadoresPartida" : tab === "compra" ? "compra" : tab === "logcompras" ? "logcompras" : tab === "finalizar" ? "finalizar" : "estatus"}
           />
         )}
-        {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} activeGame={activeGame} setActiveGame={setActiveGame} />}
+        {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} />}
       </main>
-
-      <AdminPasswordModal />
-      <ConfirmModal />
-      <IdentityModal setRoster={setRoster} />
     </div>
   );
 }
@@ -833,88 +353,22 @@ export default function PokerLedger() {
 /* ----------------------------------------------------------------------
    HEADER / TABS
 ---------------------------------------------------------------------- */
-function Header({ tab, setTab, hasActive, isHost, me, onIdentify, onLogout }) {
-  const tabs = hasActive
-    ? (isHost
-        ? [
-            { id: "partida", label: "Estatus jugada", icon: Activity },
-            { id: "compra", label: "Compra de lotes", icon: Banknote },
-            { id: "logcompras", label: "Log Compras", icon: History },
-            { id: "loterake", label: "Lote y Rakes", icon: Coins },
-            { id: "jugadores", label: "Jugadores", icon: Users },
-            { id: "cena", label: "Cena y servicio", icon: UtensilsCrossed },
-          ]
-        : [
-            { id: "partida", label: "Estatus jugada", icon: Activity },
-            { id: "compra", label: "Compra de lotes", icon: Banknote },
-            { id: "logcompras", label: "Log Compras", icon: History },
-          ])
-    : [
-        { id: "partida", label: "Partida", icon: Flame },
-        { id: "jugadores", label: "Jugadores", icon: Users },
-        { id: "historial", label: "Histórico", icon: History },
-      ];
-  const handleIdentityClick = () => { if (me) onLogout(); else onIdentify(); };
+function Header({ tab, setTab, hasActive }) {
+  const tabs = [
+    { id: "partida", label: "Partida", icon: Flame },
+    { id: "jugadores", label: "Jugadores", icon: Users },
+    { id: "historial", label: "Historial", icon: History },
+  ];
   return (
     <header style={{ borderBottom: `1px solid ${C.panelLine}`, background: "rgba(0,0,0,0.15)", position: "sticky", top: 0, zIndex: 20, backdropFilter: "blur(6px)" }}>
       <div style={{ maxWidth: 980, margin: "0 auto", padding: "14px 14px 0" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-              <span style={{ ...displayFont, fontSize: 30, color: C.gold, lineHeight: 1 }}>BARILOCHE</span>
-              <span style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
-                registro de poker
-              </span>
-            </div>
-            <span style={{ ...monoFont, fontSize: 10, color: "rgba(244,234,214,0.35)" }}>v{APP_VERSION}</span>
-          </div>
-          {/* Página aparte para el organizador: no es un tab más, así los
-              jugadores no se topan de casualidad con rachas o comparativas. */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <button
-              onClick={handleIdentityClick} title={me ? "Cerrar tu sesión en este celular" : "Identifícate para poder ser host"}
-              style={{
-                display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
-                background: me ? "rgba(0,0,0,0.2)" : "rgba(216,173,63,0.16)",
-                border: `1px solid ${me ? C.panelLine : C.gold}`, borderRadius: 8, padding: "5px 9px",
-                color: me ? "rgba(244,234,214,0.75)" : C.goldSoft, fontSize: 12, fontWeight: 600, ...bodyFont,
-              }}
-            >
-              {me ? (
-                <>
-                  <Avatar player={me} size={17} />
-                  <span>{me.name}</span>
-                </>
-              ) : (
-                <>👤 ¿Quién eres?</>
-              )}
-            </button>
-            <a
-              href="/dashboard.html"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Ver estadísticas históricas"
-              style={{
-                display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
-                border: `1px solid ${C.panelLine}`, borderRadius: 8, padding: "6px 10px",
-                color: "rgba(244,234,214,0.65)", fontSize: 12, fontWeight: 600, ...bodyFont,
-              }}
-            >
-              <BarChart3 size={13} /> Estadísticas
-            </a>
-          </div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <span style={{ ...displayFont, fontSize: 30, color: C.gold, lineHeight: 1 }}>BARILOCHE</span>
+          <span style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+            registro de poker
+          </span>
         </div>
-        {hasActive && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8, marginTop: 12,
-            background: "rgba(216,173,63,0.14)", border: `1px solid ${C.gold}`,
-            borderRadius: 10, padding: "9px 12px",
-          }}>
-            <span style={{ width: 8, height: 8, borderRadius: 99, background: C.win, flexShrink: 0, boxShadow: "0 0 0 3px rgba(63,191,114,0.25)" }} />
-            <span style={{ ...displayFont, fontSize: 15, color: C.goldSoft, letterSpacing: "0.04em" }}>Jugada en Curso</span>
-          </div>
-        )}
-        <div className="scrollbar-thin" style={{ display: "flex", gap: 4, marginTop: 12, flexWrap: "nowrap", overflowX: "auto", overflowY: "hidden" }}>
+        <div style={{ display: "flex", gap: 4, marginTop: 12 }}>
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -923,7 +377,7 @@ function Header({ tab, setTab, hasActive, isHost, me, onIdentify, onLogout }) {
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 style={{
-                  display: "flex", alignItems: "center", gap: 6, flexShrink: 0, whiteSpace: "nowrap",
+                  display: "flex", alignItems: "center", gap: 6,
                   padding: "8px 14px", border: "none", cursor: "pointer",
                   background: "transparent",
                   color: active ? C.goldSoft : "rgba(244,234,214,0.55)",
@@ -978,30 +432,6 @@ const inputStyle = {
   width: "100%", background: "rgba(0,0,0,0.25)", border: `1px solid ${C.panelLine}`,
   borderRadius: 8, padding: "9px 10px", color: C.card, fontSize: 14.5, ...bodyFont,
 };
-// Campo para montos en pesos (lote, rake, cena, etc.): mientras se está
-// editando se ve el número "pelón" para no pelear con el cursor, pero en
-// cuanto se sale del campo (blur) se muestra formateado como $#,##0.
-function MoneyInput({ value, onChange, disabled, placeholder, style }) {
-  const [focused, setFocused] = useState(false);
-  const display = focused
-    ? (value || value === 0 ? String(value) : "")
-    : (value || value === 0 ? money(value) : "");
-  return (
-    <input
-      type="text" inputMode="numeric"
-      disabled={disabled}
-      style={{ ...inputStyle, opacity: disabled ? 0.55 : 1, cursor: disabled ? "not-allowed" : "text", ...style }}
-      placeholder={placeholder}
-      value={display}
-      onFocus={(e) => { setFocused(true); requestAnimationFrame(() => e.target.select()); }}
-      onChange={(e) => {
-        const digits = e.target.value.replace(/[^\d]/g, "");
-        onChange(digits === "" ? 0 : Number(digits));
-      }}
-      onBlur={() => setFocused(false)}
-    />
-  );
-}
 function PrimaryBtn({ children, onClick, disabled, style, icon: Icon }) {
   return (
     <button
@@ -1046,21 +476,15 @@ function Badge({ children, tone }) {
 /* ----------------------------------------------------------------------
    PLAYERS TAB
 ---------------------------------------------------------------------- */
-function PlayersTab({ roster, setRoster, playerStats, adminPassword, myPlayerId }) {
+function PlayersTab({ roster, setRoster, playerStats, adminPassword }) {
   const [selId, setSelId] = useState("");
   const [newName, setNewName] = useState("");
   const [newAvatar, setNewAvatar] = useState(null);
   const [editName, setEditName] = useState("");
   const [editAvatar, setEditAvatar] = useState(null);
-  const [editPin, setEditPin] = useState("");
-  const [pinMsg, setPinMsg] = useState("");
-  const [savedMsg, setSavedMsg] = useState(false);
 
   const sel = roster.find((p) => p.id === selId) || null;
-  useEffect(() => {
-    setEditName(sel ? sel.name : ""); setEditAvatar(sel ? sel.avatar || null : null);
-    setEditPin(sel ? sel.pin || "" : ""); setPinMsg("");
-  }, [selId]); // eslint-disable-line
+  useEffect(() => { setEditName(sel ? sel.name : ""); setEditAvatar(sel ? sel.avatar || null : null); }, [selId]); // eslint-disable-line
 
   const addPlayer = () => {
     const name = newName.trim();
@@ -1072,33 +496,14 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword, myPlayerId 
   const saveEdit = () => {
     if (!sel || !editName.trim()) return;
     setRoster((r) => r.map((p) => (p.id === sel.id ? { ...p, name: editName.trim(), avatar: editAvatar } : p)));
-    setSelId(""); // limpia el combo — vuelve a "— elegir del combo —"
-    setSavedMsg(true);
-    setTimeout(() => setSavedMsg(false), 2500);
   };
-  const savePin = async () => {
+  const toggleActive = () => {
     if (!sel) return;
-    const trimmed = editPin.trim();
-    if (trimmed && !/^\d{4}$/.test(trimmed)) { setPinMsg("El PIN debe ser numérico, de exactamente 4 dígitos."); return; }
-    const isSelf = !!myPlayerId && myPlayerId === sel.id;
-    if (!isSelf) {
-      if (!(await requestAdminPassword(adminPassword, `cambiar el PIN de ${sel.name}`))) return;
-    }
-    setRoster((r) => r.map((p) => (p.id === sel.id ? { ...p, pin: trimmed } : p)));
-    setPinMsg(trimmed ? "PIN guardado." : "PIN eliminado — este jugador queda sin protección al identificarse.");
-    setTimeout(() => setPinMsg(""), 3000);
-  };
-  const toggleActive = async () => {
-    if (!sel) return;
-    if (sel.active) {
-      // Solo pedimos contraseña para dar de baja (acción sensible), no para reactivar.
-      if (!(await requestAdminPassword(adminPassword, "dar de baja jugadores"))) return;
-    }
     setRoster((r) => r.map((p) => (p.id === sel.id ? { ...p, active: !p.active } : p)));
   };
-  const removePlayer = async () => {
+  const removePlayer = () => {
     if (!sel) return;
-    if (!(await requestAdminPassword(adminPassword, "eliminar jugadores"))) return;
+    if (!requestAdminPassword(adminPassword, "eliminar jugadores")) return;
     if (!confirm(`¿Eliminar a ${sel.name} del roster? Sus estadísticas históricas se conservarán en partidas guardadas, pero dejará de aparecer en la lista.`)) return;
     setRoster((r) => r.filter((p) => p.id !== sel.id));
     setSelId("");
@@ -1123,12 +528,6 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword, myPlayerId 
 
       <Panel>
         <SectionTitle icon={Pencil}>Editar / dar de baja</SectionTitle>
-        {savedMsg && (
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10, background: "rgba(63,191,114,0.14)", border: `1px solid ${C.win}`, borderRadius: 8, padding: "8px 10px" }}>
-            <Check size={14} color={C.win} />
-            <span style={{ fontSize: 12.5, color: C.win, fontWeight: 700 }}>Jugador actualizado correctamente.</span>
-          </div>
-        )}
         <Field label="Seleccionar jugador">
           <select style={{ ...inputStyle, appearance: "auto" }} value={selId} onChange={(e) => setSelId(e.target.value)}>
             <option value="">— elegir del combo —</option>
@@ -1145,16 +544,6 @@ function PlayersTab({ roster, setRoster, playerStats, adminPassword, myPlayerId 
               <GhostBtn onClick={saveEdit} icon={Check} color={C.win}>Guardar</GhostBtn>
             </div>
             <AvatarPicker avatar={editAvatar} setAvatar={setEditAvatar} previewName={editName} />
-            <Field label="PIN (4 dígitos, para identificarte en un celular)">
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="password" inputMode="numeric" maxLength={4} style={inputStyle} placeholder="Sin PIN configurado" value={editPin}
-                  onChange={(e) => setEditPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4))}
-                />
-                <GhostBtn onClick={savePin} icon={Check} color={C.gold}>Guardar PIN</GhostBtn>
-              </div>
-              {pinMsg && <div style={{ fontSize: 11.5, color: pinMsg.includes("eliminado") ? C.goldSoft : C.win, marginTop: 5 }}>{pinMsg}</div>}
-            </Field>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <GhostBtn onClick={toggleActive} icon={sel.active ? UserX : UserCheck} color={sel.active ? C.loss : C.win}>
                 {sel.active ? "Dar de baja" : "Reactivar"}
@@ -1277,30 +666,19 @@ function Empty({ children }) {
 /* ----------------------------------------------------------------------
    GAME TAB
 ---------------------------------------------------------------------- */
-function GameTab({ roster, activeGame, setActiveGame, games, setGames, myPlayerId, onIdentify, adminPassword, setTab, subView }) {
+function GameTab({ roster, activeGame, setActiveGame, games, setGames }) {
   if (!activeGame) return <NewGameSetup roster={roster} setActiveGame={setActiveGame} />;
-  if (activeGame.finished) return <FinalizedGame game={activeGame} roster={roster} onClose={() => setActiveGame(null)} setActiveGame={setActiveGame} setGames={setGames} adminPassword={adminPassword} />;
-  const isHost = !!myPlayerId && myPlayerId === activeGame.hostId;
-  return (
-    <ActiveGameScreen
-      game={activeGame} setGame={setActiveGame} roster={roster} setGames={setGames}
-      isHost={isHost} onIdentify={onIdentify} myPlayerId={myPlayerId}
-      view={subView} setTab={setTab}
-    />
-  );
+  if (activeGame.finished) return <FinalizedGame game={activeGame} roster={roster} onClose={() => setActiveGame(null)} setActiveGame={setActiveGame} setGames={setGames} />;
+  return <ActiveGameScreen game={activeGame} setGame={setActiveGame} roster={roster} setGames={setGames} />;
 }
 
 function NewGameSetup({ roster, setActiveGame }) {
   const active = roster.filter((p) => p.active);
   const [date, setDate] = useState(todayISO());
-  const [loteValue, setLoteValue] = useState(1000);
-  const [rakeHost, setRakeHost] = useState(1500);
-  const [rakeAutosCount, setRakeAutosCount] = useState(0);
-  const [rakeAutoAmount, setRakeAutoAmount] = useState(300);
+  const [loteValue, setLoteValue] = useState(500);
+  const [rake, setRake] = useState(0);
   const [selected, setSelected] = useState([]);
   const [hostId, setHostId] = useState("");
-
-  const rakeTotal = round1((Number(rakeHost) || 0) + (Number(rakeAutosCount) || 0) * (Number(rakeAutoAmount) || 0));
 
   const toggle = (id) => {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -1310,17 +688,11 @@ function NewGameSetup({ roster, setActiveGame }) {
   const start = () => {
     if (selected.length < 2 || !loteValue || !hostId) return;
     setActiveGame({
-      id: uid(), date, loteValue: Number(loteValue),
-      rakeHost: Number(rakeHost) || 0,
-      rakeAutosCount: Number(rakeAutosCount) || 0,
-      rakeAutoAmount: Number(rakeAutoAmount) || 0,
-      rake: rakeTotal,
-      playerIds: selected, hostId, startedAt: Date.now(),
+      id: uid(), date, loteValue: Number(loteValue), rake: Number(rake) || 0,
+      playerIds: selected, hostId,
       purchases: [],
-      requests: [],
-      purchaseLog: [], purchaseLogSyncError: "",
-      dinner: { amountNoAlcohol: 0, amountAlcohol: 0, alcohol: {}, paid: {}, paymentMethod: {} },
-      finalChips: {}, finalizeDraft: {}, finished: false, results: null,
+      dinner: { total: 0, waiter: 0, alcoholFee: 0, alcohol: {}, paid: {}, paymentMethod: {} },
+      finalChips: {}, finished: false, results: null,
     });
   };
 
@@ -1333,25 +705,13 @@ function NewGameSetup({ roster, setActiveGame }) {
             <input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
           <Field label="Valor del lote">
-            <MoneyInput value={loteValue} onChange={setLoteValue} />
+            <input type="number" min="0" style={inputStyle} value={loteValue} onChange={(e) => setLoteValue(e.target.value)} onFocus={(e) => e.target.select()} />
           </Field>
         </div>
-        <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 12 }}>
-          <div style={{ ...displayFont, fontSize: 15, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
-          <Field label="Rake para anfitrión">
-            <MoneyInput value={rakeHost} onChange={setRakeHost} />
+        <div style={{ marginTop: 10 }}>
+          <Field label="Rake (se puede ajustar después)">
+            <input type="number" min="0" style={inputStyle} value={rake} onChange={(e) => setRake(e.target.value)} onFocus={(e) => e.target.select()} />
           </Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-            <Field label="Rake para autos — # de autos">
-              <input type="number" min="0" style={inputStyle} value={rakeAutosCount === 0 ? "" : rakeAutosCount} onChange={(e) => setRakeAutosCount(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
-            </Field>
-            <Field label="Monto por auto">
-              <MoneyInput value={rakeAutoAmount} onChange={setRakeAutoAmount} />
-            </Field>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <ScoreBox label="Rake total" value={money(rakeTotal)} />
-          </div>
         </div>
       </Panel>
 
@@ -1425,71 +785,11 @@ function NewGameSetup({ roster, setActiveGame }) {
 }
 
 /* ----- Active game: buy-ins, dinner, finalize ----- */
-function formatClock(ts) {
-  if (!ts) return "—";
-  return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-function GameStatusBlock({ game, players, totals }) {
-  const perPlayer = players.map((p) => {
-    const cash = game.purchases.filter((pu) => pu.playerId === p.id && pu.type === "cash").reduce((s, pu) => s + pu.amount, 0);
-    const virtual = game.purchases.filter((pu) => pu.playerId === p.id && pu.type === "virtual").reduce((s, pu) => s + pu.amount, 0);
-    return { player: p, cash, virtual, total: cash + virtual };
-  }).sort((a, b) => a.player.name.localeCompare(b.player.name));
-
-  return (
-    <Panel>
-      <SectionTitle icon={Activity}>Estatus de la jugada</SectionTitle>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 14 }}>
-        <ScoreBox label="Total cash" value={money(totals.cash)} tone="cash" />
-        <ScoreBox label="Total virtual" value={money(totals.virtual)} tone="virtual" />
-        <ScoreBox label="Total" value={money(totals.cash + totals.virtual)} />
-        <ScoreBox label="Hora inicio" value={formatClock(game.startedAt)} />
-      </div>
-      <div style={{ display: "grid", gap: 8 }}>
-        {perPlayer.map((row) => (
-          <div key={row.player.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "10px 12px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 8 }}>
-              <Avatar player={row.player} size={22} />
-              <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.player.name}</span>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 4, textAlign: "center" }}>
-              <div>
-                <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Cash</div>
-                <div style={{ ...monoFont, fontWeight: 800, fontSize: 19, color: C.cash }}>{money(row.cash)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Virtual</div>
-                <div style={{ ...monoFont, fontWeight: 800, fontSize: 19, color: C.virtual }}>{money(row.virtual)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Total</div>
-                <div style={{ ...monoFont, fontWeight: 800, fontSize: 20, color: C.goldSoft }}>{money(row.total)}</div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
-function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify, myPlayerId, view, setTab }) {
-  // "Finalizar partida" es una pantalla más, seleccionada igual que cualquier
-  // otra pestaña (a través de "view", que en definitiva viene del estado
-  // "tab" de más arriba) — así, tocar cualquier pestaña del Header mientras
-  // se está finalizando la partida navega ahí directamente en vez de quedar
-  // atascado en esta pantalla (antes esto vivía en un estado local aparte,
-  // que se podía desincronizar de la pestaña activa).
-  const effectiveView = view || "estatus";
+function ActiveGameScreen({ game, setGame, roster, setGames }) {
+  const [dinnerOpen, setDinnerOpen] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
 
   const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
-  const availableToAdd = roster.filter((p) => p.active && !game.playerIds.includes(p.id));
-
-  const totals = useMemo(() => {
-    let cash = 0, virtual = 0;
-    game.purchases.forEach((p) => { if (p.type === "cash") cash += p.amount; else virtual += p.amount; });
-    return { cash, virtual };
-  }, [game.purchases]);
 
   // update acepta un objeto (mezcla directa) o una función (g) => patch, que
   // recibe el estado MÁS RECIENTE del juego. Usar la forma función evita
@@ -1500,241 +800,13 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   const update = (patch) =>
     setGame((g) => ({ ...g, ...(typeof patch === "function" ? patch(g) : patch) }));
 
-  // Log de compras/solicitudes de lotes ("Log Compras" en la app / hoja
-  // "LogPetLotes" en el Excel): cada evento (compra directa del host,
-  // solicitud enviada/aprobada/rechazada, cancelación) se agrega localmente
-  // a game.purchaseLog con "synced: false" y se empuja de una al Excel; si el
-  // push falla, el evento queda marcado como pendiente para poder
-  // reintentarlo desde la propia pantalla "Log Compras", sin depender del
-  // ciclo de sincronización general (que solo guarda el estado más reciente,
-  // no un historial evento por evento).
-  const nameOf = (pid) => roster.find((r) => r.id === pid)?.name || "?";
-  const pushLogEntries = async (entries) => {
-    if (!entries || entries.length === 0) return;
-    try {
-      const res = await fetch("/api/store?key=logPetLotes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gameId: game.id,
-          gameDate: game.date,
-          rows: entries.map((e) => ({
-            ts: e.ts, playerId: e.playerId, playerName: e.playerName,
-            type: e.type, action: e.action, origin: e.origin,
-            lotes: e.lotes, amount: e.amount, loteValue: e.loteValue,
-          })),
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const ids = entries.map((e) => e.id);
-      update((g) => ({
-        purchaseLog: (g.purchaseLog || []).map((x) => (ids.includes(x.id) ? { ...x, synced: true } : x)),
-        purchaseLogSyncError: "",
-      }));
-    } catch (e) {
-      update((g) => ({ purchaseLogSyncError: String((e && e.message) || e) }));
-    }
-  };
-  const logEvent = (partial) => {
-    const entry = {
-      id: uid(), ts: Date.now(), synced: false, loteValue: game.loteValue,
-      playerName: nameOf(partial.playerId),
-      ...partial,
-    };
-    update((g) => ({ purchaseLog: [...(g.purchaseLog || []), entry] }));
-    pushLogEntries([entry]);
-  };
-
-  // Los jugadores ya NO pueden solicitar lotes desde su celular — los lotes
-  // los asigna siempre el host directamente desde "Compra de lotes". Se deja
-  // `myRequests` (usado por el flujo de "unirse a la mesa") y se mantiene la
-  // rama de `resolveRequest` para tipo cash/virtual por si quedó alguna
-  // solicitud vieja pendiente de antes de este cambio.
-  const myRequests = (game.requests || []).filter((r) => r.playerId === myPlayerId);
-  // Alguien que ya se identificó con su PIN pero todavía no está sentado en
-  // esta mesa (no llegó a tiempo para el alta inicial, o se sumó a mitad de
-  // la noche) no puede simplemente entrar solo: le manda al host una
-  // solicitud de "agrégame a la mesa", igual que cuando pide fichas.
-  const submitJoinRequest = () => {
-    if (!myPlayerId) return;
-    update((g) => {
-      const already = (g.requests || []).some((r) => r.playerId === myPlayerId && r.type === "join" && r.status === "pending");
-      if (already) return {};
-      return { requests: [...(g.requests || []), { id: uid(), playerId: myPlayerId, type: "join", amount: 0, status: "pending", ts: Date.now() }] };
-    });
-  };
-  const resolveRequest = (reqId, approve) => {
-    const reqBefore = (game.requests || []).find((r) => r.id === reqId);
-    update((g) => {
-      const req = (g.requests || []).find((r) => r.id === reqId);
-      if (!req || req.status !== "pending") return {};
-      if (approve) {
-        if (req.type === "join") {
-          return {
-            playerIds: g.playerIds.includes(req.playerId) ? g.playerIds : [...g.playerIds, req.playerId],
-            requests: g.requests.map((r) => (r.id === reqId ? { ...r, status: "approved" } : r)),
-          };
-        }
-        const entry = { id: uid(), playerId: req.playerId, type: req.type, lotes: g.loteValue ? round1(req.amount / g.loteValue) : 0, amount: req.amount, ts: Date.now() };
-        return {
-          purchases: [...g.purchases, entry],
-          requests: g.requests.map((r) => (r.id === reqId ? { ...r, status: "approved" } : r)),
-        };
-      }
-      return { requests: g.requests.map((r) => (r.id === reqId ? { ...r, status: "rejected" } : r)) };
-    });
-    // El log queda aparte del updater de arriba (que puede volver a
-    // ejecutarse con el estado más reciente): usamos el request tal cual
-    // estaba antes de resolverlo para no duplicar el evento.
-    if (reqBefore && reqBefore.status === "pending" && reqBefore.type !== "join") {
-      logEvent({
-        playerId: reqBefore.playerId, type: reqBefore.type, origin: "jugador",
-        action: approve ? "solicitud aprobada" : "solicitud rechazada",
-        lotes: game.loteValue ? round1(reqBefore.amount / game.loteValue) : 0,
-        amount: reqBefore.amount,
-      });
-    }
-  };
-
-  // Solo el host de la partida puede modificar algo (comprar lotes, tocar la
-  // cena, cambiar configuración, cerrarla). Cualquier otro dispositivo ve
-  // exactamente el mismo bloque de estatus (y puede pedir fichas), pero de
-  // solo lectura para todo lo demás.
-  if (!isHost) {
-    const hostPlayer = roster.find((r) => r.id === game.hostId);
-    const iAmInGame = players.some((p) => p.id === myPlayerId);
-    // El aviso de "modo lectura" solo tiene sentido al entrar — en cuanto
-    // el jugador navega a otra pestaña, ya lo entendió y estorba tenerlo
-    // repitiéndose en cada pantalla.
-    const firstViewRef = useRef(effectiveView);
-    const [bannerDismissed, setBannerDismissed] = useState(false);
-    useEffect(() => {
-      if (effectiveView !== firstViewRef.current) setBannerDismissed(true);
-    }, [effectiveView]);
-    const banner = !bannerDismissed && (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 10, padding: "8px 12px" }}>
-        <AlertCircle size={14} color={C.loss} style={{ flexShrink: 0 }} />
-        <div style={{ fontSize: 12, color: "rgba(244,234,214,0.85)" }}>
-          Solo <strong>{hostPlayer ? hostPlayer.name : "el host"}</strong> puede modificar la partida — modo lectura.
-        </div>
-      </div>
-    );
-
-    if (effectiveView === "cena") {
-      return (
-        <div style={{ display: "grid", gap: 16 }}>
-          {banner}
-          <Panel>
-            <SectionTitle icon={UtensilsCrossed}>Cena y servicio</SectionTitle>
-            <DinnerReadOnly game={game} players={players} />
-          </Panel>
-        </div>
-      );
-    }
-    if (effectiveView === "loterake") {
-      return (
-        <div style={{ display: "grid", gap: 16 }}>
-          {banner}
-          <Panel>
-            <SectionTitle icon={Coins}>Lote y Rakes</SectionTitle>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
-              <ScoreBox label="Valor de lote" value={money(game.loteValue)} />
-              <ScoreBox label="Rake total" value={money(game.rake)} />
-              <ScoreBox label="Rake anfitrión" value={money(game.rakeHost || 0)} />
-              <ScoreBox label={`Rake autos (${game.rakeAutosCount || 0} × ${money(game.rakeAutoAmount ?? 300)})`} value={money((game.rakeAutosCount || 0) * (game.rakeAutoAmount ?? 300))} />
-            </div>
-          </Panel>
-        </div>
-      );
-    }
-    if (effectiveView === "jugadoresPartida") {
-      return (
-        <div style={{ display: "grid", gap: 16 }}>
-          {banner}
-          <Panel>
-            <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
-            <div style={{ display: "grid", gap: 8 }}>
-              {players.map((p) => (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 9, padding: "8px 10px" }}>
-                  <Avatar player={p} size={24} />
-                  <span style={{ color: C.card, fontWeight: 600, fontSize: 13.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                  {game.hostId === p.id && <Badge tone="gold"><Crown size={10} /> Host</Badge>}
-                </div>
-              ))}
-            </div>
-          </Panel>
-        </div>
-      );
-    }
-
-    if (effectiveView === "compra") {
-      return (
-        <div style={{ display: "grid", gap: 16 }}>
-          {banner}
-          {iAmInGame ? (
-            <Panel>
-              <SectionTitle icon={Banknote}>Compra de lotes</SectionTitle>
-              <Empty>Los lotes los asigna el host directamente — pedíselos de palabra.</Empty>
-            </Panel>
-          ) : (
-            myPlayerId && <JoinRequestPanel myRequests={myRequests} onSubmit={submitJoinRequest} />
-          )}
-        </div>
-      );
-    }
-
-    if (effectiveView === "logcompras") {
-      return (
-        <div style={{ display: "grid", gap: 16 }}>
-          {banner}
-          <PurchaseLogPanel game={game} onRetry={pushLogEntries} />
-        </div>
-      );
-    }
-
-    return (
-      <div style={{ display: "grid", gap: 16 }}>
-        {banner}
-        <Panel>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
-            <div>
-              <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Partida en curso</div>
-              <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                <span>{game.date} · {players.length} jugadores</span>
-                {game.hostId && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(216,173,63,0.16)", color: C.goldSoft, padding: "2px 7px", borderRadius: 99 }}>
-                    <Crown size={11} /> Host: {roster.find((r) => r.id === game.hostId)?.name || "—"}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 14 }}>
-            <ScoreBox label="Monto del lote" value={money(game.loteValue)} />
-            <ScoreBox label="Rake + estacionamiento" value={money(game.rake)} />
-          </div>
-        </Panel>
-        <GameStatusBlock game={game} players={players} totals={totals} />
-      </div>
-    );
-  }
-
   const addPurchase = (playerId, type) => {
     update((g) => {
       const entry = { id: uid(), playerId, type, lotes: 1, amount: g.loteValue, ts: Date.now() };
       return { purchases: [...g.purchases, entry] };
     });
-    logEvent({ playerId, type, origin: "host", action: "compra directa", lotes: 1, amount: game.loteValue });
   };
   const removeLastPurchase = (playerId, type) => {
-    const entriesBefore = game.purchases.filter((p) => p.playerId === playerId && p.type === type);
-    const lastBefore = entriesBefore[entriesBefore.length - 1];
-    if (lastBefore) {
-      logEvent({
-        playerId, type, origin: "host", action: "cancelación",
-        lotes: -(Number(lastBefore.lotes) || 0), amount: -(Number(lastBefore.amount) || 0),
-      });
-    }
     update((g) => {
       const entries = g.purchases.filter((p) => p.playerId === playerId && p.type === type);
       if (entries.length === 0) return {};
@@ -1743,63 +815,22 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
     });
   };
 
+  const totals = useMemo(() => {
+    let cash = 0, virtual = 0;
+    game.purchases.forEach((p) => { if (p.type === "cash") cash += p.amount; else virtual += p.amount; });
+    return { cash, virtual };
+  }, [game.purchases]);
+
+  const setRake = (v) => update({ rake: Number(v) || 0 });
   const setLote = (v) => update({ loteValue: Number(v) || 0 });
-  // El rake (y el lote) se pueden seguir editando libremente mientras la
-  // partida sigue en curso, incluso si ya se entró a "Entrega de fichas" y
-  // se volvió para corregir algo — solo se congela cuando la partida ya
-  // quedó realmente cerrada ("Calcular resultados"), que es cuando
-  // finalChips deja de estar vacío.
-  const rakeLocked = Object.keys(game.finalChips || {}).length > 0;
-  const setRakeParts = (patch) =>
-    update((g) => {
-      const rakeHost = patch.rakeHost !== undefined ? Number(patch.rakeHost) || 0 : (Number(g.rakeHost) || 0);
-      const rakeAutosCount = patch.rakeAutosCount !== undefined ? Number(patch.rakeAutosCount) || 0 : (Number(g.rakeAutosCount) || 0);
-      const rakeAutoAmount = patch.rakeAutoAmount !== undefined ? Number(patch.rakeAutoAmount) || 0 : (g.rakeAutoAmount ?? 300);
-      return { rakeHost, rakeAutosCount, rakeAutoAmount, rake: round1(rakeHost + rakeAutosCount * rakeAutoAmount) };
-    });
-  const setRakeHost = (v) => setRakeParts({ rakeHost: v });
-  const setRakeAutosCount = (v) => setRakeParts({ rakeAutosCount: v });
-  const setRakeAutoAmount = (v) => setRakeParts({ rakeAutoAmount: v });
 
-  const cancelPartida = async () => {
-    const ok = await requestConfirm({
-      title: "¿Cancelar esta partida?",
-      message: "Se va a perder todo el progreso de esta partida (lotes comprados, cena, configuración). Esta acción no se puede deshacer.",
-      confirmLabel: "Sí, cancelar partida",
-      cancelLabel: "Seguir jugando",
-    });
-    if (ok) setGame(null);
-  };
-
-  const addPlayerToGame = (id) => {
-    if (game.playerIds.includes(id)) return;
-    update((g) => ({ playerIds: [...g.playerIds, id] }));
-  };
-  const removePlayerFromGame = (id) => {
-    const hasPurchases = game.purchases.some((p) => p.playerId === id);
-    const name = roster.find((r) => r.id === id)?.name || "este jugador";
-    if (hasPurchases) {
-      if (!confirm(`⚠️ ${name} ya tiene lotes comprados registrados en esta partida. Si lo quitas, esas compras se van a eliminar también. ¿Continuar?`)) return;
-    } else if (!confirm(`¿Quitar a ${name} de esta partida?`)) {
-      return;
-    }
-    update((g) => ({
-      playerIds: g.playerIds.filter((pid) => pid !== id),
-      purchases: g.purchases.filter((p) => p.playerId !== id),
-      hostId: g.hostId === id ? "" : g.hostId,
-    }));
-  };
-
-  if (effectiveView === "finalizar") {
+  if (finalizing) {
     return (
       <FinalizeGame
         game={game} roster={roster} update={update}
-        onBack={() => setTab && setTab("compra")}
-        onConfirm={(finalChips, finalChipsAdjust, finalRake) => {
-          // El rake puede haber sido ajustado a mano en "Entrega de fichas"
-          // (para cuadrar a un número exacto) — ese valor es el que manda
-          // para el cálculo final, no el que quedó cargado en "Lote y Rakes".
-          const g2 = { ...game, finalChips, finalChipsAdjust, rake: Number(finalRake) || 0 };
+        onBack={() => setFinalizing(false)}
+        onConfirm={(finalChips) => {
+          const g2 = { ...game, finalChips };
           const results = computeSettlement(g2, roster);
           const finished = { ...g2, finished: true, results };
           setGame(finished);
@@ -1809,125 +840,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
           setGames((gs) => [...gs.filter((x) => x.id !== finished.id), finished]);
         }}
       />
-    );
-  }
-
-  if (effectiveView === "cena") {
-    return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <Panel>
-          <SectionTitle icon={UtensilsCrossed}>Cena y servicio</SectionTitle>
-          <DinnerSection game={game} players={players} update={update} />
-        </Panel>
-      </div>
-    );
-  }
-
-  if (effectiveView === "compra") {
-    return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <PendingRequestsPanel game={game} roster={roster} onResolve={resolveRequest} />
-        <Panel>
-          <SectionTitle icon={Banknote}>Compra de lotes por jugador</SectionTitle>
-          <div style={{ display: "grid", gap: 10 }}>
-            {players.map((p) => (
-              <PlayerBuyRow
-                key={p.id} player={p} game={game} onAdd={addPurchase} onRemoveLast={removeLastPurchase}
-                dinnerPaid={!!game.dinner.paid?.[p.id]}
-                onGoToDinner={() => setTab && setTab("cena")}
-              />
-            ))}
-          </div>
-        </Panel>
-        <PrimaryBtn onClick={() => setTab && setTab("finalizar")} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
-          Finalizar partida
-        </PrimaryBtn>
-      </div>
-    );
-  }
-
-  if (effectiveView === "logcompras") {
-    return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <PurchaseLogPanel game={game} onRetry={pushLogEntries} />
-      </div>
-    );
-  }
-
-  if (effectiveView === "loterake") {
-    return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <Panel>
-          <div>
-            <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Lote y Rakes</div>
-            <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont }}>{game.date}</div>
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <Field label="Valor de lote">
-              <MoneyInput value={game.loteValue} onChange={setLote} />
-            </Field>
-          </div>
-          <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 14 }}>
-            <div style={{ ...displayFont, fontSize: 16, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
-            <Field label={rakeLocked ? "Rake para anfitrión 🔒" : "Rake para anfitrión"}>
-              <MoneyInput value={game.rakeHost || 0} onChange={setRakeHost} disabled={rakeLocked} />
-            </Field>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-              <Field label="Rake para autos — # de autos">
-                <input type="number" min="0" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1 }} value={game.rakeAutosCount || 0} disabled={rakeLocked} onChange={(e) => setRakeAutosCount(e.target.value)} onFocus={(e) => e.target.select()} />
-              </Field>
-              <Field label="Monto por auto">
-                <MoneyInput value={game.rakeAutoAmount ?? 300} onChange={setRakeAutoAmount} disabled={rakeLocked} />
-              </Field>
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <ScoreBox label="Rake total (anfitrión + autos)" value={money(game.rake)} />
-            </div>
-            {rakeLocked && <div style={{ fontSize: 11, color: "rgba(244,234,214,0.4)", marginTop: 8 }}>El rake queda fijo una vez que se hizo la entrega de fichas.</div>}
-          </div>
-        </Panel>
-      </div>
-    );
-  }
-
-  if (effectiveView === "jugadoresPartida") {
-    return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <Panel>
-          <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
-          <div style={{ display: "grid", gap: 8 }}>
-            {players.map((p) => {
-              const hasPurchases = game.purchases.some((pu) => pu.playerId === p.id);
-              return (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 9, padding: "8px 10px" }}>
-                  <Avatar player={p} size={24} />
-                  <span style={{ color: C.card, fontWeight: 600, fontSize: 13.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                  {game.hostId === p.id && <Badge tone="gold"><Crown size={10} /> Host</Badge>}
-                  {hasPurchases && <span title="Ya tiene lotes comprados" style={{ fontSize: 10.5, color: "rgba(244,234,214,0.4)" }}>tiene lotes</span>}
-                  <button onClick={() => removePlayerFromGame(p.id)} title="Quitar de la partida" style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(226,99,79,0.75)", padding: 4, flexShrink: 0 }}>
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-          {availableToAdd.length > 0 && (
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", marginBottom: 6 }}>Agregar a la mesa:</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {availableToAdd.map((p) => (
-                  <button key={p.id} onClick={() => addPlayerToGame(p.id)}
-                    style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", background: "rgba(0,0,0,0.18)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "8px 10px", cursor: "pointer", ...bodyFont }}>
-                    <Avatar player={p} size={20} />
-                    <span style={{ color: C.card, fontSize: 13 }}>{p.name}</span>
-                    <Plus size={13} color={C.goldSoft} style={{ marginLeft: "auto", flexShrink: 0 }} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </Panel>
-      </div>
     );
   }
 
@@ -1946,242 +858,43 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
               )}
             </div>
           </div>
-          <GhostBtn icon={X} color={C.loss} onClick={cancelPartida}>Cancelar partida</GhostBtn>
+          <GhostBtn icon={X} color={C.loss} onClick={() => { if (confirm("¿Cancelar esta partida? Se perderá el progreso.")) setGame(null); }}>
+            Cancelar partida
+          </GhostBtn>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 14 }}>
-          <ScoreBox label="Monto del lote" value={money(game.loteValue)} />
-          <ScoreBox label="Rake + estacionamiento" value={money(game.rake)} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 14 }}>
+          <ScoreBox label="Lote" value={money(game.loteValue)} />
+          <ScoreBox label="Cash" value={money(totals.cash)} tone="cash" />
+          <ScoreBox label="Virtual" value={money(totals.virtual)} tone="virtual" />
+          <ScoreBox label="Rake" value={money(game.rake)} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+          <Field label="Valor de lote"><input type="number" style={inputStyle} value={game.loteValue} onChange={(e) => setLote(e.target.value)} onFocus={(e) => e.target.select()} /></Field>
+          <Field label="Rake"><input type="number" style={inputStyle} value={game.rake} onChange={(e) => setRake(e.target.value)} onFocus={(e) => e.target.select()} /></Field>
         </div>
       </Panel>
 
-      <GameStatusBlock game={game} players={players} totals={totals} />
-    </div>
-  );
-}
-
-function PendingRequestsPanel({ game, roster, onResolve }) {
-  const pending = (game.requests || []).filter((r) => r.status === "pending");
-  if (pending.length === 0) return null;
-  return (
-    <Panel style={{ border: `1px solid ${C.gold}` }}>
-      <SectionTitle icon={AlertCircle}>Solicitudes pendientes ({pending.length})</SectionTitle>
-      <div style={{ display: "grid", gap: 8 }}>
-        {pending.map((r) => {
-          // Ojo: para una solicitud de "unirse a la mesa" el jugador todavía
-          // NO está en playerIds, así que hay que buscarlo en el roster
-          // completo (no solo entre los ya sentados) para poder mostrar su
-          // nombre y avatar.
-          const p = roster.find((pl) => pl.id === r.playerId);
-          const isJoin = r.type === "join";
-          return (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: isJoin ? "rgba(216,173,63,0.14)" : "rgba(0,0,0,0.18)", borderRadius: 9, padding: "9px 10px", flexWrap: "wrap" }}>
-              {p && <Avatar player={p} size={24} />}
-              <div style={{ flex: 1, minWidth: 120 }}>
-                <div style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{p ? p.name : "?"}</div>
-                {isJoin ? (
-                  <div style={{ ...monoFont, fontSize: 12, color: C.goldSoft, fontWeight: 700 }}>Pide unirse a la mesa</div>
-                ) : (
-                  <div style={{ ...monoFont, fontSize: 12, color: r.type === "cash" ? C.cash : C.virtual, fontWeight: 700 }}>
-                    {r.type === "cash" ? "Cash" : "Virtual"} · {money(r.amount)}
-                  </div>
-                )}
-              </div>
-              <GhostBtn icon={Check} color={C.win} onClick={() => onResolve(r.id, true)}>{isJoin ? "Agregar a la mesa" : "Aceptar"}</GhostBtn>
-              <GhostBtn icon={X} color={C.loss} onClick={() => onResolve(r.id, false)}>Rechazar</GhostBtn>
-            </div>
-          );
-        })}
-      </div>
-    </Panel>
-  );
-}
-
-// "Log Compras": historial detallado, evento por evento y con hora exacta,
-// de toda la actividad de compra/solicitud de lotes de la partida en curso
-// (compras directas del host, solicitudes de jugadores y su resolución,
-// cancelaciones). Sirve para reconstruir sin dudas el total de lotes
-// comprados durante la noche. Cada evento se empuja solo a la hoja "LogPetLotes"
-// del Excel apenas ocurre; acá se puede ver el estado de esa sincronización y
-// reintentarla si algo falló.
-function PurchaseLogPanel({ game, onRetry }) {
-  const log = game.purchaseLog || [];
-  const sorted = useMemo(() => [...log].sort((a, b) => b.ts - a.ts), [log]);
-  const pending = log.filter((e) => !e.synced);
-
-  const actionColor = (action) => {
-    if (action === "solicitud rechazada") return "rgba(244,234,214,0.45)";
-    if (action === "cancelación") return C.loss;
-    return C.win;
-  };
-
-  return (
-    <Panel>
-      <SectionTitle
-        icon={History}
-        right={
-          pending.length > 0 ? (
-            <GhostBtn icon={ArrowRightLeft} color={C.goldSoft} onClick={() => onRetry(pending)}>
-              Reintentar ({pending.length})
-            </GhostBtn>
-          ) : null
-        }
-      >
-        Log Compras
-      </SectionTitle>
-
-      {game.purchaseLogSyncError && (
-        <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginBottom: 10, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
-          <AlertCircle size={15} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.85)", ...monoFont, wordBreak: "break-word" }}>
-            <strong style={{ ...bodyFont }}>No se pudo sincronizar con Excel:</strong> {game.purchaseLogSyncError}
-          </div>
-        </div>
-      )}
-
-      {sorted.length === 0 && <Empty>Todavía no hay actividad de compra en esta partida.</Empty>}
-
-      <div style={{ display: "grid", gap: 6 }}>
-        {sorted.map((e) => (
-          <div key={e.id} style={{
-            display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
-            background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "7px 10px",
-            opacity: e.synced ? 1 : 0.75,
-          }}>
-            <span style={{ ...monoFont, fontSize: 11, color: "rgba(244,234,214,0.45)", whiteSpace: "nowrap" }}>{formatClock(e.ts)}</span>
-            <span style={{ color: C.card, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.playerName}</span>
-            <span style={{ ...monoFont, fontSize: 11, fontWeight: 700, color: e.type === "cash" ? C.cash : C.virtual, textTransform: "uppercase" }}>{e.type === "cash" ? "Cash" : "Virtual"}</span>
-            <span style={{ fontSize: 12, color: actionColor(e.action), fontWeight: 600 }}>
-              {e.action}{e.origin === "host" ? " (host)" : ""}
-            </span>
-            {!e.synced && <span title="Pendiente de sincronizar con Excel" style={{ fontSize: 10, color: C.goldSoft }}>⏳</span>}
-            <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: e.amount < 0 ? C.loss : "rgba(244,234,214,0.85)" }}>
-              {e.lotes ? `${e.lotes > 0 ? "+" : ""}${e.lotes} lote${Math.abs(e.lotes) === 1 ? "" : "s"} · ` : ""}{money(e.amount)}
-            </span>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
-function JoinRequestPanel({ myRequests, onSubmit }) {
-  const joinRequests = myRequests.filter((r) => r.type === "join");
-  const pending = joinRequests.some((r) => r.status === "pending");
-  const rejected = [...joinRequests].reverse().find((r) => r.status === "rejected");
-
-  return (
-    <Panel>
-      <SectionTitle icon={Users}>Unirme a la mesa</SectionTitle>
-      <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 12 }}>
-        Todavía no estás en esta partida. Pídele al host que te agregue para poder comprar lotes.
-      </div>
-      {pending ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(216,173,63,0.1)", border: `1px dashed ${C.panelLine}`, borderRadius: 8, padding: "9px 10px" }}>
-          <span style={{ fontSize: 12.5, color: "rgba(244,234,214,0.7)" }}>Esperando a que el host te agregue a la mesa…</span>
-        </div>
-      ) : (
-        <>
-          {rejected && (
-            <div style={{ fontSize: 12, color: C.loss, marginBottom: 8 }}>El host rechazó tu solicitud anterior. Puedes volver a pedirlo.</div>
-          )}
-          <PrimaryBtn icon={Plus} onClick={onSubmit}>Solicitar unirme a la mesa</PrimaryBtn>
-        </>
-      )}
-    </Panel>
-  );
-}
-
-function RequestChipsPanel({ loteValue, myRequests, onSubmit }) {
-  const [customAmount, setCustomAmount] = useState("");
-  const [customType, setCustomType] = useState("cash");
-  const pending = myRequests.filter((r) => r.status === "pending");
-  const recent = myRequests.filter((r) => r.status !== "pending").slice(-4).reverse();
-
-  const submitCustom = () => {
-    onSubmit(customType, customAmount);
-    setCustomAmount("");
-  };
-
-  return (
-    <Panel>
-      <SectionTitle icon={Banknote}>Solicitar fichas</SectionTitle>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        <PrimaryBtn icon={Plus} onClick={() => onSubmit("cash", loteValue)} style={{ background: `linear-gradient(180deg, ${C.cash}, ${C.cashDeep})`, color: "#fff" }}>
-          1 lote cash
-        </PrimaryBtn>
-        <PrimaryBtn icon={Plus} onClick={() => onSubmit("virtual", loteValue)} style={{ background: `linear-gradient(180deg, ${C.virtual}, ${C.virtualDeep})`, color: "#fff" }}>
-          1 lote virtual
-        </PrimaryBtn>
-      </div>
-      <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", marginBottom: 6 }}>O pide un monto libre (no tiene que ser un lote completo):</div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", background: "rgba(0,0,0,0.24)", borderRadius: 8, padding: 2 }}>
-          <button onClick={() => setCustomType("cash")}
-            style={{ border: "none", cursor: "pointer", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 700, ...bodyFont, background: customType === "cash" ? C.cash : "transparent", color: customType === "cash" ? "#fff" : "rgba(244,234,214,0.6)" }}>
-            Cash
-          </button>
-          <button onClick={() => setCustomType("virtual")}
-            style={{ border: "none", cursor: "pointer", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 700, ...bodyFont, background: customType === "virtual" ? C.virtual : "transparent", color: customType === "virtual" ? "#fff" : "rgba(244,234,214,0.6)" }}>
-            Virtual
-          </button>
-        </div>
-        <input type="number" min="0" placeholder="Monto libre" style={{ ...inputStyle, width: 130 }} value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} onFocus={(e) => e.target.select()} />
-        <PrimaryBtn onClick={submitCustom} disabled={!customAmount || Number(customAmount) <= 0}>Solicitar</PrimaryBtn>
-      </div>
-      {pending.length > 0 && (
-        <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
-          {pending.map((r) => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(216,173,63,0.1)", border: `1px dashed ${C.panelLine}`, borderRadius: 8, padding: "7px 10px" }}>
-              <span style={{ ...monoFont, fontSize: 12, color: r.type === "cash" ? C.cash : C.virtual, fontWeight: 700 }}>{r.type === "cash" ? "Cash" : "Virtual"} {money(r.amount)}</span>
-              <span style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", marginLeft: "auto" }}>Esperando aprobación del host…</span>
-            </div>
+      <Panel>
+        <SectionTitle icon={Banknote}>Compra de lotes por jugador</SectionTitle>
+        <div style={{ display: "grid", gap: 10 }}>
+          {players.map((p) => (
+            <PlayerBuyRow key={p.id} player={p} game={game} onAdd={addPurchase} onRemoveLast={removeLastPurchase} />
           ))}
         </div>
-      )}
-      {recent.length > 0 && (
-        <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {recent.map((r) => (
-            <span key={r.id} style={{ fontSize: 10.5, ...monoFont, padding: "3px 7px", borderRadius: 6, background: r.status === "approved" ? "rgba(63,191,114,0.14)" : "rgba(226,99,79,0.14)", color: r.status === "approved" ? C.win : C.loss }}>
-              {r.type === "cash" ? "Cash" : "Virtual"} {money(r.amount)} · {r.status === "approved" ? "aprobada" : "rechazada"}
-            </span>
-          ))}
-        </div>
-      )}
-    </Panel>
-  );
-}
+      </Panel>
 
-function DinnerReadOnly({ game, players }) {
-  const d = game.dinner;
-  const totalRecaudado = players.reduce((s, p) => {
-    const alcohol = !!d.alcohol?.[p.id];
-    return s + (alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0));
-  }, 0);
-  return (
-    <div>
-      <div style={{ marginBottom: 12 }}>
-        <ScoreBox label="Total recabado" value={money(totalRecaudado)} />
-      </div>
-      <div style={{ display: "grid", gap: 6 }}>
-        {players.map((p) => {
-          const alcohol = !!d.alcohol?.[p.id];
-          const charge = alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0);
-          const paid = !!d.paid?.[p.id];
-          return (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-                <Avatar player={p} size={22} />
-                <Wine size={13} color={alcohol ? C.virtual : "rgba(244,234,214,0.3)"} />
-                <span style={{ fontSize: 13, color: C.card, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)" }}>{money(charge)}</span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: paid ? C.win : C.loss, ...monoFont }}>{paid ? "PAGADO" : "PENDIENTE"}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <Panel>
+        <button onClick={() => setDinnerOpen((o) => !o)} style={{ width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+          <SectionTitle icon={UtensilsCrossed} right={dinnerOpen ? <ChevronUp size={16} color={C.goldSoft} /> : <ChevronDown size={16} color={C.goldSoft} />}>
+            Cena y servicio
+          </SectionTitle>
+        </button>
+        {dinnerOpen && <DinnerSection game={game} players={players} update={update} onClose={() => setDinnerOpen(false)} />}
+      </Panel>
+
+      <PrimaryBtn onClick={() => setFinalizing(true)} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
+        Finalizar partida
+      </PrimaryBtn>
     </div>
   );
 }
@@ -2199,70 +912,55 @@ function ScoreBox({ label, value, tone }) {
 function buyBtnStyle(color, subtract, disabled) {
   return {
     background: subtract ? "transparent" : color,
-    border: `2px solid ${color}`,
+    border: `1.5px solid ${color}`,
     color: subtract ? color : "#fff",
-    borderRadius: 10,
-    padding: "14px 20px",
+    borderRadius: 8,
+    padding: "6px 9px",
     display: "flex",
     alignItems: "center",
-    gap: 8,
+    gap: 4,
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.35 : 1,
-    fontWeight: 800,
-    fontSize: 20,
+    fontWeight: 700,
+    fontSize: 12,
     ...bodyFont,
   };
 }
 
-function PlayerBuyRow({ player, game, onAdd, onRemoveLast, dinnerPaid, onGoToDinner }) {
+function PlayerBuyRow({ player, game, onAdd, onRemoveLast }) {
   const entries = game.purchases.filter((p) => p.playerId === player.id);
   const cashLotes = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.lotes, 0);
   const virtualLotes = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.lotes, 0);
-  const cashAmount = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.amount, 0);
-  const virtualAmount = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.amount, 0);
-  const blocked = !dinnerPaid;
+  const cashAmount = cashLotes * game.loteValue;
+  const virtualAmount = virtualLotes * game.loteValue;
 
   return (
-    <div style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        <Avatar player={player} size={30} />
-        <span style={{ color: C.card, fontWeight: 700, fontSize: 17 }}>{player.name}</span>
+    <div style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <Avatar player={player} size={26} />
+        <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{player.name}</span>
       </div>
 
-      {blocked && (
-        <button
-          onClick={onGoToDinner}
-          style={{
-            display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left",
-            background: "rgba(226,99,79,0.14)", border: `1px solid ${C.loss}`, borderRadius: 8,
-            padding: "8px 10px", marginBottom: 10, cursor: "pointer", color: "#f0c9c2", fontSize: 12, ...bodyFont,
-          }}
-        >
-          <UtensilsCrossed size={14} color={C.loss} style={{ flexShrink: 0 }} />
-          Falta confirmar el pago de la cena de {player.name} para poder comprar lotes. Toca para ir a Cena y servicio.
-        </button>
-      )}
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        <button onClick={() => onAdd(player.id, "cash")} disabled={blocked} style={buyBtnStyle(C.cash, false, blocked)}>
-          <Plus size={20} /> Cash
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+        <button onClick={() => onAdd(player.id, "cash")} style={buyBtnStyle(C.cash, false)}>
+          <Plus size={12} /> Cash
         </button>
         <button onClick={() => onRemoveLast(player.id, "cash")} disabled={cashLotes === 0} style={buyBtnStyle(C.cash, true, cashLotes === 0)}>
-          <Minus size={20} /> Cash
+          <Minus size={12} /> Cash
         </button>
-        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 20, fontWeight: 800, color: C.cash, whiteSpace: "nowrap" }}>
+        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: C.cash, whiteSpace: "nowrap" }}>
           {cashLotes} lotes · {money(cashAmount)}
         </span>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <button onClick={() => onAdd(player.id, "virtual")} disabled={blocked} style={buyBtnStyle(C.virtual, false, blocked)}>
-          <Plus size={20} /> Virtual
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button onClick={() => onAdd(player.id, "virtual")} style={buyBtnStyle(C.virtual, false)}>
+          <Plus size={12} /> Virtual
         </button>
         <button onClick={() => onRemoveLast(player.id, "virtual")} disabled={virtualLotes === 0} style={buyBtnStyle(C.virtual, true, virtualLotes === 0)}>
-          <Minus size={20} /> Virtual
+          <Minus size={12} /> Virtual
         </button>
-        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 20, fontWeight: 800, color: C.virtual, whiteSpace: "nowrap" }}>
+        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: C.virtual, whiteSpace: "nowrap" }}>
           {virtualLotes} lotes · {money(virtualAmount)}
         </span>
       </div>
@@ -2270,67 +968,98 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast, dinnerPaid, onGoToDin
   );
 }
 
-function DinnerSection({ game, players, update }) {
+function DinnerSection({ game, players, update, onClose }) {
   const d = game.dinner;
   const setD = (patch) =>
     update((g) => ({
       dinner: { ...g.dinner, ...(typeof patch === "function" ? patch(g.dinner) : patch) },
     }));
+  const numPlayers = players.length || 1;
 
+  // Costo base por persona (cena repartida + servicio), sin alcohol porque
+  // ese varía según quién bebió. Es el número que se muestra como referencia.
+  const costoPorPersona = d.total / numPlayers + d.waiter;
+  const nominalTotal = players.reduce((s, p) => {
+    const alcohol = !!d.alcohol[p.id];
+    return s + (d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+  }, 0);
   const totalRecaudado = players.reduce((s, p) => {
     const alcohol = !!d.alcohol[p.id];
-    return s + (alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0));
+    return s + ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
   }, 0);
+  const redondeoExtra = round1(totalRecaudado - nominalTotal);
 
   return (
     <div style={{ marginTop: 6 }}>
-      <div style={{ marginBottom: 14 }}>
-        <ScoreBox label="Total recabado" value={money(totalRecaudado)} />
-      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="Cena sin alcohol (por jugador)">
-          <MoneyInput value={d.amountNoAlcohol || 0} onChange={(v) => setD({ amountNoAlcohol: v })} />
+        <Field label="Monto total de la cena">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="number" style={inputStyle} value={d.total} onChange={(e) => setD({ total: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} onBlur={(e) => setD({ total: roundTo100(e.target.value) })} step="100" />
+            <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.total)}</span>
+          </div>
         </Field>
-        <Field label="Cena con alcohol (por jugador)">
-          <MoneyInput value={d.amountAlcohol || 0} onChange={(v) => setD({ amountAlcohol: v })} />
+        <Field label="Servicio de mesero (por jugador)">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="number" style={inputStyle} value={d.waiter} onChange={(e) => setD({ waiter: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} />
+            <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.waiter)}</span>
+          </div>
         </Field>
       </div>
-      <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
+      <div style={{ marginTop: 10 }}>
+        <Field label="Cargo extra de alcohol (se suma a la cena de quienes bebieron)">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="number" style={inputStyle} value={d.alcoholFee} onChange={(e) => setD({ alcoholFee: Number(e.target.value) || 0 })} onFocus={(e) => e.target.select()} onBlur={(e) => setD({ alcoholFee: roundTo100(e.target.value) })} step="100" />
+            <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.5)", whiteSpace: "nowrap" }}>{money(d.alcoholFee)}</span>
+          </div>
+        </Field>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+        <ScoreBox label="Costo por persona (cena + servicio)" value={money(costoPorPersona)} />
+        <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "8px 6px", textAlign: "center" }}>
+          <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase" }}>Total recabado</div>
+          <div style={{ ...monoFont, fontWeight: 700, fontSize: 14.5, color: C.goldSoft }}>{money(totalRecaudado)}</div>
+          <div style={{ fontSize: 9.5, ...monoFont, color: "rgba(244,234,214,0.45)" }}>
+            {redondeoExtra > 0 ? `+${money(redondeoExtra)} de redondeo` : "sin redondeo extra"}
+          </div>
+        </div>
+      </div>
+      <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
         {players.map((p) => {
           const alcohol = !!d.alcohol[p.id];
-          const charge = alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0);
+          const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
           const paid = !!d.paid?.[p.id];
+          const method = d.paymentMethod?.[p.id] || "fichas";
           return (
             <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7, flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <button onClick={() => setD((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: !dd.alcohol[p.id] } }))}
+                  style={{ display: "flex", alignItems: "center", gap: 7, background: "transparent", border: "none", cursor: "pointer", color: C.card, flex: 1, minWidth: 0 }}>
                   <Avatar player={p} size={22} />
-                  <span style={{ fontSize: 13, color: C.card, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-                </div>
-                <div style={{ display: "flex", background: "rgba(0,0,0,0.24)", borderRadius: 7, padding: 2 }}>
-                  <button onClick={() => setD((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: false } }))}
-                    style={{ border: "none", cursor: "pointer", borderRadius: 5, padding: "4px 8px", fontSize: 11, fontWeight: 700, ...bodyFont, background: !alcohol ? C.gold : "transparent", color: !alcohol ? C.ink : "rgba(244,234,214,0.6)" }}>
-                    Sin alcohol
-                  </button>
-                  <button onClick={() => setD((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: true } }))}
-                    style={{ border: "none", cursor: "pointer", borderRadius: 5, padding: "4px 8px", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 3, ...bodyFont, background: alcohol ? C.virtual : "transparent", color: alcohol ? "#fff" : "rgba(244,234,214,0.6)" }}>
-                    <Wine size={11} /> Con alcohol
-                  </button>
-                </div>
+                  <Wine size={14} color={alcohol ? C.virtual : "rgba(244,234,214,0.3)"} style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                </button>
                 <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)", whiteSpace: "nowrap" }}>{money(charge)}</span>
               </div>
-              <div style={{ marginTop: 7 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 7 }}>
+                <select
+                  value={method}
+                  onChange={(e) => setD((dd) => ({ paymentMethod: { ...dd.paymentMethod, [p.id]: e.target.value } }))}
+                  style={{ ...inputStyle, appearance: "auto", padding: "5px 8px", fontSize: 12, width: "auto", flex: 1 }}
+                >
+                  <option value="fichas">Pago con fichas</option>
+                  <option value="cash">Pago con cash</option>
+                  <option value="mixto">Combinado (fichas + cash)</option>
+                </select>
                 <button onClick={() => setD((dd) => ({ paid: { ...dd.paid, [p.id]: !dd.paid?.[p.id] } }))}
                   style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
-                    background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
-                    border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "8px 9px",
-                    cursor: "pointer", color: paid ? C.win : "rgba(244,234,214,0.6)", fontSize: 12.5, fontWeight: 700, ...bodyFont,
+                    display: "flex", alignItems: "center", gap: 6, background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
+                    border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "5px 9px",
+                    cursor: "pointer", color: paid ? C.win : "rgba(244,234,214,0.6)", fontSize: 11.5, fontWeight: 700, ...bodyFont, flexShrink: 0,
                   }}>
-                  <div style={{ width: 15, height: 15, borderRadius: 4, border: `1.5px solid ${paid ? C.win : "rgba(244,234,214,0.4)"}`, background: paid ? C.win : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    {paid && <Check size={11} color="#08251a" />}
+                  <div style={{ width: 14, height: 14, borderRadius: 4, border: `1.5px solid ${paid ? C.win : "rgba(244,234,214,0.4)"}`, background: paid ? C.win : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {paid && <Check size={10} color="#08251a" />}
                   </div>
-                  {paid ? "Pagado" : "Confirmar pagado"}
+                  Pagado
                 </button>
               </div>
             </div>
@@ -2338,92 +1067,38 @@ function DinnerSection({ game, players, update }) {
         })}
       </div>
       <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.45)", marginTop: 8 }}>
-        Este cargo de cena es independiente del conteo de lotes y no afecta el balance de la partida. Un jugador no puede comprar lotes hasta confirmar que pagó la cena.
+        Este cargo de cena es independiente del conteo de lotes y no afecta el balance de la partida.
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <GhostBtn onClick={onClose} icon={ChevronUp} color={C.goldSoft}>Cerrar cena</GhostBtn>
       </div>
     </div>
   );
 }
 
 /* ----- Finalize: enter chips returned per player ----- */
-// Color fijo para "Virtual pendiente" (bloque 2) y las columnas relacionadas
-// con virtuales — no es ninguno de los tonos ya usados (cash/virtual/win/loss).
-const ORANGE = "#f2883c";
-
 function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
-  // Orden alfabético, igual que el resto de las pantallas de la partida.
-  const players = useMemo(
-    () => game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name)),
-    [game.playerIds, roster]
+  const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
+  const [values, setValues] = useState(() =>
+    Object.fromEntries(
+      players.map((p) => {
+        const existing = game.finalChips ? game.finalChips[p.id] : undefined;
+        return [p.id, existing !== undefined && existing !== null ? String(existing) : ""];
+      })
+    )
   );
 
-  // Todo lo que se va tecleando en esta pantalla (paga virtual, fichas
-  // remanentes, ajuste manual) se guarda de una vez en la propia partida
-  // (game.finalizeDraft), no solo al tocar "Volver". Así, sin importar por
-  // dónde se salga de esta pantalla, lo ya capturado nunca se pierde al
-  // volver a entrar a cerrar la partida.
-  const draft = game.finalizeDraft || {};
-  const draftFor = (pid, field) => {
-    const v = draft[pid] ? draft[pid][field] : undefined;
-    return v !== undefined && v !== null ? String(v) : "";
+  // Al volver a la pantalla anterior, guardamos lo ya tipeado en la propia
+  // partida (aunque no esté completo ni cuadre todavía) para no perderlo si
+  // se vuelve a entrar más tarde a cerrar la partida.
+  const handleBack = () => {
+    const draft = {};
+    players.forEach((p) => {
+      if (values[p.id] !== "") draft[p.id] = Number(values[p.id]) || 0;
+    });
+    update({ finalChips: draft });
+    onBack();
   };
-
-  // Un único campo editable por jugador: "Fichas totales" (lo que el
-  // jugador entrega en mano). "Debe Virtual", "Paga Virtual" y "Fichas
-  // remanentes" se derivan solos de ese número (ver `rows` más abajo) — ya
-  // no hay que repartir manualmente entre dos campos.
-  const [fichasTotalesInput, setFichasTotalesState] = useState(() =>
-    Object.fromEntries(players.map((p) => [p.id, draftFor(p.id, "fichasTotales")]))
-  );
-  // Ajuste manual único de toda la partida (+/-), para corregir una
-  // descuadratura (un billete mal contado, etc.) — se asigna siempre al
-  // host, no por jugador.
-  const [globalAdjust, setGlobalAdjustState] = useState(() =>
-    (game.finalizeDraft && game.finalizeDraft.globalAdjust !== undefined && game.finalizeDraft.globalAdjust !== null)
-      ? String(game.finalizeDraft.globalAdjust)
-      : ""
-  );
-  // Qué jugador tiene un campo enfocado ahora mismo — el aviso de "pendiente
-  // por cuadrar" se muestra pegado a esa fila, para que se vea sin que el
-  // teclado del celular lo tape (a diferencia de una barra fija abajo de la
-  // pantalla, que el teclado sí bloquea).
-  const [focusedId, setFocusedId] = useState(null);
-  const moneySigned = (n) => (n < 0 ? "-" : n > 0 ? "+" : "") + "$" + Math.abs(Math.round(n)).toLocaleString("en-US");
-
-  const persistField = (playerId, field, value) => {
-    update((g) => ({
-      finalizeDraft: {
-        ...(g.finalizeDraft || {}),
-        [playerId]: { ...((g.finalizeDraft || {})[playerId] || {}), [field]: value },
-      },
-    }));
-  };
-  const setFichasTotales = (pid, v) => { setFichasTotalesState((c) => ({ ...c, [pid]: v })); persistField(pid, "fichasTotales", v); };
-  const setGlobalAdjust = (v) => {
-    setGlobalAdjustState(v);
-    update((g) => ({ finalizeDraft: { ...(g.finalizeDraft || {}), globalAdjust: v } }));
-  };
-
-  // Ajuste manual del total de Rake+Estacionamiento, por si hay que cuadrar
-  // a un número exacto (por ejemplo, redondear el rake para que el reparto
-  // de billetes salga justo). Si se deja vacío, se usa el total calculado en
-  // "Lote y Rakes" (rakeHost + autos × costo por auto) tal cual.
-  const [rakeOverride, setRakeOverrideState] = useState(() =>
-    (game.finalizeDraft && game.finalizeDraft.rakeOverride !== undefined && game.finalizeDraft.rakeOverride !== null)
-      ? String(game.finalizeDraft.rakeOverride)
-      : ""
-  );
-  const setRakeOverride = (v) => {
-    setRakeOverrideState(v);
-    update((g) => ({ finalizeDraft: { ...(g.finalizeDraft || {}), rakeOverride: v } }));
-  };
-
-  // "Guardar en Excel ahora": empuja un snapshot on-demand a la hoja
-  // "EntregaFichas" (aparte del guardado automático de "active", que tiene
-  // su propia latencia y candado de 3s). Sirve para tener la certeza de que
-  // lo capturado hasta este momento ya quedó en el Excel, y deja un
-  // historial con timestamp para auditorías posteriores.
-  const [saveState, setSaveState] = useState("idle"); // idle | saving | ok | error
-  const [saveErrorMsg, setSaveErrorMsg] = useState("");
 
   const buyIns = useMemo(() => {
     const map = {};
@@ -2438,418 +1113,99 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
 
   const totalCash = useMemo(() => Object.values(buyIns).reduce((s, b) => s + b.cash, 0), [buyIns]);
   const totalVirtual = useMemo(() => Object.values(buyIns).reduce((s, b) => s + b.virtual, 0), [buyIns]);
-  const rakeAuto = Number(game.rake) || 0;
-  const rake = (rakeOverride !== "" && !isNaN(Number(rakeOverride))) ? Number(rakeOverride) : rakeAuto;
-  const cashDisponible = round1(totalCash - rake);
+  const rake = Number(game.rake) || 0;
   const targetTotal = totalCash + totalVirtual;
 
-  const globalAdjustNum = Number(globalAdjust) || 0;
-  const hostPlayer = players.find((p) => p.id === game.hostId) || null;
-
-  // Filas concentradas por jugador — derivadas de un único número por
-  // jugador ("Fichas totales") más el ajuste único de descuadratura
-  // (asignado siempre al host):
-  // - Debe Virtual = lo que ese jugador compró en lotes virtuales (dato fijo).
-  // - Paga Virtual = lo que de las fichas totales entregadas alcanza para
-  //   saldar ese virtual: min(fichas totales ajustadas, debe virtual), sin
-  //   bajar de 0.
-  // - Fichas remanentes = lo que le queda después de pagar el virtual
-  //   (fichas totales ajustadas − paga virtual) — siempre ≥ 0.
-  // - Subtotal VRT (por jugador) = lotes virtuales que le quedan sin pagar.
-  // - Subtotal CSH (por jugador) = fichas totales ajustadas − lo usado para
-  //   pagar virtual, es decir, lo que le queda al jugador para cobrar en
-  //   cash/transferencia una vez saldado el virtual.
-  const rows = useMemo(() => players.map((p) => {
-    const bi = buyIns[p.id];
-    const ft = Number(fichasTotalesInput[p.id]) || 0;
-    const adj = p.id === game.hostId ? globalAdjustNum : 0;
-    const fichasTotales = round1(ft + adj);
-    const pv = Math.max(0, Math.min(fichasTotales, bi.virtual));
-    const rem = round1(fichasTotales - pv);
-    const totalA = round1(bi.virtual - pv);
-    const fichasPresentadas = fichasTotales;
-    const fichasEntregadasVirtual = pv;
-    const totalB = round1(fichasPresentadas - fichasEntregadasVirtual);
-    return { p, bi, ft, adj, pv, rem, fichasTotales, totalA, fichasPresentadas, fichasEntregadasVirtual, totalB };
-  }), [players, buyIns, fichasTotalesInput, globalAdjustNum, game.hostId]);
-
-  // "Paga virtual" que ya se fue capturando por jugador — es lo que reduce
-  // el virtual pendiente a nivel de toda la partida (bloque 2).
-  const pagaVirtualTotal = rows.reduce((s, r) => s + r.pv, 0);
-  const virtualPendiente = round1(totalVirtual - pagaVirtualTotal);
-
-  // El dinero total en juego (para el "cuadre") se basa en las fichas tal
-  // cual se entregaron (fichas totales + ajuste del host, si lo hay). El
-  // ajuste SÍ altera las fichas disponibles del host y por lo tanto el
-  // total general: si corrige un mal conteo, ese dinero corregido tiene que
-  // reflejarse en el cuadre.
-  const enteredCount = players.filter((p) => fichasTotalesInput[p.id] !== "").length;
-  const totalFinalValue = round1(rows.reduce((s, r) => s + r.fichasTotales, 0)) + rake;
+  const totalFinalValue = players.reduce((s, p) => s + (Number(values[p.id]) || 0), 0) + rake;
+  const enteredCount = players.filter((p) => values[p.id] !== "").length;
   const runningDiff = round1(totalFinalValue - targetTotal);
+  const diff = totalFinalValue - targetTotal;
 
-  const ready = players.every((p) => fichasTotalesInput[p.id] === "" || !isNaN(Number(fichasTotalesInput[p.id])));
+  const ready = players.every((p) => values[p.id] === "" || !isNaN(Number(values[p.id])));
   // Regla de la app: no se puede cerrar la partida si lo entregado (fichas +
   // rake) no cuadra exactamente contra el total comprado (cash + virtual).
   const canConfirm = ready && enteredCount > 0 && runningDiff === 0;
 
-  const cuadra = runningDiff === 0;
-
-  const grandTotalA = round1(rows.reduce((s, r) => s + r.totalA, 0));
-  const grandTotalB = round1(rows.reduce((s, r) => s + r.totalB, 0));
-  const cashPlusSubtotalVRT = round1(cashDisponible + grandTotalA);
-  const totalesCuadran = round1(cashPlusSubtotalVRT - grandTotalB) === 0;
-
-  const saveExcelNow = async () => {
-    setSaveState("saving");
-    setSaveErrorMsg("");
-    try {
-      const payload = {
-        gameId: game.id,
-        gameDate: game.date,
-        rows: rows.map((r) => ({
-          playerId: r.p.id,
-          playerName: r.p.name,
-          debeVirtual: r.bi.virtual,
-          pagaVirtual: r.pv,
-          fichasRemanentes: r.rem,
-          ajusteManual: r.adj,
-          fichasTotales: r.fichasTotales,
-          rake,
-          cashDisponible,
-          virtualPendiente,
-          totalA: r.totalA,
-          totalB: r.totalB,
-        })),
-      };
-      const res = await fetch("/api/store?key=entregaFichas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        // El backend devuelve {"error": "..."} — mostramos ese mensaje
-        // pelado en vez del JSON crudo, para que se pueda leer en el celular.
-        let msg = t || `HTTP ${res.status}`;
-        try {
-          const parsed = JSON.parse(t);
-          if (parsed && parsed.error) msg = parsed.error;
-        } catch { /* no era JSON, se deja el texto crudo */ }
-        throw new Error(msg);
-      }
-      setSaveState("ok");
-    } catch (e) {
-      console.error("guardar en Excel (EntregaFichas) falló", e);
-      setSaveState("error");
-      setSaveErrorMsg(String((e && e.message) || e));
-    }
-  };
-
-  const rowLabelStyle = { fontSize: 10, color: "rgba(244,234,214,0.45)", textTransform: "uppercase", letterSpacing: "0.04em" };
-  const blockLabelStyle = { fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 };
-  const blockValueStyle = (color, big) => ({ ...monoFont, fontWeight: 800, fontSize: big ? 30 : 18, color });
-  const colLabelStyle = { fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" };
-  const colValueStyle = (color) => ({ ...monoFont, fontWeight: 800, fontSize: 16, color });
-  const thStyle = { textAlign: "right", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.03em", color: "rgba(244,234,214,0.42)", fontWeight: 600, padding: "0 8px 8px", whiteSpace: "nowrap" };
-  const tdStyle = { textAlign: "right", padding: "7px 8px", ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.85)", borderTop: "1px solid rgba(255,255,255,0.06)", whiteSpace: "nowrap" };
-  const tdNameStyle = { ...tdStyle, textAlign: "left", ...bodyFont, fontWeight: 600, color: C.card };
-
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <Panel>
-        <SectionTitle
-          icon={Trophy}
-          right={
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-              {saveState === "ok" && <span style={{ fontSize: 11, color: C.win, ...monoFont }}>Guardado ✓</span>}
-              {saveState === "error" && <span style={{ fontSize: 11, color: C.loss, ...monoFont }}>Error al guardar</span>}
-              <GhostBtn onClick={saveExcelNow} icon={Save} color={C.goldSoft}>
-                {saveState === "saving" ? "Guardando…" : "Guardar en Excel"}
-              </GhostBtn>
-            </div>
-          }
-        >
-          Entrega de fichas
-        </SectionTitle>
+        <SectionTitle icon={Trophy}>Entrega de fichas</SectionTitle>
         <div style={{ color: "rgba(244,234,214,0.6)", fontSize: 12.5, marginBottom: 10 }}>
-          El botón "Guardar en Excel" empuja este avance al Excel al instante, sin esperar a la sincronización automática.
+          Cada jugador entrega el valor en dinero de las fichas que tiene en su poder al cierre (monto libre). El rake se considera como un jugador más dentro del total.
         </div>
-        {saveState === "error" && (
-          <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginBottom: 10, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
-            <AlertCircle size={15} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
-            <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.85)", ...monoFont, wordBreak: "break-word" }}>
-              <strong style={{ ...bodyFont }}>No se pudo guardar en Excel:</strong> {saveErrorMsg || "error desconocido"}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 14 }}>
+          <ScoreBox label="Cash" value={money(totalCash)} tone="cash" />
+          <ScoreBox label="Virtual" value={money(totalVirtual)} tone="virtual" />
+          <ScoreBox label="Total general" value={money(targetTotal)} />
+          <div style={{
+            background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "8px 6px", textAlign: "center",
+            border: `1px solid ${enteredCount === 0 ? C.panelLine : runningDiff === 0 ? C.win : C.loss}`,
+          }}>
+            <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase" }}>Ingresado</div>
+            <div style={{ ...monoFont, fontWeight: 700, fontSize: 14.5, color: enteredCount === 0 ? C.goldSoft : runningDiff === 0 ? C.win : C.loss }}>
+              {money(totalFinalValue)}
+            </div>
+            <div style={{ fontSize: 9.5, ...monoFont, color: "rgba(244,234,214,0.45)" }}>
+              {enteredCount === 0 ? "—" : runningDiff === 0 ? "cuadra ✓" : (runningDiff > 0 ? "+" : "") + money(runningDiff)}
             </div>
           </div>
-        )}
-
-        {/* Bloques 1 y 2: Cash (arriba) y Virtual (justo debajo, alineados por columna) */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.3fr", gap: 8, marginBottom: 14 }}>
-          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Cash</div>
-            <div style={blockValueStyle(C.card)}>{money(totalCash)}</div>
-          </div>
-          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>menos Rake+Estacionamiento</div>
-            <input
-              type="number" step="1" placeholder={String(rakeAuto)}
-              style={{
-                width: "100%", background: "transparent", border: "none",
-                borderBottom: `1px solid ${C.panelLine}`, textAlign: "center",
-                ...monoFont, fontWeight: 800, fontSize: 18, color: C.card, padding: "0 0 2px",
-              }}
-              value={rakeOverride !== "" ? rakeOverride : String(rakeAuto)}
-              onChange={(e) => setRakeOverride(e.target.value)}
-              onFocus={(e) => e.target.select()}
-            />
-            {rakeOverride !== "" && Number(rakeOverride) !== rakeAuto && (
-              <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.45)", marginTop: 3 }}>
-                auto: {money(rakeAuto)}{" · "}
-                <span onClick={() => setRakeOverride("")} style={{ color: C.goldSoft, cursor: "pointer", textDecoration: "underline" }}>usar auto</span>
-              </div>
-            )}
-          </div>
-          <div style={{ background: "rgba(47,174,102,0.14)", border: `1px solid ${C.cashDeep}`, borderRadius: 9, padding: "10px 8px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            <div style={blockLabelStyle}>Cash disponible</div>
-            <div style={blockValueStyle(C.cash, true)}>{money(cashDisponible)}</div>
-          </div>
-
-          <div style={{ gridColumn: "1 / 3", background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Virtual</div>
-            <div style={blockValueStyle(C.card)}>{money(totalVirtual)}</div>
-          </div>
-          <div style={{ background: "rgba(0,0,0,0.22)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Virtual pendiente</div>
-            <div style={blockValueStyle(ORANGE, true)}>{money(virtualPendiente)}</div>
-          </div>
         </div>
-
-        <div style={{ display: "grid", gap: 10 }}>
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ background: "rgba(216,173,63,0.1)", border: `1px dashed ${C.panelLine}`, borderRadius: 9, padding: "9px 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 26, height: 26, borderRadius: 99, background: "rgba(216,173,63,0.22)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Flame size={13} color={C.gold} />
+              </div>
+              <span style={{ color: C.goldSoft, fontWeight: 700, fontSize: 13.5 }}>Rake (casa)</span>
+              <span style={{ ...monoFont, fontSize: 10.5, color: "rgba(244,234,214,0.4)" }}>se resta automáticamente, no se captura</span>
+            </div>
+            <span style={{ ...monoFont, fontSize: 13.5, color: C.goldSoft, fontWeight: 700 }}>{money(rake)}</span>
+          </div>
           {players.map((p) => {
-            const row = rows.find((r) => r.p.id === p.id);
-            const bi = row.bi;
-            const focused = focusedId === p.id;
-            const isHost = p.id === game.hostId;
-            const cashOutPendiente = round1(row.fichasTotales - bi.virtual);
-            const debeVirtualPendiente = cashOutPendiente < 0;
+            const bi = buyIns[p.id];
             return (
-              <div key={p.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "12px 14px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 }}>
-                  <Avatar player={p} size={22} />
-                  <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{p.name}</span>
-                  {isHost && <span style={{ fontSize: 10, color: C.goldSoft, border: `1px solid ${C.goldSoft}`, borderRadius: 6, padding: "1px 6px", textTransform: "uppercase", letterSpacing: "0.04em" }}>Host</span>}
+              <div key={p.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 9, padding: "9px 10px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Avatar player={p} size={26} />
+                    <span style={{ color: C.card, fontWeight: 600, fontSize: 13.5 }}>{p.name}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ color: "rgba(244,234,214,0.5)", fontSize: 13 }}>$</span>
+                    <input type="number" min="0" style={{ ...inputStyle, width: 110, textAlign: "right" }} placeholder="0"
+                      value={values[p.id]} onChange={(e) => setValues((c) => ({ ...c, [p.id]: e.target.value }))}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={(e) => { if (e.target.value !== "") setValues((c) => ({ ...c, [p.id]: String(roundTo100(e.target.value)) })); }} step="100" />
+                  </div>
                 </div>
-
-                {/* Orden vertical pedido (de arriba hacia abajo): Fichas
-                    totales (único campo editable) → Debe Virtual → Paga
-                    Virtual → Fichas remanentes (los tres últimos, derivados
-                    solos y no editables). */}
-                <div style={{ display: "grid", gap: 10 }}>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={colLabelStyle}>Fichas totales</div>
-                    <input
-                      type="number" min="0" placeholder="0"
-                      style={{
-                        width: "100%", background: "transparent", border: "none",
-                        borderBottom: `1px solid ${C.panelLine}`, textAlign: "center",
-                        ...monoFont, fontWeight: 800, fontSize: 22, color: C.goldSoft, padding: "0 0 2px",
-                      }}
-                      value={fichasTotalesInput[p.id]}
-                      onChange={(e) => setFichasTotales(p.id, e.target.value)}
-                      onFocus={(e) => { e.target.select(); setFocusedId(p.id); }}
-                      onBlur={(e) => {
-                        if (e.target.value !== "") setFichasTotales(p.id, String(roundTo100(e.target.value)));
-                        setFocusedId((cur) => (cur === p.id ? null : cur));
-                      }}
-                      step="100"
-                    />
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <span style={rowLabelStyle}>Debe Virtual</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.virtual }}>{money(bi.virtual)}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <span style={rowLabelStyle}>Paga Virtual</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.win }}>{money(row.pv)}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <span style={rowLabelStyle}>Fichas remanentes</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.card }}>{money(row.rem)}</span>
-                  </div>
-                  {debeVirtualPendiente && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <span style={rowLabelStyle}>Debe virtual pendiente</span>
-                      <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.loss }}>{money(Math.abs(cashOutPendiente))}</span>
-                    </div>
-                  )}
+                <div style={{ display: "flex", gap: 6, marginTop: 7, marginLeft: 34 }}>
+                  <Badge tone="cash">Cash {money(bi.cash)}</Badge>
+                  <Badge tone="virtual">Virtual {money(bi.virtual)}</Badge>
+                  <span style={{ ...monoFont, fontSize: 11, color: "rgba(244,234,214,0.5)", alignSelf: "center" }}>
+                    Total buy-in {money(bi.total)}
+                  </span>
                 </div>
-
-                <div style={{ display: "grid", gap: 8, borderTop: `1px solid ${C.panelLine}`, marginTop: 10, paddingTop: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <span style={rowLabelStyle}>Cash (buy-in)</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.cash }}>{money(bi.cash)}</span>
-                  </div>
-                  {!debeVirtualPendiente && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                      <span style={rowLabelStyle}>Cash out pendiente</span>
-                      <span style={{ ...monoFont, fontSize: 22, fontWeight: 800, color: C.win }}>{money(Math.abs(cashOutPendiente))}</span>
-                    </div>
-                  )}
-                </div>
-
-                {focused && (
-                  <div style={{
-                    marginTop: 8, display: "inline-flex", alignItems: "center", gap: 6,
-                    background: cuadra ? "rgba(63,191,114,0.14)" : "rgba(226,99,79,0.14)",
-                    border: `1px solid ${cuadra ? C.win : C.loss}`, borderRadius: 8, padding: "5px 10px",
-                  }}>
-                    {cuadra ? (
-                      <span style={{ ...bodyFont, fontWeight: 700, fontSize: 13, color: C.win }}>Cuadrado</span>
-                    ) : (
-                      <>
-                        <span style={{ ...bodyFont, fontSize: 11.5, color: "rgba(244,234,214,0.7)" }}>Pendiente por cuadrar:</span>
-                        <span style={{ ...monoFont, fontWeight: 700, fontSize: 13, color: C.loss }}>{moneySigned(runningDiff)}</span>
-                      </>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
-
-          {/* Único ajuste manual de toda la partida (para descuadraturas),
-              asignado siempre al host. */}
-          <div style={{ background: "rgba(255,205,90,0.08)", border: `1px solid ${C.goldSoft}`, borderRadius: 10, padding: "12px 14px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ ...rowLabelStyle, fontSize: 11 }}>
-                Ajuste manual por descuadratura (+/-){hostPlayer ? ` — se asigna a ${hostPlayer.name} (host)` : " — se asigna al host"}
-              </span>
-              <input
-                type="number" placeholder="0" style={{ ...inputStyle, width: 110, textAlign: "right" }}
-                value={globalAdjust}
-                onChange={(e) => setGlobalAdjust(e.target.value)}
-                onFocus={(e) => e.target.select()}
-              />
-            </div>
-          </div>
         </div>
         {ready && enteredCount > 0 && runningDiff !== 0 && (
           <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginTop: 12, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
             <AlertCircle size={15} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ fontSize: 12, color: "rgba(244,234,214,0.85)" }}>
-              <strong>No se puede cerrar la partida hasta que el total cuadre exactamente</strong> — ajustá los montos de cierre. Total entregado: {money(totalFinalValue)} · Total general: {money(targetTotal)}
+              El valor total entregado, incluyendo el rake ({money(totalFinalValue)}), no coincide con el total general (cash + virtual: {money(targetTotal)}). Diferencia: {money(runningDiff)}. <strong>No se puede cerrar la partida hasta que el total cuadre exactamente</strong> — ajustá los montos de cierre.
             </div>
           </div>
         )}
       </Panel>
-
-      {/* Bloque 4: VIRTUALES — tabla concentrada, no editable, para cuadrar */}
-      <Panel>
-        <SectionTitle icon={Coins}>Virtuales</SectionTitle>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr>
-              <th style={{ ...thStyle, textAlign: "left" }}>Jugador</th>
-              <th style={thStyle}>Lotes virtuales</th>
-              <th style={thStyle}>Lotes virtuales pagados</th>
-              <th style={thStyle}>Subtotal VRT</th>
-            </tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.p.id}>
-                  <td style={tdNameStyle}>{r.p.name}</td>
-                  <td style={{ ...tdStyle, color: C.virtual }}>{money(r.bi.virtual)}</td>
-                  <td style={tdStyle}>{money(r.pv)}</td>
-                  <td style={{ ...tdStyle, color: r.totalA === 0 ? C.win : ORANGE, fontWeight: 700 }}>{money(r.totalA)}</td>
-                </tr>
-              ))}
-              <tr>
-                <td style={{ ...tdNameStyle, fontWeight: 800 }}>Subtotal VRT</td>
-                <td style={tdStyle} />
-                <td style={tdStyle} />
-                <td style={{ ...tdStyle, fontWeight: 800, color: grandTotalA === 0 ? C.win : ORANGE }}>{money(grandTotalA)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-
-      {/* Bloque 5: CASH — tabla concentrada, no editable, para cuadrar */}
-      <Panel>
-        <SectionTitle icon={Banknote}>Cash</SectionTitle>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr>
-              <th style={{ ...thStyle, textAlign: "left" }}>Jugador</th>
-              <th style={thStyle}>Fichas Presentadas</th>
-              <th style={thStyle}>Fichas entregadas (para lotes virtuales)</th>
-              <th style={thStyle}>Subtotal CSH</th>
-            </tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.p.id}>
-                  <td style={tdNameStyle}>{r.p.name}</td>
-                  <td style={{ ...tdStyle, color: C.cash }}>{money(r.fichasPresentadas)}</td>
-                  <td style={tdStyle}>{money(r.fichasEntregadasVirtual)}</td>
-                  <td style={{ ...tdStyle, fontWeight: 700, color: C.goldSoft }}>{money(r.totalB)}</td>
-                </tr>
-              ))}
-              <tr>
-                <td style={{ ...tdNameStyle, fontWeight: 800 }}>Subtotal CSH</td>
-                <td style={tdStyle} />
-                <td style={tdStyle} />
-                <td style={{ ...tdStyle, fontWeight: 800, color: C.goldSoft }}>{money(grandTotalB)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-
-      {/* Bloque 6: TOTALES — Cash + Subtotal VRT contra Subtotal CSH, en un mismo recuadro de cuadre */}
-      <Panel>
-        <SectionTitle icon={CircleDollarSign}>Totales</SectionTitle>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.7fr", gap: 8 }}>
-          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Cash remanente</div>
-            <div style={blockValueStyle(C.cash)}>{money(cashDisponible)}</div>
-          </div>
-          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Subtotal VRT</div>
-            <div style={blockValueStyle(ORANGE)}>{money(grandTotalA)}</div>
-          </div>
-          <div style={{
-            background: totalesCuadran ? "rgba(63,191,114,0.14)" : "rgba(226,99,79,0.14)",
-            border: `1px solid ${totalesCuadran ? C.win : C.loss}`,
-            borderRadius: 9, padding: "9px 8px",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-          }}>
-            <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
-              <div style={blockLabelStyle}>Cash + Subtotal VRT</div>
-              <div style={blockValueStyle(C.card)}>{money(cashPlusSubtotalVRT)}</div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: totalesCuadran ? C.win : C.loss, flexShrink: 0 }}>
-              {totalesCuadran ? "=" : "≠"}
-            </div>
-            <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
-              <div style={blockLabelStyle}>Subtotal CSH</div>
-              <div style={blockValueStyle(C.card)}>{money(grandTotalB)}</div>
-            </div>
-          </div>
-        </div>
-      </Panel>
-
       <div style={{ display: "flex", gap: 10 }}>
-        <GhostBtn onClick={onBack}>Volver</GhostBtn>
+        <GhostBtn onClick={handleBack}>Volver</GhostBtn>
         <PrimaryBtn
           disabled={!canConfirm}
-          onClick={() => onConfirm(
-            Object.fromEntries(rows.map((r) => [r.p.id, r.ft])),
-            globalAdjustNum !== 0 ? { [game.hostId]: globalAdjustNum } : {},
-            rake
-          )}
+          onClick={() => onConfirm(Object.fromEntries(players.map((p) => [p.id, Number(values[p.id]) || 0])))}
           icon={Trophy} style={{ flex: 1, padding: "12px 16px" }}
         >
-          Ir a pagos y transferencias
+          Calcular resultados
         </PrimaryBtn>
       </div>
     </div>
@@ -2857,35 +1213,6 @@ function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
 }
 
 /* ----- Finalized game: results table + transfers + save/close ----- */
-function ChampionBanner({ winner, player }) {
-  if (!winner) return null;
-  return (
-    <div style={{
-      display: "flex", flexDirection: "column", gap: 8,
-      background: "linear-gradient(135deg, rgba(255,205,90,0.18), rgba(255,205,90,0.05))",
-      border: `1px solid ${C.gold}`, borderRadius: 12,
-      padding: "10px 14px", margin: "6px 0 12px",
-    }}>
-      <div style={{
-        fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase",
-        color: "rgba(244,234,214,0.55)", fontWeight: 700,
-        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-      }}>
-        Próximos postres, cortesía de:
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Trophy size={48} color={C.gold} style={{ flexShrink: 0 }} />
-        {player ? <Avatar player={player} size={30} /> : null}
-        <div style={{ ...displayFont, fontSize: 22, color: C.gold, letterSpacing: "0.02em", lineHeight: 1.1, minWidth: 0 }}>
-          {winner.name}
-        </div>
-        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 15, fontWeight: 800, color: C.win }}>
-          {(winner.balance > 0 ? "+" : "") + money(winner.balance)}
-        </span>
-      </div>
-    </div>
-  );
-}
 function ResultRow({ label, value, tone, strong }) {
   const color = tone === "cash" ? C.cash : tone === "virtual" ? C.virtual : tone === "win" ? C.win : tone === "loss" ? C.loss : "rgba(244,234,214,0.85)";
   return (
@@ -2895,198 +1222,152 @@ function ResultRow({ label, value, tone, strong }) {
     </div>
   );
 }
-// Tarjeta de detalle por jugador — compacta por default (solo nombre y
-// balance final); al tocarla se amplía y muestra buy-in cash/virtual/total y
-// cash out. "Balance", "Recibe/Debe Cash" y "Recibe/Debe Transfer" ya no se
-// repiten acá: el balance está siempre visible en el encabezado, y el cash
-// out ya se ve en los bloques "Reparto de efectivo" / "Transferencias
-// sugeridas".
 function PlayerResultCard({ p, player }) {
-  const [expanded, setExpanded] = useState(false);
   const win = p.balance > 0;
   const flat = p.balance === 0;
+  const cashLabel = p.pagoCash > 0 ? "Recibe Cash" : p.pagoCash < 0 ? "Debe Cash" : "Cash";
+  const transferLabel = p.pagoTransfer > 0 ? "Recibe Transfer" : p.pagoTransfer < 0 ? "Debe Transfer" : "Transfer";
   return (
     <div style={{ background: "rgba(0,0,0,0.2)", border: `1px solid ${win ? "rgba(63,191,114,0.35)" : flat ? C.panelLine : "rgba(226,99,79,0.35)"}`, borderRadius: 12, padding: "12px 14px" }}>
-      <button
-        onClick={() => setExpanded((e) => !e)}
-        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: 0, marginBottom: expanded ? 6 : 0 }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           {player ? <Avatar player={player} size={30} /> : null}
-          <span style={{ ...displayFont, fontSize: 19, color: C.card, letterSpacing: "0.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+          <span style={{ ...displayFont, fontSize: 19, color: C.card, letterSpacing: "0.03em" }}>{p.name}</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <span style={{
-            ...monoFont, fontWeight: 800, fontSize: 15,
-            color: win ? C.win : flat ? "rgba(244,234,214,0.6)" : C.loss,
-          }}>
-            {(p.balance > 0 ? "+" : "") + money(p.balance)}
-          </span>
-          {expanded ? <ChevronUp size={15} color={C.goldSoft} /> : <ChevronDown size={15} color={C.goldSoft} />}
-        </div>
-      </button>
-      {expanded && (
-        <>
-          <ResultRow label="Buy-in cash" value={money(p.cashAmount)} tone="cash" />
-          <ResultRow label="Buy-in virtual" value={money(p.virtualAmount)} tone="virtual" />
-          <ResultRow label="Total buy-in" value={money(p.totalBuyIn)} />
-          <ResultRow label="Cash out (fichas)" value={money(p.cashOut)} />
-        </>
-      )}
+        <span style={{
+          ...monoFont, fontWeight: 800, fontSize: 15,
+          color: win ? C.win : flat ? "rgba(244,234,214,0.6)" : C.loss,
+        }}>
+          {(p.balance > 0 ? "+" : "") + money(p.balance)}
+        </span>
+      </div>
+      <ResultRow label="Buy-in cash" value={money(p.cashAmount)} tone="cash" />
+      <ResultRow label="Buy-in virtual" value={money(p.virtualAmount)} tone="virtual" />
+      <ResultRow label="Total buy-in" value={money(p.totalBuyIn)} />
+      <ResultRow label="Cash out (fichas)" value={money(p.cashOut)} />
+      <ResultRow label="Balance" value={(p.balance > 0 ? "+" : "") + money(p.balance)} tone={win ? "win" : flat ? undefined : "loss"} strong />
+      <ResultRow label={cashLabel} value={money(Math.abs(p.pagoCash))} tone={p.pagoCash > 0 ? "cash" : undefined} />
+      <ResultRow label={transferLabel} value={money(Math.abs(p.pagoTransfer))} tone={p.pagoTransfer > 0 ? "win" : p.pagoTransfer < 0 ? "loss" : undefined} />
     </div>
   );
 }
-
-// Bloque "Reparto de efectivo": a quién y cuánto cash físico le toca cobrar.
-// Se ordena de mayor a menor monto — así se le da prioridad visual a quien
-// más cash puso (el que más puso es, en general, a quien más cash le toca
-// devolver, ya que el pago en cash de cada jugador nunca supera lo que él
-// mismo aportó en cash).
-function CashRepartoList({ players }) {
-  const withCash = useMemo(
-    () => players.filter((p) => p.pagoCash > 0).sort((a, b) => b.pagoCash - a.pagoCash),
-    [players]
-  );
-  return (
-    <div style={{ display: "grid", gap: 8 }}>
-      {withCash.map((p) => (
-        <div key={p.playerId} style={{ display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
-          <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
-          <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)}</span>
-        </div>
-      ))}
-      {withCash.length === 0 && <Empty>No hay efectivo para repartir.</Empty>}
-    </div>
-  );
-}
-function CashRepartoBlock({ players }) {
-  return (
-    <Panel>
-      <SectionTitle icon={Banknote}>Reparto de efectivo</SectionTitle>
-      <CashRepartoList players={players} />
-    </Panel>
-  );
-}
-
-// Bloque "Transferencias sugeridas": agrupado en tarjetas personales por
-// jugador, con un switch para ver la lista agrupada por quién recibe (default)
-// o por quién paga. Cada tarjeta muestra el nombre y el total (a la derecha),
-// y abajo, indentado, el detalle renglón por renglón con cada contraparte.
-function TransfersList({ transfers }) {
-  const [view, setView] = useState("reciben"); // "reciben" | "pagan"
-
-  const receiverGroups = useMemo(() => {
-    const map = new Map();
-    transfers.forEach((t) => {
-      if (!map.has(t.toId)) map.set(t.toId, { id: t.toId, name: t.to, total: 0, items: [] });
-      const g = map.get(t.toId);
-      g.total = round1(g.total + t.amount);
-      g.items.push({ id: t.fromId, name: t.from, amount: t.amount });
-    });
-    return [...map.values()]
-      .map((g) => ({ ...g, items: [...g.items].sort((a, b) => b.amount - a.amount) }))
-      .sort((a, b) => b.total - a.total);
-  }, [transfers]);
-
-  const payerGroups = useMemo(() => {
-    const map = new Map();
-    transfers.forEach((t) => {
-      if (!map.has(t.fromId)) map.set(t.fromId, { id: t.fromId, name: t.from, total: 0, items: [] });
-      const g = map.get(t.fromId);
-      g.total = round1(g.total + t.amount);
-      g.items.push({ id: t.toId, name: t.to, amount: t.amount });
-    });
-    return [...map.values()]
-      .map((g) => ({ ...g, items: [...g.items].sort((a, b) => b.amount - a.amount) }))
-      .sort((a, b) => b.total - a.total);
-  }, [transfers]);
-
-  const groups = view === "reciben" ? receiverGroups : payerGroups;
-  const toggleBtn = (active) => ({
-    background: active ? C.goldSoft : "transparent",
-    color: active ? "#1a1208" : "rgba(244,234,214,0.6)",
-    border: "none", borderRadius: 18, padding: "5px 10px",
-    fontSize: 11, fontWeight: 700, cursor: "pointer", ...bodyFont, whiteSpace: "nowrap",
-  });
-
-  return (
-    <>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10, marginTop: -4 }}>
-        <div style={{ display: "flex", background: "rgba(0,0,0,0.25)", borderRadius: 20, padding: 2, gap: 2 }}>
-          <button onClick={() => setView("reciben")} style={toggleBtn(view === "reciben")}>Quienes reciben</button>
-          <button onClick={() => setView("pagan")} style={toggleBtn(view === "pagan")}>Quienes pagan</button>
-        </div>
-      </div>
-      <div style={{ display: "grid", gap: 10 }}>
-        {transfers.length === 0 && <Empty>No se requieren transferencias.</Empty>}
-        {groups.map((g) => (
-          <div key={g.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "10px 12px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{g.name}</span>
-              <span style={{ ...monoFont, fontWeight: 800, fontSize: 14.5, color: view === "reciben" ? C.win : C.loss }}>{money(g.total)}</span>
-            </div>
-            <div style={{ display: "grid", gap: 4, marginTop: 6, paddingLeft: 14, borderLeft: `2px solid ${C.panelLine}` }}>
-              {g.items.map((it) => (
-                <div key={it.id} style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "rgba(244,234,214,0.7)", fontSize: 12.5 }}>{it.name}</span>
-                  <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.85)" }}>{money(it.amount)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-function TransfersBlock({ transfers }) {
-  return (
-    <Panel>
-      <SectionTitle icon={ArrowRightLeft}>Transferencias sugeridas</SectionTitle>
-      <TransfersList transfers={transfers} />
-    </Panel>
-  );
-}
-function FinalizedGame({ game, roster, onClose, setActiveGame, setGames, adminPassword }) {
+function FinalizedGame({ game, roster, onClose, setActiveGame, setGames }) {
   const r = useMemo(() => computeSettlement(game, roster), [game, roster]);
   const players = game.playerIds.map((id) => roster.find((p) => p.id === id)).filter(Boolean);
-  const winner = [...r.players].sort((a, b) => b.balance - a.balance)[0];
-  const winnerPlayer = players.find((pl) => pl.id === winner?.playerId);
+  const numPlayers = players.length || 1;
+  const d = game.dinner;
+
+  // La cena no afecta el balance de lotes, así que es seguro seguir editando
+  // quién pagó/con qué método incluso después de haber cerrado la partida.
+  const updateDinner = (patch) => {
+    const applyPatch = (dinner) => ({ ...dinner, ...(typeof patch === "function" ? patch(dinner) : patch) });
+    setActiveGame((g) => ({ ...g, dinner: applyPatch(g.dinner) }));
+    setGames((gs) => gs.map((x) => (x.id === game.id ? { ...x, dinner: applyPatch(x.dinner) } : x)));
+  };
 
   // Vuelve a dejar la partida "en curso" para poder corregir lotes, fichas
   // de cierre, rake, etc. La sacamos del historial hasta que se vuelva a
   // cerrar, para no dejar una copia vieja e inconsistente dando vueltas.
-  // Se pide la contraseña de administrador porque la partida ya se finalizó
-  // "formalmente" — reabrirla es una acción sensible.
-  const handleBack = async () => {
-    if (!(await requestAdminPassword(adminPassword, "reabrir esta partida"))) return;
+  const handleBack = () => {
+    if (!confirm("¿Volver a editar esta partida? Vas a poder corregir lotes, rake y fichas de cierre, y después cerrarla de nuevo.")) return;
     setGames((gs) => gs.filter((g) => g.id !== game.id));
     setActiveGame({ ...game, finished: false });
   };
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <GhostBtn onClick={handleBack} icon={ChevronLeft} color={C.goldSoft}>Reabrir partida</GhostBtn>
-
-      <ChampionBanner winner={winner} player={winnerPlayer} />
+      <GhostBtn onClick={handleBack} icon={ChevronLeft} color={C.goldSoft}>Volver a editar partida</GhostBtn>
 
       <Panel>
         <SectionTitle icon={Trophy}>Resultados de la partida</SectionTitle>
-        <div style={{ ...displayFont, fontSize: 18, color: C.goldSoft, marginTop: -4 }}>{game.date}</div>
-        <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+        <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", display: "flex", alignItems: "center", gap: 4, marginBottom: 10, marginTop: -4 }}>
           <Crown size={12} color={C.gold} /> Operó: {roster.find((pl) => pl.id === game.hostId)?.name || "—"}
         </div>
-      </Panel>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
+          <ScoreBox label="Rake" value={money(r.rake)} />
+          <ScoreBox label="Total buy-in cash" value={money(r.players.reduce((s, p) => s + p.cashAmount, 0))} tone="cash" />
+          <ScoreBox label="Total buy-in virtual" value={money(r.players.reduce((s, p) => s + p.virtualAmount, 0))} tone="virtual" />
+        </div>
 
-      <CashRepartoBlock players={r.players} />
-      <TransfersBlock transfers={r.transfers} />
-
-      <Panel>
-        <SectionTitle icon={Users}>Detalle por jugador</SectionTitle>
         <div style={{ display: "grid", gap: 10 }}>
           {[...r.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
             <PlayerResultCard key={p.playerId} p={p} player={players.find((pl) => pl.id === p.playerId)} />
           ))}
+        </div>
+      </Panel>
+
+      <Panel>
+        <SectionTitle icon={Banknote}>Reparto de efectivo</SectionTitle>
+        <div style={{ display: "grid", gap: 8 }}>
+          {r.players.filter((p) => p.pagoCash > 0).map((p) => (
+            <div key={p.playerId} style={{ display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
+              <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
+              <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)} · {billsLabel(billsFor(p.pagoCash))}</span>
+            </div>
+          ))}
+          {r.players.every((p) => p.pagoCash === 0) && <Empty>No hay efectivo para repartir.</Empty>}
+        </div>
+      </Panel>
+
+      <Panel>
+        <SectionTitle icon={ArrowRightLeft}>Transferencias sugeridas</SectionTitle>
+        <div style={{ display: "grid", gap: 8 }}>
+          {r.transfers.length === 0 && <Empty>No se requieren transferencias.</Empty>}
+          {r.transfers.map((t, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "9px 12px" }}>
+              <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{t.from}</span>
+              <ArrowRightLeft size={13} color={C.gold} />
+              <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{t.to}</span>
+              <span style={{ marginLeft: "auto", ...monoFont, color: C.gold, fontWeight: 700 }}>{money(t.amount)}</span>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      <Panel>
+        <SectionTitle icon={UtensilsCrossed}>Cargo de cena (no afecta el balance de lotes)</SectionTitle>
+        <div style={{ display: "grid", gap: 6 }}>
+          {players.map((p) => {
+            const alcohol = !!d.alcohol[p.id];
+            const charge = ceilTo100(d.total / numPlayers + d.waiter + (alcohol ? d.alcoholFee : 0));
+            const paid = !!d.paid?.[p.id];
+            const method = d.paymentMethod?.[p.id] || "fichas";
+            return (
+              <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <button onClick={() => updateDinner((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: !dd.alcohol[p.id] } }))}
+                    style={{ display: "flex", alignItems: "center", gap: 7, background: "transparent", border: "none", cursor: "pointer", color: C.card, flex: 1, minWidth: 0 }}>
+                    <Avatar player={p} size={22} />
+                    <Wine size={14} color={alcohol ? C.virtual : "rgba(244,234,214,0.3)"} style={{ flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                  </button>
+                  <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)", whiteSpace: "nowrap" }}>{money(charge)}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 7 }}>
+                  <select
+                    value={method}
+                    onChange={(e) => updateDinner((dd) => ({ paymentMethod: { ...dd.paymentMethod, [p.id]: e.target.value } }))}
+                    style={{ ...inputStyle, appearance: "auto", padding: "5px 8px", fontSize: 12, width: "auto", flex: 1 }}
+                  >
+                    <option value="fichas">Pago con fichas</option>
+                    <option value="cash">Pago con cash</option>
+                    <option value="mixto">Combinado (fichas + cash)</option>
+                  </select>
+                  <button onClick={() => updateDinner((dd) => ({ paid: { ...dd.paid, [p.id]: !dd.paid?.[p.id] } }))}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6, background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
+                      border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "5px 9px",
+                      cursor: "pointer", color: paid ? C.win : "rgba(244,234,214,0.6)", fontSize: 11.5, fontWeight: 700, ...bodyFont, flexShrink: 0,
+                    }}>
+                    <div style={{ width: 14, height: 14, borderRadius: 4, border: `1.5px solid ${paid ? C.win : "rgba(244,234,214,0.4)"}`, background: paid ? C.win : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {paid && <Check size={10} color="#08251a" />}
+                    </div>
+                    {paid ? "Pagado" : "Pendiente"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </Panel>
 
@@ -3165,36 +1446,22 @@ function SwipeableRow({ children, onDelete }) {
   );
 }
 
-function HistoryTab({ games, roster, setGames, adminPassword, activeGame, setActiveGame }) {
+function HistoryTab({ games, roster, setGames, adminPassword }) {
   const [openId, setOpenId] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const sorted = [...games].sort((a, b) => (a.date < b.date ? 1 : -1));
 
-  const handleDelete = async (g) => {
-    if (!(await requestAdminPassword(adminPassword, "eliminar partidas"))) return;
+  const handleDelete = (g) => {
+    if (!requestAdminPassword(adminPassword, "eliminar partidas")) return;
     if (!confirm(`¿Eliminar definitivamente la partida del ${g.date}? Esta acción no se puede deshacer.`)) return;
     setGames((gs) => gs.filter((x) => x.id !== g.id));
-  };
-
-  // Reabre una partida ya cerrada (y ya reemplazada por otra en curso, o
-  // sin ninguna partida activa) para poder ajustar algo pendiente. Pide
-  // contraseña de administrador porque es una acción sensible: se pierde
-  // temporalmente el resultado ya calculado hasta volver a cerrarla.
-  const handleReopen = async (g) => {
-    if (activeGame && !activeGame.finished) {
-      alert("Ya hay una partida en curso. Finalízala o cancélala antes de reabrir otra.");
-      return;
-    }
-    if (!(await requestAdminPassword(adminPassword, "reabrir esta partida"))) return;
-    setGames((gs) => gs.filter((x) => x.id !== g.id));
-    setActiveGame({ ...g, finished: false });
   };
 
   // Fuerza un reguardado de todas las partidas sin cambiar ningún dato — sirve
   // para que la hoja "Resultados" del Excel se regenere con la fórmula de
   // liquidación más reciente, sin tener que reabrir y reingresar cada partida.
-  const handleResync = async () => {
-    if (!(await requestAdminPassword(adminPassword, "recalcular y sincronizar la base de datos"))) return;
+  const handleResync = () => {
+    if (!requestAdminPassword(adminPassword, "recalcular y sincronizar la base de datos")) return;
     setSyncing(true);
     setGames((gs) => [...gs]);
     setTimeout(() => setSyncing(false), 1200);
@@ -3227,6 +1494,7 @@ function HistoryTab({ games, roster, setGames, adminPassword, activeGame, setAct
                     <div style={{ ...displayFont, fontSize: 18, color: C.goldSoft }}>{g.date}</div>
                     <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)" }}>
                       {g.playerIds.length} jugadores · lote {money(g.loteValue)} · rake {money(g.rake)}
+                      {winner ? ` · 🏆 ${winner.name}` : ""}
                     </div>
                     <div style={{ fontSize: 11, color: "rgba(244,234,214,0.4)", marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
                       <Crown size={11} color={C.gold} /> Operó: {roster.find((r) => r.id === g.hostId)?.name || "—"}
@@ -3235,30 +1503,38 @@ function HistoryTab({ games, roster, setGames, adminPassword, activeGame, setAct
                   {open ? <ChevronUp size={16} color={C.goldSoft} /> : <ChevronDown size={16} color={C.goldSoft} />}
                 </div>
               </button>
-              <ChampionBanner winner={winner} player={roster.find((pl) => pl.id === winner?.playerId)} />
               {open && (
                 <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+                  {[...results.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
+                    <PlayerResultCard key={p.playerId} p={p} player={roster.find((pl) => pl.id === p.playerId)} />
+                  ))}
+
                   <div style={{ marginTop: 6 }}>
                     <SectionTitle icon={Banknote}>Reparto de efectivo</SectionTitle>
-                    <CashRepartoList players={results.players} />
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {results.players.filter((p) => p.pagoCash > 0).map((p) => (
+                        <div key={p.playerId} style={{ display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
+                          <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
+                          <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)} · {billsLabel(billsFor(p.pagoCash))}</span>
+                        </div>
+                      ))}
+                      {results.players.every((p) => p.pagoCash === 0) && <Empty>No hay efectivo para repartir.</Empty>}
+                    </div>
                   </div>
 
                   <div style={{ marginTop: 6 }}>
                     <SectionTitle icon={ArrowRightLeft}>Transferencias sugeridas</SectionTitle>
-                    <TransfersList transfers={results.transfers} />
-                  </div>
-
-                  <div style={{ marginTop: 6 }}>
-                    <SectionTitle icon={Users}>Detalle por jugador</SectionTitle>
                     <div style={{ display: "grid", gap: 8 }}>
-                      {[...results.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
-                        <PlayerResultCard key={p.playerId} p={p} player={roster.find((pl) => pl.id === p.playerId)} />
+                      {results.transfers.length === 0 && <Empty>No se requieren transferencias.</Empty>}
+                      {results.transfers.map((t, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "9px 12px" }}>
+                          <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{t.from}</span>
+                          <ArrowRightLeft size={13} color={C.gold} />
+                          <span style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{t.to}</span>
+                          <span style={{ marginLeft: "auto", ...monoFont, color: C.gold, fontWeight: 700 }}>{money(t.amount)}</span>
+                        </div>
                       ))}
                     </div>
-                  </div>
-
-                  <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
-                    <GhostBtn onClick={() => handleReopen(g)} icon={ChevronLeft} color={C.goldSoft}>Reabrir partida</GhostBtn>
                   </div>
                 </div>
               )}
