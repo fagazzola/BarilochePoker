@@ -42,34 +42,51 @@ const bodyFont = { fontFamily: "'Inter', sans-serif" };
 ---------------------------------------------------------------------- */
 const KEYS = { roster: "poker-roster", games: "poker-games", active: "poker-active-game", adminPassword: "poker-admin-password" };
 
-// Guardado vía funciones de Netlify -> Microsoft Graph -> Excel (OneDrive).
-// Reemplaza el window.storage propio de los artifacts de Claude, que no
-// existe fuera de ese entorno.
+// Guardado vía funciones de Netlify (partida en curso -> blob de Netlify;
+// roster/historial -> Microsoft Graph -> Excel). Reemplaza el window.storage
+// propio de los artifacts de Claude, que no existe fuera de ese entorno.
+//
+// IMPORTANTE: `loadKey` devuelve { ok, value } en vez de solo `value`. Antes,
+// cualquier error de red o de servidor (un hipo momentáneo de conexión, un
+// cold start de la función) devolvía silenciosamente el `fallback` (null/[]),
+// IGUAL que si el servidor hubiera contestado "no hay nada guardado". Eso era
+// la causa real de la inestabilidad reportada ("elijo jugadores, inicio la
+// partida, y al rato se resetea sola"): el polling (más abajo) aplicaba ese
+// `fallback` como si fuera el estado real apenas se vencía el candado de 3s,
+// borrando una partida que sí existía solo porque una lectura puntual falló.
+// Separar "se pudo leer" de "qué se leyó" deja que el polling ignore las
+// lecturas fallidas en vez de tratarlas como "está vacío".
 async function loadKey(key, fallback) {
   try {
     const res = await fetch(`/api/store?key=${encodeURIComponent(key)}`);
-    if (!res.ok) return fallback;
+    if (!res.ok) return { ok: false, value: fallback };
     const data = await res.json();
-    return data && data.value !== undefined && data.value !== null ? data.value : fallback;
+    return { ok: true, value: data && data.value !== undefined && data.value !== null ? data.value : fallback };
   } catch (e) {
     console.error("load failed", key, e);
-    return fallback;
+    return { ok: false, value: fallback };
   }
 }
-async function saveKey(key, value) {
-  try {
-    const res = await fetch(`/api/store?key=${encodeURIComponent(key)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value }),
-    });
-    if (!res.ok) {
-      const t = await res.text();
-      console.error("storage set failed", key, t);
+// Reintenta antes de rendirse (hipos de red cortos no deberían contar como
+// "falló"), y devuelve si finalmente se pudo guardar o no, para que quien
+// llama pueda avisar al usuario y reintentar más tarde en vez de fingir que
+// quedó guardado.
+async function saveKey(key, value, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(`/api/store?key=${encodeURIComponent(key)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value }),
+      });
+      if (res.ok) return true;
+      console.error("storage set failed", key, await res.text());
+    } catch (e) {
+      console.error("storage set failed", key, e);
     }
-  } catch (e) {
-    console.error("storage set failed", key, e);
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 600 * (i + 1)));
   }
+  return false;
 }
 
 // Mientras una partida está en curso, todo (compras, cena, log de compras,
@@ -129,7 +146,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.11.07.048";
+const APP_VERSION = "3.12.07.049";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -661,6 +678,7 @@ function computeSettlement(game, roster) {
 ---------------------------------------------------------------------- */
 export default function PokerLedger() {
   const [loading, setLoading] = useState(true);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [roster, setRoster] = useState([]);
   const [games, setGames] = useState([]);
   const [activeGame, setActiveGame] = useState(null);
@@ -703,17 +721,35 @@ export default function PokerLedger() {
     if (hasActive && !isHost && (tab === "cena" || tab === "loterake" || tab === "jugadores" || tab === "finalizar")) setTab("partida");
   }, [hasActive, isHost, tab]);
 
+  // Carga inicial: si CUALQUIERA de los tres datos críticos falla (roster,
+  // historial o partida activa), NO seguimos con lo que haya salido bien —
+  // reintentamos con espera creciente hasta que las tres lecturas confirmen
+  // éxito. Mostrar la app con "sin partida activa" solo porque una lectura
+  // falló sería mucho peor que tardar un poco más en arrancar: el host podría
+  // pensar que no hay partida y arrancar una nueva, pisando la real.
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      const [r, g, a, pw] = await Promise.all([
-        loadKey(KEYS.roster, []),
-        loadKey(KEYS.games, []),
-        loadKey(KEYS.active, null),
-        loadKey(KEYS.adminPassword, ""),
-      ]);
-      setRoster(r); setGames(g); setActiveGame(a); setAdminPassword(pw || "");
-      setLoading(false);
+      let attempt = 0;
+      while (!cancelled) {
+        const [r, g, a, pw] = await Promise.all([
+          loadKey(KEYS.roster, []),
+          loadKey(KEYS.games, []),
+          loadKey(KEYS.active, null),
+          loadKey(KEYS.adminPassword, ""),
+        ]);
+        if (r.ok && g.ok && a.ok) {
+          setRoster(r.value); setGames(g.value); setActiveGame(a.value); setAdminPassword((pw.ok && pw.value) || "");
+          setLoading(false);
+          return;
+        }
+        attempt++;
+        if (cancelled) return;
+        setLoadAttempt(attempt);
+        await new Promise((res) => setTimeout(res, Math.min(1500 * attempt, 8000)));
+      }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   // Evita que, apenas termina la carga inicial, se dispare un guardado con
@@ -725,35 +761,75 @@ export default function PokerLedger() {
   const skipNextActiveSave = useRef(true);
 
   // Mientras este dispositivo tiene un cambio propio recién guardándose, el
-  // polling (más abajo) no debe pisarlo con lo que todavía estaba en el
-  // Excel un instante antes — si no, se ve como que el cambio "no pegó" por
-  // un segundo. Cada guardado local extiende su propio "candado" unos
-  // segundos; pasado ese tiempo, el polling ya puede volver a sincronizar
-  // libremente desde el Excel (por ejemplo, para traer los cambios que hizo
-  // OTRO dispositivo).
+  // polling (más abajo) no debe pisarlo con lo que todavía estaba guardado
+  // un instante antes — si no, se ve como que el cambio "no pegó" por un
+  // segundo. Cada guardado local extiende su propio "candado": mientras el
+  // guardado está en vuelo, el candado queda en Infinity (bloqueo total); si
+  // el guardado termina bien, se libera a los pocos segundos (para poder
+  // traer cambios que haya hecho OTRO dispositivo); si falla, el candado NO
+  // se libera — queda bloqueado hasta poder guardar bien — y se prende un
+  // aviso (`syncError`) con reintento automático y manual, en vez de dejar
+  // que el polling, en la siguiente vuelta, pise el cambio local con el dato
+  // viejo que quedó guardado de antes (esa combinación — guardado fallido +
+  // polling de "lo último que sí se guardó" — era la causa real de la
+  // partida "reseteándose sola").
   const rosterLockUntil = useRef(0);
   const gamesLockUntil = useRef(0);
   const activeLockUntil = useRef(0);
   const LOCK_MS = 3000;
+  const [syncError, setSyncError] = useState({ roster: false, games: false, active: false });
 
   useEffect(() => {
     if (loading) return;
     if (skipNextRosterSave.current) { skipNextRosterSave.current = false; return; }
-    rosterLockUntil.current = Date.now() + LOCK_MS;
-    saveKey(KEYS.roster, roster);
+    rosterLockUntil.current = Infinity;
+    saveKey(KEYS.roster, roster).then((ok) => {
+      rosterLockUntil.current = ok ? Date.now() + LOCK_MS : Infinity;
+      setSyncError((s) => (s.roster === !ok ? s : { ...s, roster: !ok }));
+    });
   }, [roster, loading]);
   useEffect(() => {
     if (loading) return;
     if (skipNextGamesSave.current) { skipNextGamesSave.current = false; return; }
-    gamesLockUntil.current = Date.now() + LOCK_MS;
-    saveKey(KEYS.games, games);
+    gamesLockUntil.current = Infinity;
+    saveKey(KEYS.games, games).then((ok) => {
+      gamesLockUntil.current = ok ? Date.now() + LOCK_MS : Infinity;
+      setSyncError((s) => (s.games === !ok ? s : { ...s, games: !ok }));
+    });
   }, [games, loading]);
   useEffect(() => {
     if (loading) return;
     if (skipNextActiveSave.current) { skipNextActiveSave.current = false; return; }
-    activeLockUntil.current = Date.now() + LOCK_MS;
-    saveKey(KEYS.active, activeGame);
+    activeLockUntil.current = Infinity;
+    saveKey(KEYS.active, activeGame).then((ok) => {
+      activeLockUntil.current = ok ? Date.now() + LOCK_MS : Infinity;
+      setSyncError((s) => (s.active === !ok ? s : { ...s, active: !ok }));
+    });
   }, [activeGame, loading]);
+
+  // Si algún guardado quedó pendiente (`syncError`), reintentar solo cada
+  // tanto en vez de a cada cambio de estado — y siempre con el valor MÁS
+  // RECIENTE (por si el usuario siguió jugando mientras tanto).
+  const syncErrorRef = useRef(syncError);
+  useEffect(() => { syncErrorRef.current = syncError; }, [syncError]);
+  useEffect(() => {
+    if (!syncError.roster && !syncError.games && !syncError.active) return;
+    const t = setInterval(async () => {
+      if (syncErrorRef.current.roster) {
+        const ok = await saveKey(KEYS.roster, roster);
+        if (ok) { rosterLockUntil.current = Date.now() + LOCK_MS; setSyncError((s) => ({ ...s, roster: false })); }
+      }
+      if (syncErrorRef.current.games) {
+        const ok = await saveKey(KEYS.games, games);
+        if (ok) { gamesLockUntil.current = Date.now() + LOCK_MS; setSyncError((s) => ({ ...s, games: false })); }
+      }
+      if (syncErrorRef.current.active) {
+        const ok = await saveKey(KEYS.active, activeGame);
+        if (ok) { activeLockUntil.current = Date.now() + LOCK_MS; setSyncError((s) => ({ ...s, active: false })); }
+      }
+    }, 6000);
+    return () => clearInterval(t);
+  }, [syncError.roster, syncError.games, syncError.active, roster, games, activeGame]);
 
   // Este ledger no tiene tiempo real (no hay websockets): cada celular
   // guarda sus cambios al Excel, pero para ENTERARSE de lo que hicieron los
@@ -772,25 +848,30 @@ export default function PokerLedger() {
           loadKey(KEYS.active, null),
         ]);
         const now = Date.now();
-        if (now >= rosterLockUntil.current) {
+        // Clave del fix: solo se aplica lo que llegó de una lectura que
+        // efectivamente funcionó (`.ok`). Antes, una lectura fallida (un hipo
+        // de red, un cold start) devolvía el mismo `fallback` que "no hay
+        // nada guardado", y el polling lo aplicaba igual apenas se vencía el
+        // candado — borrando de un plumazo una partida que sí existía.
+        if (r.ok && now >= rosterLockUntil.current) {
           setRoster((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(r)) return prev;
+            if (JSON.stringify(prev) === JSON.stringify(r.value)) return prev;
             skipNextRosterSave.current = true;
-            return r;
+            return r.value;
           });
         }
-        if (now >= gamesLockUntil.current) {
+        if (g.ok && now >= gamesLockUntil.current) {
           setGames((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(g)) return prev;
+            if (JSON.stringify(prev) === JSON.stringify(g.value)) return prev;
             skipNextGamesSave.current = true;
-            return g;
+            return g.value;
           });
         }
-        if (now >= activeLockUntil.current) {
+        if (a.ok && now >= activeLockUntil.current) {
           setActiveGame((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(a)) return prev;
+            if (JSON.stringify(prev) === JSON.stringify(a.value)) return prev;
             skipNextActiveSave.current = true;
-            return a;
+            return a.value;
           });
         }
       } catch {
@@ -821,7 +902,14 @@ export default function PokerLedger() {
   if (loading) {
     return (
       <div style={{ background: C.felt, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ ...displayFont, color: C.goldSoft, fontSize: 28 }}>Repartiendo cartas…</div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ ...displayFont, color: C.goldSoft, fontSize: 28 }}>Repartiendo cartas…</div>
+          {loadAttempt > 0 && (
+            <div style={{ ...bodyFont, color: "rgba(244,234,214,0.55)", fontSize: 13, marginTop: 8 }}>
+              Problemas de conexión — reintentando… (intento {loadAttempt + 1})
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -851,6 +939,20 @@ export default function PokerLedger() {
       `}</style>
 
       <Header tab={tab} setTab={setTab} hasActive={hasActive} isHost={isHost} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} onLogout={logout} />
+
+      {(syncError.roster || syncError.games || syncError.active) && (
+        <div style={{ maxWidth: 980, margin: "10px auto 0", padding: "0 14px" }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+            background: "rgba(226,99,79,0.14)", border: `1px solid ${C.loss}`, borderRadius: 9, padding: "9px 12px",
+          }}>
+            <AlertCircle size={16} color={C.loss} style={{ flexShrink: 0 }} />
+            <span style={{ ...bodyFont, fontSize: 12.5, color: "rgba(244,234,214,0.9)", flex: 1, minWidth: 0 }}>
+              No se pudo guardar tu último cambio todavía — reintentando solo. No toques nada en esta sección hasta que desaparezca este aviso.
+            </span>
+          </div>
+        </div>
+      )}
 
       <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 14px 60px" }}>
         {tab === "jugadores" && !hasActive && (

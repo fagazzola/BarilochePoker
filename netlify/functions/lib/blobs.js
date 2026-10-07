@@ -18,8 +18,16 @@ const { getStore } = require("@netlify/blobs");
 const STORE_NAME = "bariloche-active";
 const ACTIVE_KEY = "active-game";
 
+// "strong": siempre lee el último valor escrito (consistencia "read your
+// writes"), al costo de un poquito más de latencia por request. Por default,
+// Netlify Blobs usa consistencia "eventual" (más rápida, pero una lectura
+// justo después de escribir puede traer todavía el valor viejo por unos
+// segundos) — eso, combinado con el polling cada 4s de la app, podía producir
+// una lectura vieja que pisara un cambio recién guardado. Acá no hay margen
+// para esa demora: la partida en curso necesita que cada lectura refleje
+// siempre la última escritura.
 function activeStore() {
-  return getStore(STORE_NAME);
+  return getStore({ name: STORE_NAME, consistency: "strong" });
 }
 
 async function getActiveGame() {
