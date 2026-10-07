@@ -75,6 +75,12 @@ function gamesToRows(games) {
       rakeHost: g.rakeHost || 0,
       rakeAutosCount: g.rakeAutosCount || 0,
       rakeAutoAmount: g.rakeAutoAmount ?? 300,
+      // Snapshot de "Entrega de fichas" capturado al cerrar + el estado del
+      // empuje en bloque a las hojas de auditoría del Excel (LogPetLotes /
+      // EntregaFichas) — se persisten para poder reintentar ese empuje más
+      // tarde (por ejemplo, después de recargar la app) sin perder nada.
+      entregaFichasRows: g.entregaFichasRows || [],
+      excelAuditError: g.excelAuditError || "",
     }),
   ]);
 }
@@ -103,6 +109,8 @@ function rowsToGames(rows) {
         rakeHost: detalle.rakeHost || 0,
         rakeAutosCount: detalle.rakeAutosCount || 0,
         rakeAutoAmount: detalle.rakeAutoAmount ?? 300,
+        entregaFichasRows: detalle.entregaFichasRows || [],
+        excelAuditError: detalle.excelAuditError || "",
         results: null,
       };
     })

@@ -1,8 +1,15 @@
 # BARILOCHE — Registro de Poker (con Excel como base de datos)
 
-Esta versión guarda todo en un archivo de Excel en tu OneDrive, a través de
-funciones de Netlify que hablan con Microsoft Graph. Cualquiera con el link
-del sitio ve y edita los mismos datos.
+El Excel en tu OneDrive (vía Microsoft Graph) es el registro **definitivo**
+de cada partida, pero ya no se toca mientras se juega. Mientras una partida
+está en curso, todo (compras, cena, lote/rake, log de compras, entrega de
+fichas) vive en un **blob de Netlify** — almacenamiento propio del sitio,
+sin OAuth ni límites de Microsoft Graph, mucho más rápido y sin la
+intermitencia de "se guarda y después desaparece". Recién al cerrar
+formalmente la partida se escribe todo de una vez al Excel: la fila de
+"Partidas"/"Resultados" y, en bloque, las hojas de auditoría "EntregaFichas"
+y "LogPetLotes". Cualquiera con el link del sitio ve y edita los mismos
+datos.
 
 ## 1. Crear el archivo Excel
 
@@ -26,17 +33,34 @@ con estos nombres **exactos** y estos encabezados en la fila 1:
 | key | value |
 |-----|-------|
 
-**Hoja "EntregaFichas"** (auditoría — la llena el botón "Guardar en Excel" de la pantalla de Entrega de fichas; se le van agregando filas, nunca se sobreescribe)
+**Hoja "EntregaFichas"** (auditoría — se le agrega un snapshot una sola vez, al cerrar formalmente cada partida; nunca se sobreescribe)
 | timestamp | gameId | fecha | jugadorId | jugador | debeVirtual | pagaVirtual | fichasRemanentes | ajusteManual | fichasTotales | rake | cashDisponible | virtualPendiente | totalA | totalB |
 |-----------|--------|-------|-----------|---------|-------------|-------------|-------------------|---------------|----------------|------|-----------------|-------------------|--------|--------|
 
-**Hoja "LogPetLotes"** (auditoría — la llena sola la pantalla "Log Compras" de la partida en curso, un renglón por cada evento de compra/solicitud de lotes, con hora exacta; se le van agregando filas, nunca se sobreescribe)
+**Hoja "LogPetLotes"** (auditoría — se le agrega el log completo de la noche una sola vez, al cerrar formalmente cada partida, un renglón por cada evento de compra/solicitud de lotes, con hora exacta; nunca se sobreescribe)
 | timestamp | gameId | fecha | jugadorId | jugador | tipo | accion | origen | lotes | monto | valorLote |
 |-----------|--------|-------|-----------|---------|------|--------|--------|-------|-------|-----------|
 
 `tipo` es `cash` o `virtual`. `accion` es una de: `compra directa` (el host le suma un lote a mano), `solicitud enviada`, `solicitud aprobada`, `solicitud rechazada` (pedido de un jugador desde su celular) o `cancelación` (el host deshace la última compra de ese tipo). `origen` es `host` o `jugador`. `lotes`/`monto` van en negativo en una `cancelación`; en una `solicitud enviada` o `solicitud rechazada` llevan el monto que se pidió aunque no haya generado ninguna compra real (la compra real solo queda contabilizada en `compra directa` y `solicitud aprobada`). Por eso esta hoja es un registro narrativo para auditar la actividad — para totales de buy-in siempre hay que usar la hoja "Partidas" (columna `detalleJson.purchases`) o "Resultados", nunca sumar esta.
 
+Si ese empuje en bloque falla al cerrar una partida (por ejemplo, sin
+conexión un instante), la app lo avisa con un botón "Reintentar" en la
+pantalla de resultados y en el histórico — no se pierde nada, el detalle ya
+quedó guardado dentro de la propia partida.
+
 No hace falta escribir nada más — la app llena las filas de datos sola.
+
+## Partida en curso: blob de Netlify, no Excel
+
+Mientras una partida está en curso (botón "active" en `src/App.jsx`), la app
+no toca el Excel en absoluto: lee y escribe un blob de Netlify (ver
+`netlify/functions/lib/blobs.js`, paquete `@netlify/blobs`). Esto no requiere
+ninguna variable de entorno ni configuración extra — Netlify habilita Blobs
+automáticamente para cualquier sitio. La hoja "Meta" del Excel sigue
+existiendo solo para la contraseña de administrador (fila `admin_password`,
+la cargás a mano); la fila vieja `active` que pudiera haber quedado ahí de
+versiones anteriores de la app ya no se lee ni se escribe — es basura
+inofensiva, se puede borrar a mano o dejar como está.
 
 ## 2. Desplegar en Netlify
 

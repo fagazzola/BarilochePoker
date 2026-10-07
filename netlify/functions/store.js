@@ -2,11 +2,12 @@ const { getRows, setRows, appendRows } = require("./lib/sheets");
 const {
   rosterToRows, rowsToRoster,
   gamesToRows, rowsToGames,
-  metaToRows, rowsToActiveGame, rowsToAdminPassword,
+  rowsToAdminPassword,
   buildResultadosRows, rowsToResultados,
   entregaFichasToRows,
   logPetLotesToRows,
 } = require("./lib/mapping");
+const { getActiveGame, setActiveGame } = require("./lib/blobs");
 
 const HEADERS = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
@@ -46,8 +47,11 @@ exports.handler = async (event) => {
         return respond(200, { value: rowsToGames(rows) });
       }
       if (key === "active") {
-        const rows = await getRows("meta");
-        return respond(200, { value: rowsToActiveGame(rows) });
+        // La partida EN CURSO vive en un blob de Netlify, no en Excel — ver
+        // lib/blobs.js. Mucho más rápido y sin la intermitencia de Microsoft
+        // Graph; el Excel recién se escribe una sola vez, al cierre formal.
+        const value = await getActiveGame();
+        return respond(200, { value });
       }
       if (key === "adminPassword") {
         // Contraseña de administrador: se lee de la hoja "Meta" (fila
@@ -89,19 +93,15 @@ exports.handler = async (event) => {
         return respond(200, { ok: true });
       }
       if (key === "active") {
-        // Preservar la contraseña de administrador que ya esté cargada en la
-        // hoja Meta, porque setRows reescribe la hoja entera.
-        const existingRows = await getRows("meta");
-        const currentPassword = rowsToAdminPassword(existingRows);
-        await setRows("meta", metaToRows(value, currentPassword));
+        // Partida en curso: se guarda en el blob de Netlify, nunca en Excel.
+        await setActiveGame(value === undefined ? null : value);
         return respond(200, { ok: true });
       }
       if (key === "entregaFichas") {
-        // Guardado on-demand desde el botón "Guardar en Excel ahora" de la
-        // pantalla de Entrega de fichas: agrega un snapshot con timestamp a
-        // la hoja "EntregaFichas" (nunca sobreescribe lo ya guardado), para
-        // no depender del ciclo de sincronización automático (con su
-        // latencia y su candado de 3s) y dejar un historial auditable.
+        // Se dispara UNA sola vez, en bloque, justo al cerrar formalmente la
+        // partida (ya no en cada click de un botón "guardar" durante el
+        // juego): agrega el snapshot final a la hoja "EntregaFichas" (nunca
+        // sobreescribe lo ya guardado), para dejar un historial auditable.
         const { gameId, gameDate, rows } = body;
         if (!gameId || !Array.isArray(rows)) {
           return respond(400, { error: "faltan gameId o rows para entregaFichas" });
@@ -110,9 +110,10 @@ exports.handler = async (event) => {
         return respond(200, { ok: true });
       }
       if (key === "logPetLotes") {
-        // Log en tiempo real de la pantalla "Log Compras": cada evento de
-        // compra/solicitud de lotes (uno o varios a la vez) se agrega como
-        // fila nueva a "LogPetLotes", nunca se sobreescribe lo ya guardado.
+        // Igual que "entregaFichas": se dispara una sola vez al cerrar la
+        // partida, con el log completo de toda la noche (ya no evento por
+        // evento mientras se juega) — se agrega como filas nuevas a
+        // "LogPetLotes", nunca se sobreescribe lo ya guardado.
         const { gameId, gameDate, rows } = body;
         if (!gameId || !Array.isArray(rows)) {
           return respond(400, { error: "faltan gameId o rows para logPetLotes" });
