@@ -59,12 +59,26 @@ const KEYS = { roster: "poker-roster", games: "poker-games", active: "poker-acti
 async function loadKey(key, fallback) {
   try {
     const res = await fetch(`/api/store?key=${encodeURIComponent(key)}`);
-    if (!res.ok) return { ok: false, value: fallback };
+    if (!res.ok) {
+      // Mostramos el motivo real (texto del error que devuelve la función
+      // de Netlify, o el status HTTP) en vez de un "falló" genérico, para
+      // poder diagnosticar sin tener que ir a mirar logs del servidor.
+      let detail = `HTTP ${res.status}`;
+      try {
+        const t = await res.text();
+        const parsed = JSON.parse(t);
+        if (parsed && parsed.error) detail = parsed.error;
+        else if (t) detail = t;
+      } catch { /* no era JSON, nos quedamos con el status */ }
+      console.error("load failed", key, detail);
+      return { ok: false, value: fallback, error: `${key}: ${detail}` };
+    }
     const data = await res.json();
     return { ok: true, value: data && data.value !== undefined && data.value !== null ? data.value : fallback };
   } catch (e) {
-    console.error("load failed", key, e);
-    return { ok: false, value: fallback };
+    const detail = String((e && e.message) || e);
+    console.error("load failed", key, detail);
+    return { ok: false, value: fallback, error: `${key}: ${detail}` };
   }
 }
 // Reintenta antes de rendirse (hipos de red cortos no deberían contar como
@@ -146,7 +160,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.12.07.049";
+const APP_VERSION = "3.13.07.050";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -679,6 +693,7 @@ function computeSettlement(game, roster) {
 export default function PokerLedger() {
   const [loading, setLoading] = useState(true);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadErrorDetail, setLoadErrorDetail] = useState("");
   const [roster, setRoster] = useState([]);
   const [games, setGames] = useState([]);
   const [activeGame, setActiveGame] = useState(null);
@@ -746,6 +761,7 @@ export default function PokerLedger() {
         attempt++;
         if (cancelled) return;
         setLoadAttempt(attempt);
+        setLoadErrorDetail([r, g, a].filter((x) => !x.ok).map((x) => x.error).join(" · "));
         await new Promise((res) => setTimeout(res, Math.min(1500 * attempt, 8000)));
       }
     })();
@@ -905,8 +921,15 @@ export default function PokerLedger() {
         <div style={{ textAlign: "center" }}>
           <div style={{ ...displayFont, color: C.goldSoft, fontSize: 28 }}>Repartiendo cartas…</div>
           {loadAttempt > 0 && (
-            <div style={{ ...bodyFont, color: "rgba(244,234,214,0.55)", fontSize: 13, marginTop: 8 }}>
-              Problemas de conexión — reintentando… (intento {loadAttempt + 1})
+            <div style={{ marginTop: 8, maxWidth: 420, padding: "0 16px" }}>
+              <div style={{ ...bodyFont, color: "rgba(244,234,214,0.55)", fontSize: 13 }}>
+                Problemas de conexión — reintentando… (intento {loadAttempt + 1})
+              </div>
+              {loadErrorDetail && (
+                <div style={{ ...monoFont, color: "rgba(226,99,79,0.85)", fontSize: 11, marginTop: 6, wordBreak: "break-word" }}>
+                  {loadErrorDetail}
+                </div>
+              )}
             </div>
           )}
         </div>
