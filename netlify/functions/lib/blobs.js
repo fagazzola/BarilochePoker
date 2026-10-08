@@ -26,8 +26,26 @@ const ACTIVE_KEY = "active-game";
 // una lectura vieja que pisara un cambio recién guardado. Acá no hay margen
 // para esa demora: la partida en curso necesita que cada lectura refleje
 // siempre la última escritura.
+// En un sitio desplegado normalmente por Netlify, getStore() recibe solo
+// (sin hacer nada extra) el contexto necesario para hablar con Blobs —
+// Netlify se lo inyecta solo a la función en tiempo de ejecución. En
+// algunos sitios/despliegues esa inyección automática no llega, y
+// getStore() tira: "The environment has not been configured to use
+// Netlify Blobs. To use it manually, supply the following properties
+// when creating a store: siteID, token". Para esos casos se puede pasar
+// el Site ID y un token a mano, vía 2 variables de entorno opcionales
+// (ver README.md, sección "Blobs: configuración manual"):
+//   NETLIFY_SITE_ID    — Site settings → General → Site details → Site ID
+//   NETLIFY_BLOBS_TOKEN — User settings → Applications → Personal access tokens → New access token
+// Si no están cargadas, se sigue intentando la configuración automática
+// de siempre (no rompe nada en los sitios donde sí funciona sola).
 function activeStore() {
-  return getStore({ name: STORE_NAME, consistency: "strong" });
+  const opts = { name: STORE_NAME, consistency: "strong" };
+  if (process.env.NETLIFY_SITE_ID && process.env.NETLIFY_BLOBS_TOKEN) {
+    opts.siteID = process.env.NETLIFY_SITE_ID;
+    opts.token = process.env.NETLIFY_BLOBS_TOKEN;
+  }
+  return getStore(opts);
 }
 
 async function getActiveGame() {

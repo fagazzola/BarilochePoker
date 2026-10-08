@@ -54,13 +54,40 @@ No hace falta escribir nada más — la app llena las filas de datos sola.
 
 Mientras una partida está en curso (botón "active" en `src/App.jsx`), la app
 no toca el Excel en absoluto: lee y escribe un blob de Netlify (ver
-`netlify/functions/lib/blobs.js`, paquete `@netlify/blobs`). Esto no requiere
-ninguna variable de entorno ni configuración extra — Netlify habilita Blobs
-automáticamente para cualquier sitio. La hoja "Meta" del Excel sigue
-existiendo solo para la contraseña de administrador (fila `admin_password`,
-la cargás a mano); la fila vieja `active` que pudiera haber quedado ahí de
-versiones anteriores de la app ya no se lee ni se escribe — es basura
-inofensiva, se puede borrar a mano o dejar como está.
+`netlify/functions/lib/blobs.js`, paquete `@netlify/blobs`). En la gran
+mayoría de los sitios esto funciona solo, sin ninguna variable de entorno —
+Netlify le inyecta el contexto necesario a la función automáticamente. La
+hoja "Meta" del Excel sigue existiendo solo para la contraseña de
+administrador (fila `admin_password`, la cargás a mano); la fila vieja
+`active` que pudiera haber quedado ahí de versiones anteriores de la app ya
+no se lee ni se escribe — es basura inofensiva, se puede borrar a mano o
+dejar como está.
+
+### Blobs: configuración manual (solo si ves "problemas de conexión")
+
+Si la app te muestra un error como:
+
+> poker-active-game: The environment has not been configured to use Netlify
+> Blobs. To use it manually, supply the following properties when creating
+> a store: siteID, token
+
+significa que en tu sitio esa inyección automática no está llegando, y hay
+que indicarle a mano a qué sitio conectarse. Cargá estas 2 variables en
+**Site settings → Environment variables** (igual que las `MS_*`):
+
+- **`NETLIFY_SITE_ID`** — en el panel de Netlify, andá a **Site settings →
+  General → Site details**, copiá el **"Site ID"** (es un código largo tipo
+  `a1b2c3d4-...`).
+- **`NETLIFY_BLOBS_TOKEN`** — hace falta un token personal de Netlify.
+  Arriba a la derecha, tu avatar de usuario → **User settings** →
+  **Applications** → sección "Personal access tokens" → **New access
+  token**. Le ponés cualquier nombre (por ej. `bariloche-blobs`) y Netlify
+  te muestra el token **una sola vez**: copialo entero y pegalo en esta
+  variable.
+
+Redeployá el sitio después de cargar las 2 variables (Netlify no las toma
+hasta el próximo deploy). Con eso `getStore()` ya no depende de la
+inyección automática y el error desaparece.
 
 ## 2. Desplegar en Netlify
 
