@@ -160,7 +160,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.15.07.052";
+const APP_VERSION = "3.16.07.053";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -1610,6 +1610,12 @@ function formatClock(ts) {
   if (!ts) return "—";
   return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
+// Para el Log Compras, que necesita hh:mm:ss (con segundos) para poder
+// diferenciar eventos muy seguidos uno del otro.
+function formatClockSec(ts) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+}
 function GameStatusBlock({ game, players, totals }) {
   const perPlayer = players.map((p) => {
     const cash = game.purchases.filter((pu) => pu.playerId === p.id && pu.type === "cash").reduce((s, pu) => s + pu.amount, 0);
@@ -1742,14 +1748,14 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
     if (reqBefore && reqBefore.status === "pending" && reqBefore.type !== "join") {
       const lotesDelta = game.loteValue ? round1(reqBefore.amount / game.loteValue) : 0;
       const saldoInicial = approve
-        ? game.purchases.filter((p) => p.playerId === reqBefore.playerId && p.type === reqBefore.type).reduce((s, p) => s + p.lotes, 0)
+        ? game.purchases.filter((p) => p.playerId === reqBefore.playerId && p.type === reqBefore.type).reduce((s, p) => s + p.amount, 0)
         : undefined;
       logEvent({
         playerId: reqBefore.playerId, type: reqBefore.type, origin: "jugador",
         action: approve ? "solicitud aprobada" : "solicitud rechazada",
         lotes: lotesDelta,
         amount: reqBefore.amount,
-        ...(approve ? { saldoInicial, saldoFinal: saldoInicial + lotesDelta } : {}),
+        ...(approve ? { saldoInicial, saldoFinal: saldoInicial + reqBefore.amount } : {}),
       });
     }
   };
@@ -1878,31 +1884,33 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   }
 
   const addPurchase = (playerId, type) => {
-    // saldoInicial/saldoFinal: cuántos lotes de este tipo tenía el jugador
-    // antes y después de esta compra — se calcula con el estado de
-    // `game.purchases` en el momento del click, antes de aplicar el cambio.
+    // saldoInicial/saldoFinal: cuánto dinero (cash o virtual, según el tipo)
+    // tenía comprado el jugador antes y después de esta compra — se calcula
+    // con el estado de `game.purchases` en el momento del click, antes de
+    // aplicar el cambio.
     const saldoInicial = game.purchases
       .filter((p) => p.playerId === playerId && p.type === type)
-      .reduce((s, p) => s + p.lotes, 0);
+      .reduce((s, p) => s + p.amount, 0);
     update((g) => {
       const entry = { id: uid(), playerId, type, lotes: 1, amount: g.loteValue, ts: Date.now() };
       return { purchases: [...g.purchases, entry] };
     });
     logEvent({
       playerId, type, origin: "host", action: "compra directa", lotes: 1, amount: game.loteValue,
-      saldoInicial, saldoFinal: saldoInicial + 1,
+      saldoInicial, saldoFinal: saldoInicial + game.loteValue,
     });
   };
   const removeLastPurchase = (playerId, type) => {
     const entriesBefore = game.purchases.filter((p) => p.playerId === playerId && p.type === type);
     const lastBefore = entriesBefore[entriesBefore.length - 1];
     if (lastBefore) {
-      const saldoInicial = entriesBefore.reduce((s, p) => s + p.lotes, 0);
+      const saldoInicial = entriesBefore.reduce((s, p) => s + p.amount, 0);
       const deltaLotes = -(Number(lastBefore.lotes) || 0);
+      const deltaAmount = -(Number(lastBefore.amount) || 0);
       logEvent({
         playerId, type, origin: "host", action: "cancelación",
-        lotes: deltaLotes, amount: -(Number(lastBefore.amount) || 0),
-        saldoInicial, saldoFinal: saldoInicial + deltaLotes,
+        lotes: deltaLotes, amount: deltaAmount,
+        saldoInicial, saldoFinal: saldoInicial + deltaAmount,
       });
     }
     update((g) => {
@@ -2217,7 +2225,7 @@ function PurchaseLogPanel({ game }) {
               display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
               background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "7px 10px",
             }}>
-              <span style={{ ...monoFont, fontSize: 11, color: "rgba(244,234,214,0.45)", whiteSpace: "nowrap" }}>{formatClock(e.ts)}</span>
+              <span style={{ ...monoFont, fontSize: 11, color: "rgba(244,234,214,0.45)", whiteSpace: "nowrap" }}>{formatClockSec(e.ts)}</span>
               <span style={{ color: C.card, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.playerName}</span>
               <span style={{ ...monoFont, fontSize: 11, fontWeight: 700, color: e.type === "cash" ? C.cash : C.virtual, textTransform: "uppercase" }}>{e.type === "cash" ? "Cash" : "Virtual"}</span>
               {showAction && (
@@ -2227,7 +2235,7 @@ function PurchaseLogPanel({ game }) {
               )}
               <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: e.amount < 0 ? C.loss : "rgba(244,234,214,0.85)", whiteSpace: "nowrap" }}>
                 {hasSaldo ? (
-                  <>{e.saldoInicial} &nbsp;{lotesLabel(e.lotes)}&nbsp; {e.saldoFinal} · {money(e.amount)}</>
+                  <>{money(e.saldoInicial)} &nbsp;{lotesLabel(e.lotes)}&nbsp; {money(e.saldoFinal)}</>
                 ) : (
                   <>{e.lotes ? `${lotesLabel(e.lotes)} · ` : ""}{money(e.amount)}</>
                 )}
