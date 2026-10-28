@@ -160,7 +160,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 //   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
 //         otro archivo, p. ej. netlify/functions) — nunca baja.
 // Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.14.07.051";
+const APP_VERSION = "3.15.07.052";
 
 // Identidad del jugador en este dispositivo: se guarda en localStorage, así
 // que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
@@ -1740,11 +1740,16 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
     // ejecutarse con el estado más reciente): usamos el request tal cual
     // estaba antes de resolverlo para no duplicar el evento.
     if (reqBefore && reqBefore.status === "pending" && reqBefore.type !== "join") {
+      const lotesDelta = game.loteValue ? round1(reqBefore.amount / game.loteValue) : 0;
+      const saldoInicial = approve
+        ? game.purchases.filter((p) => p.playerId === reqBefore.playerId && p.type === reqBefore.type).reduce((s, p) => s + p.lotes, 0)
+        : undefined;
       logEvent({
         playerId: reqBefore.playerId, type: reqBefore.type, origin: "jugador",
         action: approve ? "solicitud aprobada" : "solicitud rechazada",
-        lotes: game.loteValue ? round1(reqBefore.amount / game.loteValue) : 0,
+        lotes: lotesDelta,
         amount: reqBefore.amount,
+        ...(approve ? { saldoInicial, saldoFinal: saldoInicial + lotesDelta } : {}),
       });
     }
   };
@@ -1873,19 +1878,31 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
   }
 
   const addPurchase = (playerId, type) => {
+    // saldoInicial/saldoFinal: cuántos lotes de este tipo tenía el jugador
+    // antes y después de esta compra — se calcula con el estado de
+    // `game.purchases` en el momento del click, antes de aplicar el cambio.
+    const saldoInicial = game.purchases
+      .filter((p) => p.playerId === playerId && p.type === type)
+      .reduce((s, p) => s + p.lotes, 0);
     update((g) => {
       const entry = { id: uid(), playerId, type, lotes: 1, amount: g.loteValue, ts: Date.now() };
       return { purchases: [...g.purchases, entry] };
     });
-    logEvent({ playerId, type, origin: "host", action: "compra directa", lotes: 1, amount: game.loteValue });
+    logEvent({
+      playerId, type, origin: "host", action: "compra directa", lotes: 1, amount: game.loteValue,
+      saldoInicial, saldoFinal: saldoInicial + 1,
+    });
   };
   const removeLastPurchase = (playerId, type) => {
     const entriesBefore = game.purchases.filter((p) => p.playerId === playerId && p.type === type);
     const lastBefore = entriesBefore[entriesBefore.length - 1];
     if (lastBefore) {
+      const saldoInicial = entriesBefore.reduce((s, p) => s + p.lotes, 0);
+      const deltaLotes = -(Number(lastBefore.lotes) || 0);
       logEvent({
         playerId, type, origin: "host", action: "cancelación",
-        lotes: -(Number(lastBefore.lotes) || 0), amount: -(Number(lastBefore.amount) || 0),
+        lotes: deltaLotes, amount: -(Number(lastBefore.amount) || 0),
+        saldoInicial, saldoFinal: saldoInicial + deltaLotes,
       });
     }
     update((g) => {
@@ -2000,8 +2017,6 @@ function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify,
             {players.map((p) => (
               <PlayerBuyRow
                 key={p.id} player={p} game={game} onAdd={addPurchase} onRemoveLast={removeLastPurchase}
-                dinnerPaid={!!game.dinner.paid?.[p.id]}
-                onGoToDinner={() => setTab && setTab("cena")}
               />
             ))}
           </div>
@@ -2180,6 +2195,8 @@ function PurchaseLogPanel({ game }) {
     return C.win;
   };
 
+  const lotesLabel = (n) => `${n > 0 ? "+" : ""}${n} lote${Math.abs(n) === 1 ? "" : "s"}`;
+
   return (
     <Panel>
       <SectionTitle icon={History}>Log Compras</SectionTitle>
@@ -2187,22 +2204,37 @@ function PurchaseLogPanel({ game }) {
       {sorted.length === 0 && <Empty>Todavía no hay actividad de compra en esta partida.</Empty>}
 
       <div style={{ display: "grid", gap: 6 }}>
-        {sorted.map((e) => (
-          <div key={e.id} style={{
-            display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
-            background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "7px 10px",
-          }}>
-            <span style={{ ...monoFont, fontSize: 11, color: "rgba(244,234,214,0.45)", whiteSpace: "nowrap" }}>{formatClock(e.ts)}</span>
-            <span style={{ color: C.card, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.playerName}</span>
-            <span style={{ ...monoFont, fontSize: 11, fontWeight: 700, color: e.type === "cash" ? C.cash : C.virtual, textTransform: "uppercase" }}>{e.type === "cash" ? "Cash" : "Virtual"}</span>
-            <span style={{ fontSize: 12, color: actionColor(e.action), fontWeight: 600 }}>
-              {e.action}{e.origin === "host" ? " (host)" : ""}
-            </span>
-            <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: e.amount < 0 ? C.loss : "rgba(244,234,214,0.85)" }}>
-              {e.lotes ? `${e.lotes > 0 ? "+" : ""}${e.lotes} lote${Math.abs(e.lotes) === 1 ? "" : "s"} · ` : ""}{money(e.amount)}
-            </span>
-          </div>
-        ))}
+        {sorted.map((e) => {
+          // "compra directa" es, hoy, la única forma en la que se agregan
+          // lotes (ya no hay pedidos de jugadores) — mostrar esa etiqueta en
+          // cada renglón es ruido repetido, así que solo se muestra la
+          // acción cuando es una excepción (cancelación, o alguna solicitud
+          // vieja que haya quedado pendiente de antes de este cambio).
+          const showAction = e.action !== "compra directa";
+          const hasSaldo = typeof e.saldoInicial === "number" && typeof e.saldoFinal === "number";
+          return (
+            <div key={e.id} style={{
+              display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+              background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "7px 10px",
+            }}>
+              <span style={{ ...monoFont, fontSize: 11, color: "rgba(244,234,214,0.45)", whiteSpace: "nowrap" }}>{formatClock(e.ts)}</span>
+              <span style={{ color: C.card, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.playerName}</span>
+              <span style={{ ...monoFont, fontSize: 11, fontWeight: 700, color: e.type === "cash" ? C.cash : C.virtual, textTransform: "uppercase" }}>{e.type === "cash" ? "Cash" : "Virtual"}</span>
+              {showAction && (
+                <span style={{ fontSize: 12, color: actionColor(e.action), fontWeight: 600 }}>
+                  {e.action}{e.origin === "host" ? " (host)" : ""}
+                </span>
+              )}
+              <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: e.amount < 0 ? C.loss : "rgba(244,234,214,0.85)", whiteSpace: "nowrap" }}>
+                {hasSaldo ? (
+                  <>{e.saldoInicial} &nbsp;{lotesLabel(e.lotes)}&nbsp; {e.saldoFinal} · {money(e.amount)}</>
+                ) : (
+                  <>{e.lotes ? `${lotesLabel(e.lotes)} · ` : ""}{money(e.amount)}</>
+                )}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </Panel>
   );
@@ -2358,13 +2390,12 @@ function buyBtnStyle(color, subtract, disabled) {
   };
 }
 
-function PlayerBuyRow({ player, game, onAdd, onRemoveLast, dinnerPaid, onGoToDinner }) {
+function PlayerBuyRow({ player, game, onAdd, onRemoveLast }) {
   const entries = game.purchases.filter((p) => p.playerId === player.id);
   const cashLotes = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.lotes, 0);
   const virtualLotes = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.lotes, 0);
   const cashAmount = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.amount, 0);
   const virtualAmount = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.amount, 0);
-  const blocked = !dinnerPaid;
 
   return (
     <div style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: 14 }}>
@@ -2373,22 +2404,8 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast, dinnerPaid, onGoToDin
         <span style={{ color: C.card, fontWeight: 700, fontSize: 17 }}>{player.name}</span>
       </div>
 
-      {blocked && (
-        <button
-          onClick={onGoToDinner}
-          style={{
-            display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left",
-            background: "rgba(226,99,79,0.14)", border: `1px solid ${C.loss}`, borderRadius: 8,
-            padding: "8px 10px", marginBottom: 10, cursor: "pointer", color: "#f0c9c2", fontSize: 12, ...bodyFont,
-          }}
-        >
-          <UtensilsCrossed size={14} color={C.loss} style={{ flexShrink: 0 }} />
-          Falta confirmar el pago de la cena de {player.name} para poder comprar lotes. Toca para ir a Cena y servicio.
-        </button>
-      )}
-
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        <button onClick={() => onAdd(player.id, "cash")} disabled={blocked} style={buyBtnStyle(C.cash, false, blocked)}>
+        <button onClick={() => onAdd(player.id, "cash")} style={buyBtnStyle(C.cash, false, false)}>
           <Plus size={20} /> Cash
         </button>
         <button onClick={() => onRemoveLast(player.id, "cash")} disabled={cashLotes === 0} style={buyBtnStyle(C.cash, true, cashLotes === 0)}>
@@ -2400,7 +2417,7 @@ function PlayerBuyRow({ player, game, onAdd, onRemoveLast, dinnerPaid, onGoToDin
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <button onClick={() => onAdd(player.id, "virtual")} disabled={blocked} style={buyBtnStyle(C.virtual, false, blocked)}>
+        <button onClick={() => onAdd(player.id, "virtual")} style={buyBtnStyle(C.virtual, false, false)}>
           <Plus size={20} /> Virtual
         </button>
         <button onClick={() => onRemoveLast(player.id, "virtual")} disabled={virtualLotes === 0} style={buyBtnStyle(C.virtual, true, virtualLotes === 0)}>
