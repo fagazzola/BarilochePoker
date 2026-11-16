@@ -1,3435 +1,379 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import {
-  Plus, Minus, Trash2, Pencil, Users, UtensilsCrossed, Wine,
-  Trophy, ArrowRightLeft, Save, X, Check, ChevronDown, ChevronUp, ChevronLeft,
-  Banknote, Landmark, Flame, History, UserPlus, UserX, UserCheck,
-  Play, Square, AlertCircle, Crown, DollarSign, CircleDollarSign, Coins,
-  BarChart3, Activity
-} from "lucide-react";
+import { useEffect, useState } from "react";
+import Login from "./components/Login.jsx";
+import Nav from "./components/Nav.jsx";
+import Decor from "./components/Decor.jsx";
+import VersionBadge from "./components/VersionBadge.jsx";
+import Calendario from "./components/Calendario.jsx";
+import Tablero from "./components/Tablero.jsx";
+import Perfiles from "./components/Perfiles.jsx";
+import Jugadores from "./components/Jugadores.jsx";
+import Cobranza from "./components/Cobranza.jsx";
+import GameNight from "./components/GameNight.jsx";
+import Estadisticas from "./components/Estadisticas.jsx";
+import Proyecciones from "./components/Proyecciones.jsx";
+import MiPerfil from "./components/MiPerfil.jsx";
+import Registro from "./components/Registro.jsx";
+import { puedeVer } from "./lib/permisos.js";
 
-/* ----------------------------------------------------------------------
-   THEME
----------------------------------------------------------------------- */
-const FONT_IMPORT =
-  "@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');";
+const SESSION_KEY = "tols-session";
+const ACTIVITY_KEY = "tols-last-activity";
+const INACTIVIDAD_MS = 30 * 60 * 1000; // 30 minutos sin actividad → se cierra la sesión sola
+const API_PERFILES = "/api/perfiles";
+const API_PARAMETROS = "/api/parametros";
 
-const C = {
-  felt: "#0c3527",
-  feltDeep: "#082019",
-  feltLine: "rgba(212,175,55,0.14)",
-  card: "#f4ead6",
-  cardDim: "#e7dabd",
-  ink: "#241d12",
-  inkSoft: "#5c5240",
-  gold: "#d8ad3f",
-  goldSoft: "#f0d888",
-  cash: "#2fae66",
-  cashDeep: "#1d7d49",
-  virtual: "#f2883c",
-  virtualDeep: "#c9631f",
-  win: "#3fbf72",
-  loss: "#e2634f",
-  panel: "#123f30",
-  panelLine: "rgba(212,175,55,0.22)",
-};
-
-const displayFont = { fontFamily: "'Bebas Neue', sans-serif", letterSpacing: "0.04em" };
-const monoFont = { fontFamily: "'IBM Plex Mono', monospace" };
-const bodyFont = { fontFamily: "'Inter', sans-serif" };
-
-/* ----------------------------------------------------------------------
-   STORAGE
----------------------------------------------------------------------- */
-const KEYS = { roster: "poker-roster", games: "poker-games", active: "poker-active-game", adminPassword: "poker-admin-password" };
-
-// Guardado vía funciones de Netlify (partida en curso -> blob de Netlify;
-// roster/historial -> Microsoft Graph -> Excel). Reemplaza el window.storage
-// propio de los artifacts de Claude, que no existe fuera de ese entorno.
-//
-// IMPORTANTE: `loadKey` devuelve { ok, value } en vez de solo `value`. Antes,
-// cualquier error de red o de servidor (un hipo momentáneo de conexión, un
-// cold start de la función) devolvía silenciosamente el `fallback` (null/[]),
-// IGUAL que si el servidor hubiera contestado "no hay nada guardado". Eso era
-// la causa real de la inestabilidad reportada ("elijo jugadores, inicio la
-// partida, y al rato se resetea sola"): el polling (más abajo) aplicaba ese
-// `fallback` como si fuera el estado real apenas se vencía el candado de 3s,
-// borrando una partida que sí existía solo porque una lectura puntual falló.
-// Separar "se pudo leer" de "qué se leyó" deja que el polling ignore las
-// lecturas fallidas en vez de tratarlas como "está vacío".
-async function loadKey(key, fallback) {
-  try {
-    const res = await fetch(`/api/store?key=${encodeURIComponent(key)}`);
-    if (!res.ok) {
-      // Mostramos el motivo real (texto del error que devuelve la función
-      // de Netlify, o el status HTTP) en vez de un "falló" genérico, para
-      // poder diagnosticar sin tener que ir a mirar logs del servidor.
-      let detail = `HTTP ${res.status}`;
-      try {
-        const t = await res.text();
-        const parsed = JSON.parse(t);
-        if (parsed && parsed.error) detail = parsed.error;
-        else if (t) detail = t;
-      } catch { /* no era JSON, nos quedamos con el status */ }
-      console.error("load failed", key, detail);
-      return { ok: false, value: fallback, error: `${key}: ${detail}` };
-    }
-    const data = await res.json();
-    return { ok: true, value: data && data.value !== undefined && data.value !== null ? data.value : fallback };
-  } catch (e) {
-    const detail = String((e && e.message) || e);
-    console.error("load failed", key, detail);
-    return { ok: false, value: fallback, error: `${key}: ${detail}` };
-  }
-}
-// Reintenta antes de rendirse (hipos de red cortos no deberían contar como
-// "falló"), y devuelve si finalmente se pudo guardar o no, para que quien
-// llama pueda avisar al usuario y reintentar más tarde en vez de fingir que
-// quedó guardado.
-async function saveKey(key, value, attempts = 3) {
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const res = await fetch(`/api/store?key=${encodeURIComponent(key)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value }),
-      });
-      if (res.ok) return true;
-      console.error("storage set failed", key, await res.text());
-    } catch (e) {
-      console.error("storage set failed", key, e);
-    }
-    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 600 * (i + 1)));
-  }
-  return false;
-}
-
-// Mientras una partida está en curso, todo (compras, cena, log de compras,
-// borrador de "Entrega de fichas", etc.) vive únicamente en el blob de
-// Netlify de la partida activa (key "active", ver netlify/functions/lib/
-// blobs.js) — rápido y sin la intermitencia de ir a Microsoft Graph en cada
-// cambio. El Excel es el registro DEFINITIVO, pero recién se escribe ahí una
-// sola vez: al cerrar formalmente la partida, empujando en bloque el log de
-// compras de toda la noche ("LogPetLotes") y el snapshot final de "Entrega
-// de fichas" ("EntregaFichas"). Esta función hace ese empuje único y, si
-// algo falla, devuelve el mensaje de error (string vacío = sin errores) para
-// poder mostrar un aviso y reintentar después sin perder nada — el detalle
-// ya quedó guardado dentro de la propia partida finalizada.
-async function pushExcelAudit(finishedGame, entregaFichasRows) {
-  const tasks = [];
-  if (entregaFichasRows && entregaFichasRows.length > 0) {
-    tasks.push(["entregaFichas", entregaFichasRows]);
-  }
-  const log = finishedGame.purchaseLog || [];
-  if (log.length > 0) {
-    tasks.push([
-      "logPetLotes",
-      log.map((e) => ({
-        ts: e.ts, playerId: e.playerId, playerName: e.playerName,
-        type: e.type, action: e.action, origin: e.origin,
-        lotes: e.lotes, amount: e.amount, loteValue: e.loteValue,
-      })),
-    ]);
-  }
-  for (const [key, rows] of tasks) {
-    try {
-      const res = await fetch(`/api/store?key=${key}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameId: finishedGame.id, gameDate: finishedGame.date, rows }),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        let msg = t || `HTTP ${res.status}`;
-        try {
-          const parsed = JSON.parse(t);
-          if (parsed && parsed.error) msg = parsed.error;
-        } catch { /* no era JSON, se deja el texto crudo */ }
-        return msg;
-      }
-    } catch (e) {
-      return String((e && e.message) || e);
-    }
-  }
-  return "";
-}
-
-const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-// Versión de la app, formato 1.AA.BB.CCC:
-//   AA  = cantidad de rondas de cambios entregadas a src/App.jsx (esta app)
-//   BB  = cantidad de rondas de cambios entregadas a public/dashboard.html
-//   CCC = total acumulado de rondas de entrega (incluye AA + BB + cualquier
-//         otro archivo, p. ej. netlify/functions) — nunca baja.
-// Se actualiza a mano en cada ronda de cambios que Claude entrega.
-const APP_VERSION = "3.16.07.053";
-
-// Identidad del jugador en este dispositivo: se guarda en localStorage, así
-// que persiste aunque cierres y vuelvas a abrir la app en el mismo celular.
-// No es un login "de verdad" (no hay servidor de autenticación), es un PIN
-// simple para que la app sepa quién eres tú y así poder distinguir al host
-// del resto durante una partida.
-const MY_ID_STORAGE_KEY = "bariloche_myPlayerId";
-let _showIdentityModal = null;
-function requestIdentity(roster) {
-  return new Promise((resolve) => {
-    if (!_showIdentityModal) { resolve(null); return; }
-    _showIdentityModal(roster, resolve);
-  });
-}
-function IdentityModal({ setRoster }) {
-  const [pending, setPending] = useState(null); // { roster, onSubmit }
-  const [pickedId, setPickedId] = useState("");
-  const [pin, setPin] = useState("");
-  const [newPin, setNewPin] = useState("");
-  const [newPinConfirm, setNewPinConfirm] = useState("");
-  const [err, setErr] = useState("");
-
-  useEffect(() => {
-    _showIdentityModal = (roster, onSubmit) => {
-      setPickedId(""); setPin(""); setNewPin(""); setNewPinConfirm(""); setErr("");
-      setPending({ roster, onSubmit });
-    };
-    return () => { _showIdentityModal = null; };
-  }, []);
-
-  if (!pending) return null;
-  const players = pending.roster.filter((p) => p.active).sort((a, b) => a.name.localeCompare(b.name));
-  const picked = players.find((p) => p.id === pickedId);
-
-  const finish = (id) => {
-    const cb = pending.onSubmit;
-    setPending(null);
-    cb(id);
-  };
-  const submitPin = () => {
-    if (!picked) return;
-    if (picked.pin && picked.pin !== pin) { setErr("PIN incorrecto."); return; }
-    finish(picked.id);
-  };
-  // El Excel (hoja "roster") es la fuente de verdad de los PIN. Si este
-  // jugador todavía no tiene uno ahí, lo obligamos a crearlo aquí mismo antes
-  // de dejarlo entrar, para que quede registrado desde ya.
-  const submitNewPin = () => {
-    if (!picked) return;
-    if (!/^\d{4}$/.test(newPin)) { setErr("El PIN debe ser numérico, de exactamente 4 dígitos."); return; }
-    if (newPin !== newPinConfirm) { setErr("Los PIN no coinciden."); return; }
-    setRoster((r) => r.map((p) => (p.id === picked.id ? { ...p, pin: newPin } : p)));
-    finish(picked.id);
-  };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }} onClick={() => finish(null)}>
-      <div style={{ background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14, padding: 20, width: "min(360px, 100%)", boxShadow: "0 12px 32px rgba(0,0,0,0.4)" }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ ...displayFont, fontSize: 19, color: C.card, marginBottom: 4 }}>¿QUIÉN ERES?</div>
-        {!picked ? (
-          <>
-            <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 12 }}>
-              Elige tu nombre para identificarte en este celular. Así la app sabe cuando eres tú el host de la partida.
-            </div>
-            <div style={{ display: "grid", gap: 6, maxHeight: 320, overflowY: "auto" }}>
-              {players.map((p) => (
-                <button key={p.id} onClick={() => setPickedId(p.id)}
-                  style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "rgba(0,0,0,0.18)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "9px 10px", cursor: "pointer", ...bodyFont }}>
-                  <Avatar player={p} size={26} />
-                  <span style={{ color: C.card, fontSize: 14 }}>{p.name}</span>
-                  {p.pin && <span title="Tiene PIN configurado" style={{ marginLeft: "auto", fontSize: 12, color: "rgba(244,234,214,0.35)" }}>🔒</span>}
-                </button>
-              ))}
-            </div>
-            <div style={{ marginTop: 14 }}>
-              <GhostBtn onClick={() => finish(null)}>Cancelar</GhostBtn>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-              <Avatar player={picked} size={32} />
-              <span style={{ color: C.card, fontSize: 16, fontWeight: 700 }}>{picked.name}</span>
-            </div>
-            {picked.pin ? (
-              <>
-                <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>Ingresa tu PIN:</div>
-                <input
-                  type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle}
-                  value={pin} onChange={(e) => { setPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") submitPin(); if (e.key === "Escape") finish(null); }}
-                />
-                {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
-                <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-                  <GhostBtn onClick={() => { setPickedId(""); setPin(""); setErr(""); }}>Atrás</GhostBtn>
-                  <PrimaryBtn onClick={submitPin}>Entrar</PrimaryBtn>
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>
-                  Todavía no tienes un PIN registrado. Crea uno de 4 dígitos para poder identificarte en tus celulares:
-                </div>
-                <div style={{ display: "grid", gap: 8 }}>
-                  <input
-                    type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle} placeholder="Nuevo PIN (4 dígitos)"
-                    value={newPin} onChange={(e) => { setNewPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                  />
-                  <input
-                    type="password" inputMode="numeric" maxLength={4} style={inputStyle} placeholder="Confirma tu PIN"
-                    value={newPinConfirm} onChange={(e) => { setNewPinConfirm(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") submitNewPin(); if (e.key === "Escape") finish(null); }}
-                  />
-                </div>
-                {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
-                <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-                  <GhostBtn onClick={() => { setPickedId(""); setNewPin(""); setNewPinConfirm(""); setErr(""); }}>Atrás</GhostBtn>
-                  <PrimaryBtn onClick={submitNewPin}>Crear PIN y entrar</PrimaryBtn>
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Pantalla completa (no un modal descartable): mientras nadie se identificó
-// en este celular, no se puede navegar por la app en absoluto — a diferencia
-// del modal de "cambiar identidad" (que sí se puede cancelar porque ahí ya
-// estabas identificado), esta pantalla no tiene forma de saltearse.
-function IdentityGateScreen({ roster, setRoster, onIdentified }) {
-  const [pickedId, setPickedId] = useState("");
-  const [pin, setPin] = useState("");
-  const [newPin, setNewPin] = useState("");
-  const [newPinConfirm, setNewPinConfirm] = useState("");
-  const [err, setErr] = useState("");
-
-  const players = roster.filter((p) => p.active).sort((a, b) => a.name.localeCompare(b.name));
-  const picked = players.find((p) => p.id === pickedId);
-
-  const submitPin = () => {
-    if (!picked) return;
-    if (picked.pin && picked.pin !== pin) { setErr("PIN incorrecto."); return; }
-    onIdentified(picked.id);
-  };
-  // Igual que en el modal de identidad: si el jugador no tiene PIN en el
-  // Excel, lo obligamos a crear uno antes de dejarlo pasar.
-  const submitNewPin = () => {
-    if (!picked) return;
-    if (!/^\d{4}$/.test(newPin)) { setErr("El PIN debe ser numérico, de exactamente 4 dígitos."); return; }
-    if (newPin !== newPinConfirm) { setErr("Los PIN no coinciden."); return; }
-    setRoster((r) => r.map((p) => (p.id === picked.id ? { ...p, pin: newPin } : p)));
-    onIdentified(picked.id);
-  };
-
-  return (
-    <div style={{ minHeight: "100vh", background: `radial-gradient(ellipse at top, ${C.panel} 0%, ${C.felt} 45%, ${C.feltDeep} 100%)`, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, ...bodyFont }}>
-      <div style={{ width: "min(420px, 100%)" }}>
-        <div style={{ textAlign: "center", marginBottom: 18 }}>
-          <div style={{ ...displayFont, fontSize: 36, color: C.gold, lineHeight: 1 }}>BARILOCHE</div>
-          <div style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: 4 }}>
-            registro de poker
-          </div>
-        </div>
-        <div style={{ background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14, padding: 22, boxShadow: "0 12px 32px rgba(0,0,0,0.4)" }}>
-          <div style={{ ...displayFont, fontSize: 22, color: C.card, marginBottom: 4 }}>¿QUIÉN ERES?</div>
-          {!picked ? (
-            <>
-              <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 14 }}>
-                Elige tu nombre para poder usar la app en este celular. Así la app sabe cuando eres tú el host de la partida.
-              </div>
-              <div style={{ display: "grid", gap: 8, maxHeight: 380, overflowY: "auto" }}>
-                {players.map((p) => (
-                  <button key={p.id} onClick={() => setPickedId(p.id)}
-                    style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "rgba(0,0,0,0.18)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "10px 12px", cursor: "pointer", ...bodyFont }}>
-                    <Avatar player={p} size={28} />
-                    <span style={{ color: C.card, fontSize: 15 }}>{p.name}</span>
-                    {p.pin && <span title="Tiene PIN configurado" style={{ marginLeft: "auto", fontSize: 13, color: "rgba(244,234,214,0.35)" }}>🔒</span>}
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <Avatar player={picked} size={34} />
-                <span style={{ color: C.card, fontSize: 17, fontWeight: 700 }}>{picked.name}</span>
-              </div>
-              {picked.pin ? (
-                <>
-                  <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>Ingresa tu PIN:</div>
-                  <input
-                    type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle}
-                    value={pin} onChange={(e) => { setPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") submitPin(); }}
-                  />
-                  {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
-                  <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-                    <GhostBtn onClick={() => { setPickedId(""); setPin(""); setErr(""); }}>Atrás</GhostBtn>
-                    <PrimaryBtn onClick={submitPin}>Entrar</PrimaryBtn>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={{ fontSize: 13, color: "rgba(244,234,214,0.6)", marginBottom: 8 }}>
-                    Todavía no tienes un PIN registrado. Crea uno de 4 dígitos para poder identificarte en tus celulares:
-                  </div>
-                  <div style={{ display: "grid", gap: 8 }}>
-                    <input
-                      type="password" inputMode="numeric" maxLength={4} autoFocus style={inputStyle} placeholder="Nuevo PIN (4 dígitos)"
-                      value={newPin} onChange={(e) => { setNewPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                    />
-                    <input
-                      type="password" inputMode="numeric" maxLength={4} style={inputStyle} placeholder="Confirma tu PIN"
-                      value={newPinConfirm} onChange={(e) => { setNewPinConfirm(e.target.value.replace(/[^\d]/g, "").slice(0, 4)); setErr(""); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") submitNewPin(); }}
-                    />
-                  </div>
-                  {err && <div style={{ color: C.loss, fontSize: 12, marginTop: 6 }}>{err}</div>}
-                  <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-                    <GhostBtn onClick={() => { setPickedId(""); setNewPin(""); setNewPinConfirm(""); setErr(""); }}>Atrás</GhostBtn>
-                    <PrimaryBtn onClick={submitNewPin}>Crear PIN y entrar</PrimaryBtn>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const money = (n) =>
-  "$" + Math.round(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
-const todayISO = () => new Date().toISOString().slice(0, 10);
-// Redondeo defensivo para evitar arrastres de punto flotante (ej. 0.1+0.2) en los cálculos de liquidación
-const round1 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-// Unidad mínima de valor: $100. roundTo100 para redondear al más cercano
-// (usado al "aterrizar" montos ingresados), ceilTo100 para redondear siempre
-// hacia arriba (usado en cargos repartidos, para no cobrar de menos).
-const roundTo100 = (n) => Math.round((Number(n) || 0) / 100) * 100;
-// Pide la contraseña de administrador (cargada a mano en la hoja "Meta" del
-// Excel) antes de dejar pasar una acción destructiva. No es seguridad real
-// (no hay login), es solo una traba para evitar borrados accidentales.
-// La UI es un modal propio (ver <AdminPasswordModal/>, montado una sola vez
-// en la raíz de la app) con input enmascarado tipo password — a diferencia
-// de window.prompt(), que no se puede estilizar ni ocultar el texto tipeado.
-let _showAdminPasswordModal = null;
-function requestAdminPassword(adminPassword, actionLabel) {
-  return new Promise((resolve) => {
-    if (!adminPassword) {
-      alert(`Todavía no hay una contraseña de administrador configurada en el Excel (hoja "Meta", fila con key=admin_password). Agregala ahí para poder ${actionLabel}.`);
-      resolve(false);
-      return;
-    }
-    if (!_showAdminPasswordModal) {
-      resolve(false);
-      return;
-    }
-    _showAdminPasswordModal(actionLabel, (entered) => {
-      if (entered === null) { resolve(false); return; }
-      if (entered !== adminPassword) {
-        alert("Contraseña incorrecta.");
-        resolve(false);
-        return;
-      }
-      resolve(true);
-    });
-  });
-}
-function AdminPasswordModal() {
-  const [pending, setPending] = useState(null); // { actionLabel, onSubmit }
-  const [value, setValue] = useState("");
-
-  useEffect(() => {
-    _showAdminPasswordModal = (actionLabel, onSubmit) => {
-      setValue("");
-      setPending({ actionLabel, onSubmit });
-    };
-    return () => { _showAdminPasswordModal = null; };
-  }, []);
-
-  if (!pending) return null;
-  const submit = (entered) => {
-    const cb = pending.onSubmit;
-    setPending(null);
-    cb(entered);
-  };
-
-  return (
-    <div
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 1000, padding: 16,
-      }}
-      onClick={() => submit(null)}
-    >
-      <div
-        style={{
-          background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14,
-          padding: 20, width: "min(340px, 100%)", boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ ...displayFont, fontSize: 17, color: C.card, marginBottom: 4 }}>Contraseña de administrador</div>
-        <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 14 }}>Para {pending.actionLabel}:</div>
-        <input
-          type="password"
-          autoFocus
-          style={inputStyle}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submit(value);
-            if (e.key === "Escape") submit(null);
-          }}
-        />
-        <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-          <GhostBtn onClick={() => submit(null)}>Cancelar</GhostBtn>
-          <PrimaryBtn onClick={() => submit(value)}>Confirmar</PrimaryBtn>
-        </div>
-      </div>
-    </div>
-  );
-}
-const ceilTo100 = (n) => Math.ceil((Number(n) || 0) / 50) * 50;
-
-// Confirmación con el look de la app, para reemplazar el confirm() nativo del
-// navegador (que no se puede estilizar) en acciones destructivas.
-let _showConfirmModal = null;
-function requestConfirm({ title, message, confirmLabel = "Confirmar", cancelLabel = "Cancelar", danger = true }) {
-  return new Promise((resolve) => {
-    if (!_showConfirmModal) { resolve(false); return; }
-    _showConfirmModal({ title, message, confirmLabel, cancelLabel, danger }, resolve);
-  });
-}
-function ConfirmModal() {
-  const [pending, setPending] = useState(null); // { opts, onSubmit }
-
-  useEffect(() => {
-    _showConfirmModal = (opts, onSubmit) => setPending({ opts, onSubmit });
-    return () => { _showConfirmModal = null; };
-  }, []);
-
-  if (!pending) return null;
-  const { opts, onSubmit } = pending;
-  const submit = (result) => {
-    setPending(null);
-    onSubmit(result);
-  };
-
-  return (
-    <div
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 1000, padding: 16,
-      }}
-      onClick={() => submit(false)}
-    >
-      <div
-        style={{
-          background: C.panel, border: `1px solid ${opts.danger ? "rgba(226,99,79,0.5)" : C.panelLine}`, borderRadius: 14,
-          padding: 20, width: "min(360px, 100%)", boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          {opts.danger && <AlertCircle size={18} color={C.loss} />}
-          <div style={{ ...displayFont, fontSize: 19, color: C.card }}>{opts.title}</div>
-        </div>
-        <div style={{ fontSize: 13.5, color: "rgba(244,234,214,0.75)", lineHeight: 1.5, marginBottom: 18 }}>{opts.message}</div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <GhostBtn onClick={() => submit(false)}>{opts.cancelLabel}</GhostBtn>
-          <PrimaryBtn
-            onClick={() => submit(true)}
-            style={opts.danger ? { background: `linear-gradient(180deg, #e2634f, #c94d3b)`, color: "#fff" } : undefined}
-          >
-            {opts.confirmLabel}
-          </PrimaryBtn>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* Icon choices for player avatars */
-const AVATAR_ICONS = [
-  "🂡", "🃏", "🎴", "🀄", "🎲",
-  "♠️", "♥️", "♦️", "♣️",
-  "😎", "🐺", "🦁", "🐯", "🐍", "🍀", "🔥", "⚡", "🎯", "🥇", "👑", "🏆",
-  "⚽", "🏀", "🏈", "⚾", "🎾", "🏐", "🏉", "🎱",
-  "🍺", "🥂", "🥃", "🍻", "🧉",
-  "🍔", "🥩", "🍕", "🌮", "🍗", "🥓", "🍤",
+// Esta pantalla es la administración de toda la liga. El orden de las pestañas es fijo
+// (Tablero de Control, Calendario, Cobranza, Jugadores, Estadísticas, Usuarios).
+// La pestaña Usuarios (antes "Jugadores") la pueden ver Administrador General y Administrador,
+// sin importar lo que diga la matriz de permisos — es un caso especial fuera de esa tabla. Dentro de la
+// pantalla, solo el Administrador General puede ver/editar contraseñas (42ª entrega) — ver Perfiles.jsx.
+// "Mi Perfil" es otro caso especial: solo la ve quien tiene rol "Jugador" (autoservicio de sus
+// propios datos), sin importar la matriz de permisos tampoco — no es una pantalla de administración.
+// Jugadores (mod6) y Cobranza (mod4) sí siguen la matriz normal de permisos.
+// 66ª entrega: "Game Night" (mod5) se OCULTA por completo del menú (Federico pidió no borrar el
+// módulo, solo dejar de usarlo en vivo — se reemplazó por el flujo de archivos de "Estadísticas") —
+// se marca `oculto: true` y se filtra más abajo, para cualquier rol, sin tocar su componente ni su
+// backend. El concepto de "Host" (que antes daba acceso especial a esta pestaña) también se eliminó
+// por completo — ver Jugadores.jsx y netlify/functions/jugadores.js.
+// "Estadísticas" ("Resultados" en el menú) — dentro de esa pantalla, el botón para subir resultados se
+// limita a Administrador General/Administrador/Tesorero (ver puedeSubirResultados() en
+// Estadisticas.jsx, 108ª entrega).
+// 109ª entrega: "Resultados" ahora sigue la matriz normal de permisos (mod7) — antes era
+// "siempreVisible" (visible para cualquier sesión, sin poder restringirse por rol). "Game Night"
+// (mod5) se quitó de esa misma matriz a pedido de Federico (seguía ahí, sin uso real, desde la 66ª
+// entrega) — ver src/lib/permisos.js. El rol "Jugador" sigue viendo "Resultados" por default (mod7:
+// "lectura" en la semilla de permisos), pero ahora Federico puede restringirla si quiere.
+// 98ª entrega: Federico pidió mover el botón "Jugadores" para que quede a la derecha de "Resultados" en
+// el menú superior — el orden de los botones sigue el orden de este array (ver `tabsConPermiso` más
+// abajo), así que alcanzó con reordenar la entrada, sin tocar ninguna otra propiedad.
+const TABS = [
+  { key: "tablero", modKey: "mod2", label: "Tablero de Control", Component: Tablero },
+  { key: "calendario", modKey: "mod1", label: "Calendario", Component: Calendario },
+  { key: "cobranza", modKey: "mod4", label: "Cobranza", Component: Cobranza },
+  { key: "gamenight", modKey: "mod5", label: "Game Night", Component: GameNight, oculto: true },
+  // 73ª entrega: el botón/pestaña se renombró de "Estadísticas" a "Resultados" (pedido de Federico) — la
+  // `key` interna se dejó igual ("estadisticas") a propósito, para no tocar `SOLO_JUGADOR_TABS` ni nada
+  // que dependa de esa clave; el componente y el archivo siguen llamándose Estadisticas.jsx.
+  { key: "estadisticas", modKey: "mod7", label: "Resultados", Component: Estadisticas },
+  { key: "jugadores", modKey: "mod6", label: "Jugadores", Component: Jugadores },
+  // 123ª entrega: "Estadísticas y proyecciones" — proyección del campeonato, comparativos y estadísticas por
+  // jugador, calculado en el navegador con los datos de Resultados/Tablero/Calendario (antes era un dashboard
+  // externo que exigía cuenta de Claude). Visible para cualquier rol, igual que Mi Perfil; el dinero dentro de
+  // la pantalla solo lo ven Administrador General/Administrador/Tesorero (ver Proyecciones.jsx).
+  { key: "proyecciones", modKey: null, label: "Estadísticas y proyecciones", Component: Proyecciones, siempreVisible: true },
+  { key: "usuarios", modKey: "mod3", label: "Usuarios", Component: Perfiles, soloAdmins: true },
+  { key: "miperfil", modKey: null, label: "Mi Perfil", Component: MiPerfil, siempreVisible: true },
 ];
 
-function readFileAsDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = () => reject(new Error("no se pudo leer el archivo"));
-    r.readAsDataURL(file);
-  });
-}
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [tab, setTab] = useState("tablero");
+  const [perfiles, setPerfiles] = useState(null);
+  const [perfilesLoading, setPerfilesLoading] = useState(true);
+  const [perfilesError, setPerfilesError] = useState("");
+  // ruta simple: /registro muestra el autorregistro sin necesidad de login, sin librería de routing
+  const [ruta, setRuta] = useState(typeof window !== "undefined" ? window.location.pathname : "/");
+  // 59ª entrega: interruptor de acceso al portal (Parámetros Generales, dentro de Tablero de Control).
+  // parametros === null mientras carga (o si la función aún no existe) — se trata igual que "portal
+  // encendido" para no dejar a nadie fuera por un error de red o un despliegue a medias.
+  const [parametros, setParametros] = useState(null);
+  // en la pantalla de mantenimiento, deja al administrador "colarse" al formulario de login normal —
+  // el interruptor vive dentro del sitio, así que un administrador SIEMPRE necesita poder entrar.
+  const [mostrarLoginAdmin, setMostrarLoginAdmin] = useState(false);
+  // 72ª entrega: switch "Ver como jugador" para administradores, pedido por Federico para poder revisar
+  // la experiencia del rol Jugador sin tener que loguearse con otra cuenta — el botón vive en "Mi
+  // Perfil" (ver MiPerfil.jsx) y solo aparece si quien inició sesión es realmente un administrador.
+  const [verComoJugador, setVerComoJugador] = useState(false);
 
-function Avatar({ player, size = 30 }) {
-  const av = player?.avatar;
-  const base = { width: size, height: size, borderRadius: 99, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" };
-  if (av?.type === "photo" && av.value) {
-    return <img src={av.value} alt={player.name} style={{ ...base, objectFit: "cover", border: `1px solid ${C.panelLine}` }} />;
-  }
-  if (av?.type === "icon" && av.value) {
-    return <div style={{ ...base, background: "rgba(216,173,63,0.18)", fontSize: size * 0.55 }}>{av.value}</div>;
-  }
-  return (
-    <div style={{ ...base, background: C.gold, color: C.ink, fontWeight: 800, fontSize: size * 0.42, ...bodyFont }}>
-      {(player?.name || "?").slice(0, 1).toUpperCase()}
-    </div>
-  );
-}
-
-/* ----------------------------------------------------------------------
-   SETTLEMENT ENGINE
----------------------------------------------------------------------- */
-function computeSettlement(game, roster) {
-  const players = game.playerIds.map((pid) => {
-    const p = roster.find((r) => r.id === pid);
-    const purchases = game.purchases.filter((pu) => pu.playerId === pid);
-    const cashAmount = purchases.filter((pu) => pu.type === "cash").reduce((s, pu) => s + pu.amount, 0);
-    const virtualAmount = purchases.filter((pu) => pu.type === "virtual").reduce((s, pu) => s + pu.amount, 0);
-    const totalBuyIn = cashAmount + virtualAmount;
-    const cashOut = Number(game.finalChips[pid]) || 0; // lo reportado en fichas
-    const balance = round1(cashOut - totalBuyIn); // balance neto informativo (gana/pierde en total)
-
-    // Ajuste manual capturado al entregar fichas: corrige las fichas
-    // realmente entregadas (un billete/ficha mal contado, etc.), sin tocar
-    // el campo principal de fichas ni el cuadre total de dinero de la
-    // partida. Como las fichas entregadas son lo que primero salda el
-    // buy-in virtual, el ajuste impacta ese cálculo (y por lo tanto cuánto
-    // termina cobrando en cash vs. transferencia).
-    const cashAdjust = Number((game.finalChipsAdjust || {})[pid]) || 0;
-    const fichasAjustadas = round1(cashOut + cashAdjust);
-
-    // Regla: el cash out (ya ajustado) primero salda el buy-in virtual. Lo
-    // que sobra de eso ("netClaim") es lo que el jugador realmente puede
-    // reclamar del pozo de cash real — no el balance total. Si netClaim <= 0,
-    // ni siquiera alcanzó para saldar el virtual, y esa diferencia se debe
-    // por transferencia.
-    const netClaim = round1(fichasAjustadas - virtualAmount);
-
-    let pagoCash = 0;
-    let pagoTransfer = 0;
-    if (netClaim > 0) {
-      // Puede cobrar en cash hasta lo que él mismo puso en cash; el resto
-      // del reclamo (si lo hay) se cobra por transferencia.
-      pagoCash = round1(Math.min(cashAmount, netClaim));
-      pagoTransfer = round1(netClaim - pagoCash);
-    } else {
-      pagoCash = 0;
-      pagoTransfer = netClaim; // negativo: debe transferir
-    }
-
-    return {
-      playerId: pid,
-      name: p ? p.name : "?",
-      cashAmount, virtualAmount, totalBuyIn,
-      cashOut, balance,
-      pagoCash, pagoTransfer,
-    };
-  });
-
-  const totalCashAll = players.reduce((s, p) => s + p.cashAmount, 0);
-  const rake = Math.min(game.rake || 0, totalCashAll);
-  const cashPool = round1(totalCashAll - rake);
-
-  // Todo el cash disponible debe entregarse. Como el tope de cada jugador es
-  // "hasta lo que él mismo puso en cash", puede quedar un remanente sin
-  // asignar si alguien reclama más de lo que puso en cash. Ese remanente se
-  // le da al jugador con mayor balance positivo, convirtiendo esa parte de
-  // su transferencia pendiente en cash físico.
-  let leftoverCash = round1(cashPool - players.reduce((s, p) => s + p.pagoCash, 0));
-  if (leftoverCash > 0) {
-    const byBalanceDesc = players.filter((p) => p.balance > 0).sort((a, b) => b.balance - a.balance);
-    for (const w of byBalanceDesc) {
-      if (leftoverCash <= 0) break;
-      const shift = round1(Math.min(leftoverCash, w.pagoTransfer));
-      if (shift > 0) {
-        w.pagoCash = round1(w.pagoCash + shift);
-        w.pagoTransfer = round1(w.pagoTransfer - shift);
-        leftoverCash = round1(leftoverCash - shift);
-      }
-    }
-  }
-
-  // Transferencias sugeridas: se emparejan los que más reciben con los que más
-  // deben, para minimizar el número de transacciones. Las transferencias son
-  // un circuito cerrado entre jugadores (no involucran el rake, que ya se
-  // descontó del pozo de cash), así que en teoría suman exactamente 0.
-  const creditors = players
-    .filter((p) => p.pagoTransfer > 0)
-    .map((p) => ({ playerId: p.playerId, name: p.name, amount: p.pagoTransfer }))
-    .sort((a, b) => b.amount - a.amount);
-  const debtors = players
-    .filter((p) => p.pagoTransfer < 0)
-    .map((p) => ({ playerId: p.playerId, name: p.name, amount: -p.pagoTransfer }))
-    .sort((a, b) => b.amount - a.amount);
-
-  const transfers = [];
-  let i = 0, j = 0;
-  while (i < debtors.length && j < creditors.length) {
-    const d = debtors[i], c = creditors[j];
-    const amt = round1(Math.min(d.amount, c.amount));
-    if (amt > 0) transfers.push({ from: d.name, fromId: d.playerId, to: c.name, toId: c.playerId, amount: amt });
-    d.amount = round1(d.amount - amt);
-    c.amount = round1(c.amount - amt);
-    if (d.amount <= 0) i++;
-    if (c.amount <= 0) j++;
-  }
-
-  return { players, rake, totalCashAll, transfers };
-}
-
-/* ----------------------------------------------------------------------
-   ROOT APP
----------------------------------------------------------------------- */
-export default function PokerLedger() {
-  const [loading, setLoading] = useState(true);
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  const [loadErrorDetail, setLoadErrorDetail] = useState("");
-  const [roster, setRoster] = useState([]);
-  const [games, setGames] = useState([]);
-  const [activeGame, setActiveGame] = useState(null);
-  const [tab, setTab] = useState("partida");
-  const [adminPassword, setAdminPassword] = useState("");
-
-  // Identidad del dispositivo: quién eres tú, persistida en localStorage.
-  const [myPlayerId, setMyPlayerIdState] = useState(() => {
-    try { return localStorage.getItem(MY_ID_STORAGE_KEY) || ""; } catch { return ""; }
-  });
-  const setMyPlayerId = (id) => {
-    setMyPlayerIdState(id || "");
-    try { if (id) localStorage.setItem(MY_ID_STORAGE_KEY, id); else localStorage.removeItem(MY_ID_STORAGE_KEY); } catch {}
-  };
-  const identify = async () => {
-    const id = await requestIdentity(roster);
-    if (id) setMyPlayerId(id);
-  };
-  const logout = async () => {
-    const ok = await requestConfirm({
-      title: "¿Cerrar tu sesión en este celular?",
-      message: "Vas a dejar de estar identificado en este dispositivo. La próxima vez que quieras hacer cambios durante una partida, vas a tener que volver a identificarte con tu PIN.",
-      confirmLabel: "Sí, cerrar sesión",
-      cancelLabel: "Cancelar",
-      danger: false,
-    });
-    if (ok) setMyPlayerId("");
-  };
-  const hasActive = !!activeGame && !activeGame.finished;
-  const isHost = hasActive && !!myPlayerId && myPlayerId === activeGame.hostId;
-
-  // Si una partida en curso termina o se cancela mientras alguien está parado
-  // en una de las pestañas exclusivas de "partida en curso" (Cena, Lote y
-  // Rake, o Jugadores-de-la-partida), lo mandamos de vuelta a la pestaña
-  // principal para que no quede en una pestaña que ya no existe. Lo mismo si
-  // quien no es host queda parado en una pestaña que ahora es solo del host.
   useEffect(() => {
-    if (!hasActive && (tab === "cena" || tab === "loterake" || tab === "compra" || tab === "finalizar")) setTab("partida");
-    if (hasActive && tab === "historial") setTab("partida");
-    if (hasActive && !isHost && (tab === "cena" || tab === "loterake" || tab === "jugadores" || tab === "finalizar")) setTab("partida");
-  }, [hasActive, isHost, tab]);
-
-  // Carga inicial: si CUALQUIERA de los tres datos críticos falla (roster,
-  // historial o partida activa), NO seguimos con lo que haya salido bien —
-  // reintentamos con espera creciente hasta que las tres lecturas confirmen
-  // éxito. Mostrar la app con "sin partida activa" solo porque una lectura
-  // falló sería mucho peor que tardar un poco más en arrancar: el host podría
-  // pensar que no hay partida y arrancar una nueva, pisando la real.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      let attempt = 0;
-      while (!cancelled) {
-        const [r, g, a, pw] = await Promise.all([
-          loadKey(KEYS.roster, []),
-          loadKey(KEYS.games, []),
-          loadKey(KEYS.active, null),
-          loadKey(KEYS.adminPassword, ""),
-        ]);
-        if (r.ok && g.ok && a.ok) {
-          setRoster(r.value); setGames(g.value); setActiveGame(a.value); setAdminPassword((pw.ok && pw.value) || "");
-          setLoading(false);
-          return;
-        }
-        attempt++;
-        if (cancelled) return;
-        setLoadAttempt(attempt);
-        setLoadErrorDetail([r, g, a].filter((x) => !x.ok).map((x) => x.error).join(" · "));
-        await new Promise((res) => setTimeout(res, Math.min(1500 * attempt, 8000)));
-      }
-    })();
-    return () => { cancelled = true; };
+    const onPop = () => setRuta(window.location.pathname);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // Evita que, apenas termina la carga inicial, se dispare un guardado con
-  // los datos recién leídos (o con un estado intermedio) y se sobreescriba
-  // el Excel innecesariamente. Solo guardamos ante cambios reales, hechos
-  // por el usuario después de que la carga inicial ya terminó.
-  const skipNextRosterSave = useRef(true);
-  const skipNextGamesSave = useRef(true);
-  const skipNextActiveSave = useRef(true);
-
-  // Mientras este dispositivo tiene un cambio propio recién guardándose, el
-  // polling (más abajo) no debe pisarlo con lo que todavía estaba guardado
-  // un instante antes — si no, se ve como que el cambio "no pegó" por un
-  // segundo. Cada guardado local extiende su propio "candado": mientras el
-  // guardado está en vuelo, el candado queda en Infinity (bloqueo total); si
-  // el guardado termina bien, se libera a los pocos segundos (para poder
-  // traer cambios que haya hecho OTRO dispositivo); si falla, el candado NO
-  // se libera — queda bloqueado hasta poder guardar bien — y se prende un
-  // aviso (`syncError`) con reintento automático y manual, en vez de dejar
-  // que el polling, en la siguiente vuelta, pise el cambio local con el dato
-  // viejo que quedó guardado de antes (esa combinación — guardado fallido +
-  // polling de "lo último que sí se guardó" — era la causa real de la
-  // partida "reseteándose sola").
-  const rosterLockUntil = useRef(0);
-  const gamesLockUntil = useRef(0);
-  const activeLockUntil = useRef(0);
-  const LOCK_MS = 3000;
-  const [syncError, setSyncError] = useState({ roster: false, games: false, active: false });
-
   useEffect(() => {
-    if (loading) return;
-    if (skipNextRosterSave.current) { skipNextRosterSave.current = false; return; }
-    rosterLockUntil.current = Infinity;
-    saveKey(KEYS.roster, roster).then((ok) => {
-      rosterLockUntil.current = ok ? Date.now() + LOCK_MS : Infinity;
-      setSyncError((s) => (s.roster === !ok ? s : { ...s, roster: !ok }));
-    });
-  }, [roster, loading]);
-  useEffect(() => {
-    if (loading) return;
-    if (skipNextGamesSave.current) { skipNextGamesSave.current = false; return; }
-    gamesLockUntil.current = Infinity;
-    saveKey(KEYS.games, games).then((ok) => {
-      gamesLockUntil.current = ok ? Date.now() + LOCK_MS : Infinity;
-      setSyncError((s) => (s.games === !ok ? s : { ...s, games: !ok }));
-    });
-  }, [games, loading]);
-  useEffect(() => {
-    if (loading) return;
-    if (skipNextActiveSave.current) { skipNextActiveSave.current = false; return; }
-    activeLockUntil.current = Infinity;
-    saveKey(KEYS.active, activeGame).then((ok) => {
-      activeLockUntil.current = ok ? Date.now() + LOCK_MS : Infinity;
-      setSyncError((s) => (s.active === !ok ? s : { ...s, active: !ok }));
-    });
-  }, [activeGame, loading]);
-
-  // Si algún guardado quedó pendiente (`syncError`), reintentar solo cada
-  // tanto en vez de a cada cambio de estado — y siempre con el valor MÁS
-  // RECIENTE (por si el usuario siguió jugando mientras tanto).
-  const syncErrorRef = useRef(syncError);
-  useEffect(() => { syncErrorRef.current = syncError; }, [syncError]);
-  useEffect(() => {
-    if (!syncError.roster && !syncError.games && !syncError.active) return;
-    const t = setInterval(async () => {
-      if (syncErrorRef.current.roster) {
-        const ok = await saveKey(KEYS.roster, roster);
-        if (ok) { rosterLockUntil.current = Date.now() + LOCK_MS; setSyncError((s) => ({ ...s, roster: false })); }
-      }
-      if (syncErrorRef.current.games) {
-        const ok = await saveKey(KEYS.games, games);
-        if (ok) { gamesLockUntil.current = Date.now() + LOCK_MS; setSyncError((s) => ({ ...s, games: false })); }
-      }
-      if (syncErrorRef.current.active) {
-        const ok = await saveKey(KEYS.active, activeGame);
-        if (ok) { activeLockUntil.current = Date.now() + LOCK_MS; setSyncError((s) => ({ ...s, active: false })); }
-      }
-    }, 6000);
-    return () => clearInterval(t);
-  }, [syncError.roster, syncError.games, syncError.active, roster, games, activeGame]);
-
-  // Este ledger no tiene tiempo real (no hay websockets): cada celular
-  // guarda sus cambios al Excel, pero para ENTERARSE de lo que hicieron los
-  // demás dispositivos (el host inició la partida, otro jugador pidió
-  // fichas, el host la aceptó, etc.) hace falta ir a preguntarle al Excel
-  // de vez en cuando. Sin este polling, cada quien se quedaba viendo una
-  // foto congelada de cuando entró a la app.
-  const POLL_MS = 4000;
-  useEffect(() => {
-    if (loading) return;
-    const interval = setInterval(async () => {
-      try {
-        const [r, g, a] = await Promise.all([
-          loadKey(KEYS.roster, []),
-          loadKey(KEYS.games, []),
-          loadKey(KEYS.active, null),
-        ]);
-        const now = Date.now();
-        // Clave del fix: solo se aplica lo que llegó de una lectura que
-        // efectivamente funcionó (`.ok`). Antes, una lectura fallida (un hipo
-        // de red, un cold start) devolvía el mismo `fallback` que "no hay
-        // nada guardado", y el polling lo aplicaba igual apenas se vencía el
-        // candado — borrando de un plumazo una partida que sí existía.
-        if (r.ok && now >= rosterLockUntil.current) {
-          setRoster((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(r.value)) return prev;
-            skipNextRosterSave.current = true;
-            return r.value;
-          });
-        }
-        if (g.ok && now >= gamesLockUntil.current) {
-          setGames((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(g.value)) return prev;
-            skipNextGamesSave.current = true;
-            return g.value;
-          });
-        }
-        if (a.ok && now >= activeLockUntil.current) {
-          setActiveGame((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(a.value)) return prev;
-            skipNextActiveSave.current = true;
-            return a.value;
-          });
-        }
-      } catch {
-        // Si falla una vuelta de polling (por ejemplo, sin conexión un
-        // instante), simplemente se reintenta en la siguiente — no vale la
-        // pena molestar al usuario por esto.
-      }
-    }, POLL_MS);
-    return () => clearInterval(interval);
-  }, [loading]);
-
-  const playerStats = useCallback(
-    (playerId) => {
-      let played = 0, wins = 0, balance = 0, cashInTotal = 0, virtualInTotal = 0;
-      games.forEach((g) => {
-        const res = computeSettlement(g, roster).players.find((p) => p.playerId === playerId);
-        if (res) {
-          played++; balance += res.balance;
-          if (res.balance > 0) wins++;
-          cashInTotal += res.cashAmount; virtualInTotal += res.virtualAmount;
-        }
-      });
-      return { played, wins, balance, cashInTotal, virtualInTotal };
-    },
-    [games, roster]
-  );
-
-  if (loading) {
-    return (
-      <div style={{ background: C.felt, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ ...displayFont, color: C.goldSoft, fontSize: 28 }}>Repartiendo cartas…</div>
-          {loadAttempt > 0 && (
-            <div style={{ marginTop: 8, maxWidth: 420, padding: "0 16px" }}>
-              <div style={{ ...bodyFont, color: "rgba(244,234,214,0.55)", fontSize: 13 }}>
-                Problemas de conexión — reintentando… (intento {loadAttempt + 1})
-              </div>
-              {loadErrorDetail && (
-                <div style={{ ...monoFont, color: "rgba(226,99,79,0.85)", fontSize: 11, marginTop: 6, wordBreak: "break-word" }}>
-                  {loadErrorDetail}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Sin identificarte, no se puede navegar por ninguna parte de la app.
-  // Excepción: si el roster todavía está vacío (recién desplegada, sin
-  // jugadores dados de alta), no hay nadie para elegir — se deja pasar para
-  // que se pueda cargar al primer jugador desde la pestaña Jugadores.
-  if (roster.length > 0 && !myPlayerId) {
-    return <IdentityGateScreen roster={roster} setRoster={setRoster} onIdentified={setMyPlayerId} />;
-  }
-
-  return (
-    <div style={{ minHeight: "100vh", background: `radial-gradient(ellipse at top, ${C.panel} 0%, ${C.felt} 45%, ${C.feltDeep} 100%)`, ...bodyFont }}>
-      <style>{`
-        ${FONT_IMPORT}
-        * { box-sizing: border-box; }
-        body { margin:0; }
-        input[type=number]::-webkit-inner-spin-button { opacity: 1; }
-        .felt-line { border-color: ${C.feltLine}; }
-        ::selection { background: ${C.gold}; color: ${C.ink}; }
-        button:focus-visible, input:focus-visible, select:focus-visible {
-          outline: 2px solid ${C.gold}; outline-offset: 2px;
-        }
-        .scrollbar-thin::-webkit-scrollbar { width: 6px; height:6px; }
-        .scrollbar-thin::-webkit-scrollbar-thumb { background: ${C.panelLine}; border-radius: 3px; }
-      `}</style>
-
-      <Header tab={tab} setTab={setTab} hasActive={hasActive} isHost={isHost} me={roster.find((p) => p.id === myPlayerId) || null} onIdentify={identify} onLogout={logout} />
-
-      {(syncError.roster || syncError.games || syncError.active) && (
-        <div style={{ maxWidth: 980, margin: "10px auto 0", padding: "0 14px" }}>
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
-            background: "rgba(226,99,79,0.14)", border: `1px solid ${C.loss}`, borderRadius: 9, padding: "9px 12px",
-          }}>
-            <AlertCircle size={16} color={C.loss} style={{ flexShrink: 0 }} />
-            <span style={{ ...bodyFont, fontSize: 12.5, color: "rgba(244,234,214,0.9)", flex: 1, minWidth: 0 }}>
-              No se pudo guardar tu último cambio todavía — reintentando solo. No toques nada en esta sección hasta que desaparezca este aviso.
-            </span>
-          </div>
-        </div>
-      )}
-
-      <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 14px 60px" }}>
-        {tab === "jugadores" && !hasActive && (
-          <PlayersTab roster={roster} setRoster={setRoster} playerStats={playerStats} adminPassword={adminPassword} myPlayerId={myPlayerId} />
-        )}
-        {(tab === "partida" || tab === "cena" || tab === "loterake" || tab === "compra" || tab === "logcompras" || tab === "finalizar" || (tab === "jugadores" && hasActive)) && (
-          <GameTab
-            roster={roster}
-            activeGame={activeGame}
-            setActiveGame={setActiveGame}
-            games={games}
-            setGames={setGames}
-            myPlayerId={myPlayerId}
-            onIdentify={identify}
-            adminPassword={adminPassword}
-            setTab={setTab}
-            subView={tab === "cena" ? "cena" : tab === "loterake" ? "loterake" : tab === "jugadores" ? "jugadoresPartida" : tab === "compra" ? "compra" : tab === "logcompras" ? "logcompras" : tab === "finalizar" ? "finalizar" : "estatus"}
-          />
-        )}
-        {tab === "historial" && <HistoryTab games={games} roster={roster} setGames={setGames} adminPassword={adminPassword} activeGame={activeGame} setActiveGame={setActiveGame} />}
-      </main>
-
-      <AdminPasswordModal />
-      <ConfirmModal />
-      <IdentityModal setRoster={setRoster} />
-    </div>
-  );
-}
-
-/* ----------------------------------------------------------------------
-   HEADER / TABS
----------------------------------------------------------------------- */
-function Header({ tab, setTab, hasActive, isHost, me, onIdentify, onLogout }) {
-  const tabs = hasActive
-    ? (isHost
-        ? [
-            { id: "partida", label: "Estatus jugada", icon: Activity },
-            { id: "compra", label: "Compra de lotes", icon: Banknote },
-            { id: "logcompras", label: "Log Compras", icon: History },
-            { id: "loterake", label: "Lote y Rakes", icon: Coins },
-            { id: "jugadores", label: "Jugadores", icon: Users },
-            { id: "cena", label: "Cena y servicio", icon: UtensilsCrossed },
-          ]
-        : [
-            { id: "partida", label: "Estatus jugada", icon: Activity },
-            { id: "compra", label: "Compra de lotes", icon: Banknote },
-            { id: "logcompras", label: "Log Compras", icon: History },
-          ])
-    : [
-        { id: "partida", label: "Partida", icon: Flame },
-        { id: "jugadores", label: "Jugadores", icon: Users },
-        { id: "historial", label: "Histórico", icon: History },
-      ];
-  const handleIdentityClick = () => { if (me) onLogout(); else onIdentify(); };
-  return (
-    <header style={{ borderBottom: `1px solid ${C.panelLine}`, background: "rgba(0,0,0,0.15)", position: "sticky", top: 0, zIndex: 20, backdropFilter: "blur(6px)" }}>
-      <div style={{ maxWidth: 980, margin: "0 auto", padding: "14px 14px 0" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-              <span style={{ ...displayFont, fontSize: 30, color: C.gold, lineHeight: 1 }}>BARILOCHE</span>
-              <span style={{ ...bodyFont, fontSize: 12, color: "rgba(240,216,136,0.55)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
-                registro de poker
-              </span>
-            </div>
-            <span style={{
-              ...monoFont, fontSize: 11.5, fontWeight: 700, color: C.goldSoft,
-              background: "rgba(0,0,0,0.3)", border: `1px solid ${C.panelLine}`,
-              borderRadius: 6, padding: "2px 7px", width: "fit-content", marginTop: 2,
-            }}>
-              v{APP_VERSION}
-            </span>
-          </div>
-          {/* Página aparte para el organizador: no es un tab más, así los
-              jugadores no se topan de casualidad con rachas o comparativas. */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <button
-              onClick={handleIdentityClick} title={me ? "Cerrar tu sesión en este celular" : "Identifícate para poder ser host"}
-              style={{
-                display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
-                background: me ? "rgba(0,0,0,0.2)" : "rgba(216,173,63,0.16)",
-                border: `1px solid ${me ? C.panelLine : C.gold}`, borderRadius: 8, padding: "5px 9px",
-                color: me ? "rgba(244,234,214,0.75)" : C.goldSoft, fontSize: 12, fontWeight: 600, ...bodyFont,
-              }}
-            >
-              {me ? (
-                <>
-                  <Avatar player={me} size={17} />
-                  <span>{me.name}</span>
-                </>
-              ) : (
-                <>👤 ¿Quién eres?</>
-              )}
-            </button>
-            <a
-              href="/dashboard.html"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Ver estadísticas históricas"
-              style={{
-                display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
-                border: `1px solid ${C.panelLine}`, borderRadius: 8, padding: "6px 10px",
-                color: "rgba(244,234,214,0.65)", fontSize: 12, fontWeight: 600, ...bodyFont,
-              }}
-            >
-              <BarChart3 size={13} /> Estadísticas
-            </a>
-          </div>
-        </div>
-        {hasActive && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8, marginTop: 12,
-            background: "rgba(216,173,63,0.14)", border: `1px solid ${C.gold}`,
-            borderRadius: 10, padding: "9px 12px",
-          }}>
-            <span style={{ width: 8, height: 8, borderRadius: 99, background: C.win, flexShrink: 0, boxShadow: "0 0 0 3px rgba(63,191,114,0.25)" }} />
-            <span style={{ ...displayFont, fontSize: 15, color: C.goldSoft, letterSpacing: "0.04em" }}>Jugada en Curso</span>
-          </div>
-        )}
-        <div className="scrollbar-thin" style={{ display: "flex", gap: 4, marginTop: 12, flexWrap: "nowrap", overflowX: "auto", overflowY: "hidden" }}>
-          {tabs.map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6, flexShrink: 0, whiteSpace: "nowrap",
-                  padding: "8px 14px", border: "none", cursor: "pointer",
-                  background: "transparent",
-                  color: active ? C.goldSoft : "rgba(244,234,214,0.55)",
-                  borderBottom: active ? `2px solid ${C.gold}` : "2px solid transparent",
-                  ...bodyFont, fontWeight: 600, fontSize: 13.5,
-                }}
-              >
-                <Icon size={15} />
-                {t.label}
-                {t.id === "partida" && hasActive && (
-                  <span style={{ width: 6, height: 6, borderRadius: 99, background: C.win, display: "inline-block" }} />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </header>
-  );
-}
-
-/* ----------------------------------------------------------------------
-   REUSABLE UI
----------------------------------------------------------------------- */
-function Panel({ children, style }) {
-  return (
-    <div style={{ background: C.panel, border: `1px solid ${C.panelLine}`, borderRadius: 14, padding: 16, ...style }}>
-      {children}
-    </div>
-  );
-}
-function SectionTitle({ icon: Icon, children, right }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.goldSoft }}>
-        {Icon && <Icon size={16} />}
-        <span style={{ ...displayFont, fontSize: 19, letterSpacing: "0.06em" }}>{children}</span>
-      </div>
-      {right}
-    </div>
-  );
-}
-function Field({ label, children }) {
-  return (
-    <label style={{ display: "block" }}>
-      <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.6)", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
-      {children}
-    </label>
-  );
-}
-const inputStyle = {
-  width: "100%", background: "rgba(0,0,0,0.25)", border: `1px solid ${C.panelLine}`,
-  borderRadius: 8, padding: "9px 10px", color: C.card, fontSize: 14.5, ...bodyFont,
-};
-// Campo para montos en pesos (lote, rake, cena, etc.): mientras se está
-// editando se ve el número "pelón" para no pelear con el cursor, pero en
-// cuanto se sale del campo (blur) se muestra formateado como $#,##0.
-function MoneyInput({ value, onChange, disabled, placeholder, style }) {
-  const [focused, setFocused] = useState(false);
-  const display = focused
-    ? (value || value === 0 ? String(value) : "")
-    : (value || value === 0 ? money(value) : "");
-  return (
-    <input
-      type="text" inputMode="numeric"
-      disabled={disabled}
-      style={{ ...inputStyle, opacity: disabled ? 0.55 : 1, cursor: disabled ? "not-allowed" : "text", ...style }}
-      placeholder={placeholder}
-      value={display}
-      onFocus={(e) => { setFocused(true); requestAnimationFrame(() => e.target.select()); }}
-      onChange={(e) => {
-        const digits = e.target.value.replace(/[^\d]/g, "");
-        onChange(digits === "" ? 0 : Number(digits));
-      }}
-      onBlur={() => setFocused(false)}
-    />
-  );
-}
-function PrimaryBtn({ children, onClick, disabled, style, icon: Icon }) {
-  return (
-    <button
-      onClick={onClick} disabled={disabled}
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 7, justifyContent: "center",
-        background: disabled ? "rgba(212,175,55,0.25)" : `linear-gradient(180deg, ${C.goldSoft}, ${C.gold})`,
-        color: C.ink, border: "none", borderRadius: 9, padding: "10px 16px",
-        fontWeight: 700, fontSize: 14, cursor: disabled ? "not-allowed" : "pointer", ...bodyFont, ...style,
-      }}
-    >
-      {Icon && <Icon size={15} />}
-      {children}
-    </button>
-  );
-}
-function GhostBtn({ children, onClick, style, icon: Icon, color }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "center",
-        background: "transparent", color: color || "rgba(244,234,214,0.75)",
-        border: `1px solid ${C.panelLine}`, borderRadius: 8, padding: "7px 11px",
-        fontWeight: 600, fontSize: 12.5, cursor: "pointer", ...bodyFont, ...style,
-      }}
-    >
-      {Icon && <Icon size={13} />}
-      {children}
-    </button>
-  );
-}
-function Badge({ children, tone }) {
-  const bg = tone === "cash" ? C.cash : tone === "virtual" ? C.virtual : "rgba(255,255,255,0.1)";
-  return (
-    <span style={{ background: bg, color: "#fff", padding: "3px 8px", borderRadius: 99, fontSize: 11.5, fontWeight: 700, ...monoFont }}>
-      {children}
-    </span>
-  );
-}
-
-/* ----------------------------------------------------------------------
-   PLAYERS TAB
----------------------------------------------------------------------- */
-function PlayersTab({ roster, setRoster, playerStats, adminPassword, myPlayerId }) {
-  const [selId, setSelId] = useState("");
-  const [newName, setNewName] = useState("");
-  const [newAvatar, setNewAvatar] = useState(null);
-  const [editName, setEditName] = useState("");
-  const [editAvatar, setEditAvatar] = useState(null);
-  const [editPin, setEditPin] = useState("");
-  const [pinMsg, setPinMsg] = useState("");
-  const [savedMsg, setSavedMsg] = useState(false);
-
-  const sel = roster.find((p) => p.id === selId) || null;
-  useEffect(() => {
-    setEditName(sel ? sel.name : ""); setEditAvatar(sel ? sel.avatar || null : null);
-    setEditPin(sel ? sel.pin || "" : ""); setPinMsg("");
-  }, [selId]); // eslint-disable-line
-
-  const addPlayer = () => {
-    const name = newName.trim();
-    if (!name) return;
-    const p = { id: uid(), name, active: true, avatar: newAvatar, createdAt: Date.now() };
-    setRoster((r) => [...r, p]);
-    setNewName(""); setNewAvatar(null);
-  };
-  const saveEdit = () => {
-    if (!sel || !editName.trim()) return;
-    setRoster((r) => r.map((p) => (p.id === sel.id ? { ...p, name: editName.trim(), avatar: editAvatar } : p)));
-    setSelId(""); // limpia el combo — vuelve a "— elegir del combo —"
-    setSavedMsg(true);
-    setTimeout(() => setSavedMsg(false), 2500);
-  };
-  const savePin = async () => {
-    if (!sel) return;
-    const trimmed = editPin.trim();
-    if (trimmed && !/^\d{4}$/.test(trimmed)) { setPinMsg("El PIN debe ser numérico, de exactamente 4 dígitos."); return; }
-    const isSelf = !!myPlayerId && myPlayerId === sel.id;
-    if (!isSelf) {
-      if (!(await requestAdminPassword(adminPassword, `cambiar el PIN de ${sel.name}`))) return;
-    }
-    setRoster((r) => r.map((p) => (p.id === sel.id ? { ...p, pin: trimmed } : p)));
-    setPinMsg(trimmed ? "PIN guardado." : "PIN eliminado — este jugador queda sin protección al identificarse.");
-    setTimeout(() => setPinMsg(""), 3000);
-  };
-  const toggleActive = async () => {
-    if (!sel) return;
-    if (sel.active) {
-      // Solo pedimos contraseña para dar de baja (acción sensible), no para reactivar.
-      if (!(await requestAdminPassword(adminPassword, "dar de baja jugadores"))) return;
-    }
-    setRoster((r) => r.map((p) => (p.id === sel.id ? { ...p, active: !p.active } : p)));
-  };
-  const removePlayer = async () => {
-    if (!sel) return;
-    if (!(await requestAdminPassword(adminPassword, "eliminar jugadores"))) return;
-    if (!confirm(`¿Eliminar a ${sel.name} del roster? Sus estadísticas históricas se conservarán en partidas guardadas, pero dejará de aparecer en la lista.`)) return;
-    setRoster((r) => r.filter((p) => p.id !== sel.id));
-    setSelId("");
-  };
-
-  const sorted = [...roster].sort((a, b) => a.name.localeCompare(b.name));
-
-  return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <Panel>
-        <SectionTitle icon={UserPlus}>Alta de jugador</SectionTitle>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <input
-            style={inputStyle} placeholder="Nombre del jugador" value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addPlayer()}
-          />
-          <PrimaryBtn onClick={addPlayer} icon={Plus}>Agregar</PrimaryBtn>
-        </div>
-        <AvatarPicker avatar={newAvatar} setAvatar={setNewAvatar} previewName={newName} />
-      </Panel>
-
-      <Panel>
-        <SectionTitle icon={Pencil}>Editar / dar de baja</SectionTitle>
-        {savedMsg && (
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10, background: "rgba(63,191,114,0.14)", border: `1px solid ${C.win}`, borderRadius: 8, padding: "8px 10px" }}>
-            <Check size={14} color={C.win} />
-            <span style={{ fontSize: 12.5, color: C.win, fontWeight: 700 }}>Jugador actualizado correctamente.</span>
-          </div>
-        )}
-        <Field label="Seleccionar jugador">
-          <select style={{ ...inputStyle, appearance: "auto" }} value={selId} onChange={(e) => setSelId(e.target.value)}>
-            <option value="">— elegir del combo —</option>
-            {sorted.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}{!p.active ? " (baja)" : ""}</option>
-            ))}
-          </select>
-        </Field>
-
-        {sel && (
-          <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input style={inputStyle} value={editName} onChange={(e) => setEditName(e.target.value)} />
-              <GhostBtn onClick={saveEdit} icon={Check} color={C.win}>Guardar</GhostBtn>
-            </div>
-            <AvatarPicker avatar={editAvatar} setAvatar={setEditAvatar} previewName={editName} />
-            <Field label="PIN (4 dígitos, para identificarte en un celular)">
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="password" inputMode="numeric" maxLength={4} style={inputStyle} placeholder="Sin PIN configurado" value={editPin}
-                  onChange={(e) => setEditPin(e.target.value.replace(/[^\d]/g, "").slice(0, 4))}
-                />
-                <GhostBtn onClick={savePin} icon={Check} color={C.gold}>Guardar PIN</GhostBtn>
-              </div>
-              {pinMsg && <div style={{ fontSize: 11.5, color: pinMsg.includes("eliminado") ? C.goldSoft : C.win, marginTop: 5 }}>{pinMsg}</div>}
-            </Field>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <GhostBtn onClick={toggleActive} icon={sel.active ? UserX : UserCheck} color={sel.active ? C.loss : C.win}>
-                {sel.active ? "Dar de baja" : "Reactivar"}
-              </GhostBtn>
-              <GhostBtn onClick={removePlayer} icon={Trash2} color={C.loss}>Eliminar del roster</GhostBtn>
-            </div>
-            <PlayerStatRow stats={playerStats(sel.id)} />
-          </div>
-        )}
-      </Panel>
-
-      <Panel>
-        <SectionTitle icon={Users} right={<span style={{ color: "rgba(244,234,214,0.5)", fontSize: 12 }}>{roster.filter(p=>p.active).length} activos</span>}>
-          Roster completo
-        </SectionTitle>
-        <div style={{ display: "grid", gap: 8 }}>
-          {sorted.length === 0 && <Empty>Aún no hay jugadores. Agrega el primero arriba.</Empty>}
-          {sorted.map((p) => {
-            const st = playerStats(p.id);
-            return (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "10px 12px", opacity: p.active ? 1 : 0.5 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Avatar player={p} size={30} />
-                  <div>
-                    <div style={{ color: C.card, fontWeight: 600, fontSize: 14 }}>{p.name}{!p.active && <span style={{ color: C.loss, fontSize: 11, marginLeft: 6 }}>BAJA</span>}</div>
-                    <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 11.5, ...monoFont }}>{st.played} partidas</div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Panel>
-    </div>
-  );
-}
-function AvatarPicker({ avatar, setAvatar, previewName }) {
-  const [customEmoji, setCustomEmoji] = useState("");
-  const onPhoto = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
     try {
-      const dataUrl = await readFileAsDataURL(file);
-      setAvatar({ type: "photo", value: dataUrl });
-    } catch {
-      alert("No se pudo cargar la imagen.");
-    }
-    e.target.value = "";
-  };
-  const useCustomEmoji = () => {
-    const val = customEmoji.trim();
-    if (!val) return;
-    setAvatar({ type: "icon", value: val });
-    setCustomEmoji("");
-  };
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-      <Avatar player={{ name: previewName, avatar }} size={44} />
-      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", maxWidth: 280 }}>
-        {AVATAR_ICONS.map((ic) => (
-          <button key={ic} onClick={() => setAvatar({ type: "icon", value: ic })}
-            style={{
-              width: 28, height: 28, borderRadius: 7, cursor: "pointer", fontSize: 15,
-              background: avatar?.type === "icon" && avatar.value === ic ? "rgba(216,173,63,0.35)" : "rgba(0,0,0,0.2)",
-              border: `1px solid ${avatar?.type === "icon" && avatar.value === ic ? C.gold : C.panelLine}`,
-            }}>{ic}</button>
-        ))}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <input
-          type="text"
-          inputMode="text"
-          placeholder="😊 tu emoji"
-          value={customEmoji}
-          maxLength={8}
-          onChange={(e) => setCustomEmoji(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && useCustomEmoji()}
-          style={{ ...inputStyle, width: 96, textAlign: "center", fontSize: 17, padding: "6px 6px" }}
-        />
-        <GhostBtn onClick={useCustomEmoji} icon={Check} color={C.win}>Usar</GhostBtn>
-      </div>
-      <label style={{ cursor: "pointer" }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "transparent", border: `1px solid ${C.panelLine}`, borderRadius: 8, padding: "6px 10px", fontSize: 12, color: "rgba(244,234,214,0.75)", ...bodyFont, fontWeight: 600 }}>
-          Subir foto
-        </span>
-        <input type="file" accept="image/*" onChange={onPhoto} style={{ display: "none" }} />
-      </label>
-      {avatar && (
-        <GhostBtn onClick={() => setAvatar(null)} icon={X} color={C.loss}>Quitar</GhostBtn>
-      )}
-    </div>
-  );
-}
-function PlayerStatRow({ stats }) {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginTop: 4 }}>
-      <MiniStat label="Partidas" value={stats.played} />
-      <MiniStat label="Ganadas" value={stats.wins} />
-      <MiniStat label="Balance histórico" value={money(stats.balance)} tone={stats.balance >= 0 ? "win" : "loss"} />
-    </div>
-  );
-}
-function MiniStat({ label, value, tone }) {
-  const color = tone === "win" ? C.win : tone === "loss" ? C.loss : C.card;
-  return (
-    <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-      <div style={{ fontSize: 10.5, color: "rgba(244,234,214,0.55)", textTransform: "uppercase" }}>{label}</div>
-      <div style={{ ...monoFont, fontWeight: 700, fontSize: 15, color }}>{value}</div>
-    </div>
-  );
-}
-function Empty({ children }) {
-  return (
-    <div style={{ textAlign: "center", padding: "22px 10px", color: "rgba(244,234,214,0.45)", fontSize: 13.5 }}>
-      {children}
-    </div>
-  );
-}
-
-/* ----------------------------------------------------------------------
-   GAME TAB
----------------------------------------------------------------------- */
-function GameTab({ roster, activeGame, setActiveGame, games, setGames, myPlayerId, onIdentify, adminPassword, setTab, subView }) {
-  if (!activeGame) return <NewGameSetup roster={roster} setActiveGame={setActiveGame} />;
-  if (activeGame.finished) return <FinalizedGame game={activeGame} roster={roster} onClose={() => setActiveGame(null)} setActiveGame={setActiveGame} setGames={setGames} adminPassword={adminPassword} />;
-  const isHost = !!myPlayerId && myPlayerId === activeGame.hostId;
-  return (
-    <ActiveGameScreen
-      game={activeGame} setGame={setActiveGame} roster={roster} setGames={setGames}
-      isHost={isHost} onIdentify={onIdentify} myPlayerId={myPlayerId}
-      view={subView} setTab={setTab}
-    />
-  );
-}
-
-function NewGameSetup({ roster, setActiveGame }) {
-  const active = roster.filter((p) => p.active);
-  const [date, setDate] = useState(todayISO());
-  const [loteValue, setLoteValue] = useState(1000);
-  const [rakeHost, setRakeHost] = useState(1500);
-  const [rakeAutosCount, setRakeAutosCount] = useState(0);
-  const [rakeAutoAmount, setRakeAutoAmount] = useState(300);
-  const [selected, setSelected] = useState([]);
-  const [hostId, setHostId] = useState("");
-
-  const rakeTotal = round1((Number(rakeHost) || 0) + (Number(rakeAutosCount) || 0) * (Number(rakeAutoAmount) || 0));
-
-  const toggle = (id) => {
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-    if (hostId === id) setHostId("");
-  };
-
-  const start = () => {
-    if (selected.length < 2 || !loteValue || !hostId) return;
-    setActiveGame({
-      id: uid(), date, loteValue: Number(loteValue),
-      rakeHost: Number(rakeHost) || 0,
-      rakeAutosCount: Number(rakeAutosCount) || 0,
-      rakeAutoAmount: Number(rakeAutoAmount) || 0,
-      rake: rakeTotal,
-      playerIds: selected, hostId, startedAt: Date.now(),
-      purchases: [],
-      requests: [],
-      purchaseLog: [],
-      dinner: { amountNoAlcohol: 0, amountAlcohol: 0, alcohol: {}, paid: {}, paymentMethod: {} },
-      finalChips: {}, finalizeDraft: {}, finished: false, results: null,
-    });
-  };
-
-  return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <Panel>
-        <SectionTitle icon={Play}>Nueva partida</SectionTitle>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <Field label="Fecha">
-            <input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} />
-          </Field>
-          <Field label="Valor del lote">
-            <MoneyInput value={loteValue} onChange={setLoteValue} />
-          </Field>
-        </div>
-        <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 12 }}>
-          <div style={{ ...displayFont, fontSize: 15, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
-          <Field label="Rake para anfitrión">
-            <MoneyInput value={rakeHost} onChange={setRakeHost} />
-          </Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-            <Field label="Rake para autos — # de autos">
-              <input type="number" min="0" style={inputStyle} value={rakeAutosCount === 0 ? "" : rakeAutosCount} onChange={(e) => setRakeAutosCount(e.target.value === "" ? 0 : Number(e.target.value))} onFocus={(e) => e.target.select()} />
-            </Field>
-            <Field label="Monto por auto">
-              <MoneyInput value={rakeAutoAmount} onChange={setRakeAutoAmount} />
-            </Field>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <ScoreBox label="Rake total" value={money(rakeTotal)} />
-          </div>
-        </div>
-      </Panel>
-
-      <Panel>
-        <SectionTitle icon={Users} right={<span style={{ fontSize: 12, color: "rgba(244,234,214,0.5)" }}>{selected.length} seleccionados</span>}>
-          Jugadores en la mesa
-        </SectionTitle>
-        {active.length === 0 ? (
-          <Empty>No hay jugadores activos. Ve a la pestaña Jugadores para dar de alta.</Empty>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            {active.map((p) => {
-              const on = selected.includes(p.id);
-              return (
-                <button key={p.id} onClick={() => toggle(p.id)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8, textAlign: "left",
-                    background: on ? "rgba(216,173,63,0.16)" : "rgba(0,0,0,0.18)",
-                    border: `1px solid ${on ? C.gold : C.panelLine}`, borderRadius: 9,
-                    padding: "9px 10px", cursor: "pointer", ...bodyFont,
-                  }}>
-                  <div style={{ width: 18, height: 18, borderRadius: 5, border: `1.5px solid ${on ? C.gold : "rgba(244,234,214,0.4)"}`, background: on ? C.gold : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    {on && <Check size={12} color={C.ink} />}
-                  </div>
-                  <Avatar player={p} size={22} />
-                  <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
-
-      {selected.length >= 1 && (
-        <Panel>
-          <SectionTitle icon={Crown}>Host / administrador de la partida</SectionTitle>
-          <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12, marginBottom: 10 }}>
-            Selecciona un único jugador que administrará la partida.
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            {selected.map((id) => {
-              const p = active.find((x) => x.id === id) || roster.find((x) => x.id === id);
-              if (!p) return null;
-              const on = hostId === id;
-              return (
-                <button key={id} onClick={() => setHostId(id)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8, textAlign: "left",
-                    background: on ? "rgba(216,173,63,0.22)" : "rgba(0,0,0,0.18)",
-                    border: `1px solid ${on ? C.gold : C.panelLine}`, borderRadius: 9,
-                    padding: "9px 10px", cursor: "pointer", ...bodyFont,
-                  }}>
-                  <div style={{ width: 16, height: 16, borderRadius: 99, border: `1.5px solid ${on ? C.gold : "rgba(244,234,214,0.4)"}`, background: on ? C.gold : "transparent", flexShrink: 0 }} />
-                  <Avatar player={p} size={22} />
-                  <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
-                  {on && <Crown size={13} color={C.gold} style={{ marginLeft: "auto" }} />}
-                </button>
-              );
-            })}
-          </div>
-        </Panel>
-      )}
-
-      <PrimaryBtn onClick={start} disabled={selected.length < 2 || !loteValue || !hostId} icon={Play} style={{ padding: "13px 18px", fontSize: 15 }}>
-        Iniciar partida
-      </PrimaryBtn>
-      {selected.length < 2 && <div style={{ color: "rgba(244,234,214,0.5)", fontSize: 12.5, textAlign: "center" }}>Selecciona al menos 2 jugadores.</div>}
-      {selected.length >= 2 && !hostId && <div style={{ color: "rgba(244,234,214,0.5)", fontSize: 12.5, textAlign: "center" }}>Selecciona quién será el host.</div>}
-    </div>
-  );
-}
-
-/* ----- Active game: buy-ins, dinner, finalize ----- */
-function formatClock(ts) {
-  if (!ts) return "—";
-  return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-// Para el Log Compras, que necesita hh:mm:ss (con segundos) para poder
-// diferenciar eventos muy seguidos uno del otro.
-function formatClockSec(ts) {
-  if (!ts) return "—";
-  return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-}
-function GameStatusBlock({ game, players, totals }) {
-  const perPlayer = players.map((p) => {
-    const cash = game.purchases.filter((pu) => pu.playerId === p.id && pu.type === "cash").reduce((s, pu) => s + pu.amount, 0);
-    const virtual = game.purchases.filter((pu) => pu.playerId === p.id && pu.type === "virtual").reduce((s, pu) => s + pu.amount, 0);
-    return { player: p, cash, virtual, total: cash + virtual };
-  }).sort((a, b) => a.player.name.localeCompare(b.player.name));
-
-  return (
-    <Panel>
-      <SectionTitle icon={Activity}>Estatus de la jugada</SectionTitle>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 14 }}>
-        <ScoreBox label="Total cash" value={money(totals.cash)} tone="cash" />
-        <ScoreBox label="Total virtual" value={money(totals.virtual)} tone="virtual" />
-        <ScoreBox label="Total" value={money(totals.cash + totals.virtual)} />
-        <ScoreBox label="Hora inicio" value={formatClock(game.startedAt)} />
-      </div>
-      <div style={{ display: "grid", gap: 8 }}>
-        {perPlayer.map((row) => (
-          <div key={row.player.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "10px 12px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 8 }}>
-              <Avatar player={row.player} size={22} />
-              <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.player.name}</span>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 4, textAlign: "center" }}>
-              <div>
-                <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Cash</div>
-                <div style={{ ...monoFont, fontWeight: 800, fontSize: 19, color: C.cash }}>{money(row.cash)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Virtual</div>
-                <div style={{ ...monoFont, fontWeight: 800, fontSize: 19, color: C.virtual }}>{money(row.virtual)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Total</div>
-                <div style={{ ...monoFont, fontWeight: 800, fontSize: 20, color: C.goldSoft }}>{money(row.total)}</div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
-function ActiveGameScreen({ game, setGame, roster, setGames, isHost, onIdentify, myPlayerId, view, setTab }) {
-  // "Finalizar partida" es una pantalla más, seleccionada igual que cualquier
-  // otra pestaña (a través de "view", que en definitiva viene del estado
-  // "tab" de más arriba) — así, tocar cualquier pestaña del Header mientras
-  // se está finalizando la partida navega ahí directamente en vez de quedar
-  // atascado en esta pantalla (antes esto vivía en un estado local aparte,
-  // que se podía desincronizar de la pestaña activa).
-  const effectiveView = view || "estatus";
-
-  const players = game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean);
-  const availableToAdd = roster.filter((p) => p.active && !game.playerIds.includes(p.id));
-
-  const totals = useMemo(() => {
-    let cash = 0, virtual = 0;
-    game.purchases.forEach((p) => { if (p.type === "cash") cash += p.amount; else virtual += p.amount; });
-    return { cash, virtual };
-  }, [game.purchases]);
-
-  // update acepta un objeto (mezcla directa) o una función (g) => patch, que
-  // recibe el estado MÁS RECIENTE del juego. Usar la forma función evita
-  // "carreras" cuando se disparan varios cambios rápido seguidos (por
-  // ejemplo, tocar +Cash varias veces, o editar dos campos de la cena
-  // rápido): cada patch se arma sobre el estado real, no sobre una copia
-  // vieja capturada en el momento del render.
-  const update = (patch) =>
-    setGame((g) => ({ ...g, ...(typeof patch === "function" ? patch(g) : patch) }));
-
-  // Log de compras/solicitudes de lotes ("Log Compras" en la app / hoja
-  // "LogPetLotes" en el Excel): cada evento (compra directa del host,
-  // solicitud enviada/aprobada/rechazada, cancelación) se agrega localmente
-  // a game.purchaseLog, que vive en el blob de la partida activa (rápido y
-  // sin necesidad de ningún "reintentar" durante el juego — ver
-  // pushExcelAudit). Recién se empuja a la hoja "LogPetLotes" del Excel una
-  // sola vez, en bloque, al cerrar formalmente la partida.
-  const nameOf = (pid) => roster.find((r) => r.id === pid)?.name || "?";
-  const logEvent = (partial) => {
-    const entry = {
-      id: uid(), ts: Date.now(), loteValue: game.loteValue,
-      playerName: nameOf(partial.playerId),
-      ...partial,
-    };
-    update((g) => ({ purchaseLog: [...(g.purchaseLog || []), entry] }));
-  };
-
-  // Los jugadores ya NO pueden solicitar lotes desde su celular — los lotes
-  // los asigna siempre el host directamente desde "Compra de lotes". Se deja
-  // `myRequests` (usado por el flujo de "unirse a la mesa") y se mantiene la
-  // rama de `resolveRequest` para tipo cash/virtual por si quedó alguna
-  // solicitud vieja pendiente de antes de este cambio.
-  const myRequests = (game.requests || []).filter((r) => r.playerId === myPlayerId);
-  // Alguien que ya se identificó con su PIN pero todavía no está sentado en
-  // esta mesa (no llegó a tiempo para el alta inicial, o se sumó a mitad de
-  // la noche) no puede simplemente entrar solo: le manda al host una
-  // solicitud de "agrégame a la mesa", igual que cuando pide fichas.
-  const submitJoinRequest = () => {
-    if (!myPlayerId) return;
-    update((g) => {
-      const already = (g.requests || []).some((r) => r.playerId === myPlayerId && r.type === "join" && r.status === "pending");
-      if (already) return {};
-      return { requests: [...(g.requests || []), { id: uid(), playerId: myPlayerId, type: "join", amount: 0, status: "pending", ts: Date.now() }] };
-    });
-  };
-  const resolveRequest = (reqId, approve) => {
-    const reqBefore = (game.requests || []).find((r) => r.id === reqId);
-    update((g) => {
-      const req = (g.requests || []).find((r) => r.id === reqId);
-      if (!req || req.status !== "pending") return {};
-      if (approve) {
-        if (req.type === "join") {
-          return {
-            playerIds: g.playerIds.includes(req.playerId) ? g.playerIds : [...g.playerIds, req.playerId],
-            requests: g.requests.map((r) => (r.id === reqId ? { ...r, status: "approved" } : r)),
-          };
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (raw) {
+        const ultima = Number(localStorage.getItem(ACTIVITY_KEY)) || 0;
+        if (Date.now() - ultima > INACTIVIDAD_MS) {
+          // la sesión se quedó "colgada" más de 30 minutos sin actividad — se descarta sola
+          localStorage.removeItem(SESSION_KEY);
+          localStorage.removeItem(ACTIVITY_KEY);
+        } else {
+          setSession(JSON.parse(raw));
+          localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
         }
-        const entry = { id: uid(), playerId: req.playerId, type: req.type, lotes: g.loteValue ? round1(req.amount / g.loteValue) : 0, amount: req.amount, ts: Date.now() };
-        return {
-          purchases: [...g.purchases, entry],
-          requests: g.requests.map((r) => (r.id === reqId ? { ...r, status: "approved" } : r)),
-        };
       }
-      return { requests: g.requests.map((r) => (r.id === reqId ? { ...r, status: "rejected" } : r)) };
-    });
-    // El log queda aparte del updater de arriba (que puede volver a
-    // ejecutarse con el estado más reciente): usamos el request tal cual
-    // estaba antes de resolverlo para no duplicar el evento.
-    if (reqBefore && reqBefore.status === "pending" && reqBefore.type !== "join") {
-      const lotesDelta = game.loteValue ? round1(reqBefore.amount / game.loteValue) : 0;
-      const saldoInicial = approve
-        ? game.purchases.filter((p) => p.playerId === reqBefore.playerId && p.type === reqBefore.type).reduce((s, p) => s + p.amount, 0)
-        : undefined;
-      logEvent({
-        playerId: reqBefore.playerId, type: reqBefore.type, origin: "jugador",
-        action: approve ? "solicitud aprobada" : "solicitud rechazada",
-        lotes: lotesDelta,
-        amount: reqBefore.amount,
-        ...(approve ? { saldoInicial, saldoFinal: saldoInicial + reqBefore.amount } : {}),
-      });
+    } catch (e) {
+      // localStorage no disponible — se pedirá login normalmente
     }
-  };
+    cargarPerfiles();
+    cargarParametros();
+  }, []);
 
-  // Solo el host de la partida puede modificar algo (comprar lotes, tocar la
-  // cena, cambiar configuración, cerrarla). Cualquier otro dispositivo ve
-  // exactamente el mismo bloque de estatus (y puede pedir fichas), pero de
-  // solo lectura para todo lo demás.
-  if (!isHost) {
-    const hostPlayer = roster.find((r) => r.id === game.hostId);
-    const iAmInGame = players.some((p) => p.id === myPlayerId);
-    // El aviso de "modo lectura" solo tiene sentido al entrar — en cuanto
-    // el jugador navega a otra pestaña, ya lo entendió y estorba tenerlo
-    // repitiéndose en cada pantalla.
-    const firstViewRef = useRef(effectiveView);
-    const [bannerDismissed, setBannerDismissed] = useState(false);
-    useEffect(() => {
-      if (effectiveView !== firstViewRef.current) setBannerDismissed(true);
-    }, [effectiveView]);
-    const banner = !bannerDismissed && (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 10, padding: "8px 12px" }}>
-        <AlertCircle size={14} color={C.loss} style={{ flexShrink: 0 }} />
-        <div style={{ fontSize: 12, color: "rgba(244,234,214,0.85)" }}>
-          Solo <strong>{hostPlayer ? hostPlayer.name : "el host"}</strong> puede modificar la partida — modo lectura.
-        </div>
-      </div>
+  // mientras hay sesión activa, cualquier interacción del usuario marca actividad; cada minuto se
+  // revisa si ya pasaron 30 minutos sin ninguna — si es así, se cierra la sesión y regresa al login
+  useEffect(() => {
+    if (!session) return;
+    let ultimoRegistro = 0;
+    const marcarActividad = () => {
+      const ahora = Date.now();
+      if (ahora - ultimoRegistro < 5000) return; // evita escribir en cada mousemove
+      ultimoRegistro = ahora;
+      try {
+        localStorage.setItem(ACTIVITY_KEY, String(ahora));
+      } catch (e) {}
+    };
+    const eventos = ["click", "keydown", "mousemove", "scroll", "touchstart"];
+    eventos.forEach((ev) => window.addEventListener(ev, marcarActividad));
+    marcarActividad();
+
+    const intervalo = setInterval(() => {
+      try {
+        const ultima = Number(localStorage.getItem(ACTIVITY_KEY)) || 0;
+        if (Date.now() - ultima > INACTIVIDAD_MS) {
+          handleLogout();
+        }
+      } catch (e) {}
+    }, 60 * 1000);
+
+    return () => {
+      eventos.forEach((ev) => window.removeEventListener(ev, marcarActividad));
+      clearInterval(intervalo);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
+  function cargarPerfiles() {
+    setPerfilesLoading(true);
+    setPerfilesError("");
+    fetch(API_PERFILES)
+      .then((r) => {
+        if (!r.ok) throw new Error("No se pudo cargar la lista de usuarios (HTTP " + r.status + ").");
+        return r.json();
+      })
+      .then((json) => setPerfiles(json))
+      .catch((e) => setPerfilesError(e.message || "Error al cargar usuarios."))
+      .finally(() => setPerfilesLoading(false));
+  }
+
+  function cargarParametros() {
+    // "best effort" a propósito — si falla o la función no existe todavía, parametros se queda en null
+    // y se trata como portal encendido (ver comentario en el estado de arriba).
+    fetch(API_PARAMETROS)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => setParametros(json))
+      .catch(() => setParametros(null));
+  }
+
+  function esAdmin(rol) {
+    return rol === "Administrador General" || rol === "Administrador";
+  }
+
+  // 75ª entrega: Federico pidió que "Ver como jugador" también esté disponible para el Tesorero, no
+  // solo para Administrador/Administrador General — el Tesorero necesita poder revisar rápido cómo se
+  // ve el Calendario/Resultados desde el lado de un jugador (ej. para explicarle un reclamo por
+  // teléfono) sin tener que pedirle a un administrador que lo haga. `esAdmin()` sigue siendo el
+  // criterio para todo lo demás (pestañas `soloAdmins`, bypass de portal apagado, etc.) — a propósito
+  // NO se tocó, porque esas otras protecciones (activar/desactivar el portal, ver pestañas de
+  // administración) siguen siendo exclusivas de administrador real. Este helper es solo para decidir
+  // quién puede usar el switch de Mi Perfil.
+  function puedeAlternarVistaJugador(rol) {
+    return esAdmin(rol) || rol === "Tesorero";
+  }
+
+  // 72ª entrega: recibe la sesión a evaluar como parámetro (antes cerraba directo sobre `session`) para
+  // poder reutilizarla también con la "sesión efectiva" (real o forzada a "Jugador" por el switch "Ver
+  // como jugador" de Mi Perfil) sin duplicar la lógica de permisos.
+  function puedeVerTab(t, sesionEval) {
+    if (t.oculto) return false;
+    if (t.siempreVisible) return true;
+    if (t.soloAdmins) return esAdmin(sesionEval?.rol);
+    return puedeVer(perfiles, sesionEval, t.modKey);
+  }
+
+  function handleLogin(s) {
+    setSession(s);
+    const firstAllowed = TABS.find((t) =>
+      t.oculto ? false : t.siempreVisible ? true : t.soloAdmins ? esAdmin(s.rol) : puedeVer(perfiles, s, t.modKey)
     );
+    setTab(firstAllowed ? firstAllowed.key : "tablero");
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
+    } catch (e) {}
+  }
 
-    if (effectiveView === "cena") {
-      return (
-        <div style={{ display: "grid", gap: 16 }}>
-          {banner}
-          <Panel>
-            <SectionTitle icon={UtensilsCrossed}>Cena y servicio</SectionTitle>
-            <DinnerReadOnly game={game} players={players} />
-          </Panel>
-        </div>
-      );
-    }
-    if (effectiveView === "loterake") {
-      return (
-        <div style={{ display: "grid", gap: 16 }}>
-          {banner}
-          <Panel>
-            <SectionTitle icon={Coins}>Lote y Rakes</SectionTitle>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
-              <ScoreBox label="Valor de lote" value={money(game.loteValue)} />
-              <ScoreBox label="Rake total" value={money(game.rake)} />
-              <ScoreBox label="Rake anfitrión" value={money(game.rakeHost || 0)} />
-              <ScoreBox label={`Rake autos (${game.rakeAutosCount || 0} × ${money(game.rakeAutoAmount ?? 300)})`} value={money((game.rakeAutosCount || 0) * (game.rakeAutoAmount ?? 300))} />
-            </div>
-          </Panel>
-        </div>
-      );
-    }
-    if (effectiveView === "jugadoresPartida") {
-      return (
-        <div style={{ display: "grid", gap: 16 }}>
-          {banner}
-          <Panel>
-            <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
-            <div style={{ display: "grid", gap: 8 }}>
-              {players.map((p) => (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 9, padding: "8px 10px" }}>
-                  <Avatar player={p} size={24} />
-                  <span style={{ color: C.card, fontWeight: 600, fontSize: 13.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                  {game.hostId === p.id && <Badge tone="gold"><Crown size={10} /> Host</Badge>}
-                </div>
-              ))}
-            </div>
-          </Panel>
-        </div>
-      );
-    }
+  function handleLogout() {
+    setSession(null);
+    try {
+      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(ACTIVITY_KEY);
+    } catch (e) {}
+  }
 
-    if (effectiveView === "compra") {
-      return (
-        <div style={{ display: "grid", gap: 16 }}>
-          {banner}
-          {iAmInGame ? (
-            <Panel>
-              <SectionTitle icon={Banknote}>Compra de lotes</SectionTitle>
-              <Empty>Los lotes los asigna el host directamente — pedíselos de palabra.</Empty>
-            </Panel>
-          ) : (
-            myPlayerId && <JoinRequestPanel myRequests={myRequests} onSubmit={submitJoinRequest} />
-          )}
-        </div>
-      );
-    }
+  function irARuta(nueva) {
+    setRuta(nueva);
+    try {
+      window.history.pushState({}, "", nueva);
+    } catch (e) {}
+  }
 
-    if (effectiveView === "logcompras") {
-      return (
-        <div style={{ display: "grid", gap: 16 }}>
-          {banner}
-          <PurchaseLogPanel game={game} />
-        </div>
-      );
-    }
+  function handleRegistroExitoso(s) {
+    handleLogin(s);
+    irARuta("/");
+  }
 
+  // el autorregistro crea cuentas nuevas de "Jugador" — con el portal apagado tampoco tiene sentido
+  // dejar que alguien se registre, así que también ve el aviso de mantenimiento en vez del formulario.
+  if (ruta === "/registro" && !session && parametros?.portalActivo !== false) {
     return (
-      <div style={{ display: "grid", gap: 16 }}>
-        {banner}
-        <Panel>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
-            <div>
-              <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Partida en curso</div>
-              <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                <span>{game.date} · {players.length} jugadores</span>
-                {game.hostId && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(216,173,63,0.16)", color: C.goldSoft, padding: "2px 7px", borderRadius: 99 }}>
-                    <Crown size={11} /> Host: {roster.find((r) => r.id === game.hostId)?.name || "—"}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 14 }}>
-            <ScoreBox label="Monto del lote" value={money(game.loteValue)} />
-            <ScoreBox label="Rake + estacionamiento" value={money(game.rake)} />
-          </div>
-        </Panel>
-        <GameStatusBlock game={game} players={players} totals={totals} />
-      </div>
+      <>
+        <Decor />
+        <VersionBadge />
+        <Registro onRegistroExitoso={handleRegistroExitoso} onIrALogin={() => irARuta("/")} />
+      </>
     );
   }
 
-  const addPurchase = (playerId, type) => {
-    // saldoInicial/saldoFinal: cuánto dinero (cash o virtual, según el tipo)
-    // tenía comprado el jugador antes y después de esta compra — se calcula
-    // con el estado de `game.purchases` en el momento del click, antes de
-    // aplicar el cambio.
-    const saldoInicial = game.purchases
-      .filter((p) => p.playerId === playerId && p.type === type)
-      .reduce((s, p) => s + p.amount, 0);
-    update((g) => {
-      const entry = { id: uid(), playerId, type, lotes: 1, amount: g.loteValue, ts: Date.now() };
-      return { purchases: [...g.purchases, entry] };
-    });
-    logEvent({
-      playerId, type, origin: "host", action: "compra directa", lotes: 1, amount: game.loteValue,
-      saldoInicial, saldoFinal: saldoInicial + game.loteValue,
-    });
-  };
-  const removeLastPurchase = (playerId, type) => {
-    const entriesBefore = game.purchases.filter((p) => p.playerId === playerId && p.type === type);
-    const lastBefore = entriesBefore[entriesBefore.length - 1];
-    if (lastBefore) {
-      const saldoInicial = entriesBefore.reduce((s, p) => s + p.amount, 0);
-      const deltaLotes = -(Number(lastBefore.lotes) || 0);
-      const deltaAmount = -(Number(lastBefore.amount) || 0);
-      logEvent({
-        playerId, type, origin: "host", action: "cancelación",
-        lotes: deltaLotes, amount: deltaAmount,
-        saldoInicial, saldoFinal: saldoInicial + deltaAmount,
-      });
-    }
-    update((g) => {
-      const entries = g.purchases.filter((p) => p.playerId === playerId && p.type === type);
-      if (entries.length === 0) return {};
-      const last = entries[entries.length - 1];
-      return { purchases: g.purchases.filter((p) => p.id !== last.id) };
-    });
-  };
-
-  const setLote = (v) => update({ loteValue: Number(v) || 0 });
-  // El rake (y el lote) se pueden seguir editando libremente mientras la
-  // partida sigue en curso, incluso si ya se entró a "Entrega de fichas" y
-  // se volvió para corregir algo — solo se congela cuando la partida ya
-  // quedó realmente cerrada ("Calcular resultados"), que es cuando
-  // finalChips deja de estar vacío.
-  const rakeLocked = Object.keys(game.finalChips || {}).length > 0;
-  const setRakeParts = (patch) =>
-    update((g) => {
-      const rakeHost = patch.rakeHost !== undefined ? Number(patch.rakeHost) || 0 : (Number(g.rakeHost) || 0);
-      const rakeAutosCount = patch.rakeAutosCount !== undefined ? Number(patch.rakeAutosCount) || 0 : (Number(g.rakeAutosCount) || 0);
-      const rakeAutoAmount = patch.rakeAutoAmount !== undefined ? Number(patch.rakeAutoAmount) || 0 : (g.rakeAutoAmount ?? 300);
-      return { rakeHost, rakeAutosCount, rakeAutoAmount, rake: round1(rakeHost + rakeAutosCount * rakeAutoAmount) };
-    });
-  const setRakeHost = (v) => setRakeParts({ rakeHost: v });
-  const setRakeAutosCount = (v) => setRakeParts({ rakeAutosCount: v });
-  const setRakeAutoAmount = (v) => setRakeParts({ rakeAutoAmount: v });
-
-  const cancelPartida = async () => {
-    const ok = await requestConfirm({
-      title: "¿Cancelar esta partida?",
-      message: "Se va a perder todo el progreso de esta partida (lotes comprados, cena, configuración). Esta acción no se puede deshacer.",
-      confirmLabel: "Sí, cancelar partida",
-      cancelLabel: "Seguir jugando",
-    });
-    if (ok) setGame(null);
-  };
-
-  const addPlayerToGame = (id) => {
-    if (game.playerIds.includes(id)) return;
-    update((g) => ({ playerIds: [...g.playerIds, id] }));
-  };
-  const removePlayerFromGame = (id) => {
-    const hasPurchases = game.purchases.some((p) => p.playerId === id);
-    const name = roster.find((r) => r.id === id)?.name || "este jugador";
-    if (hasPurchases) {
-      if (!confirm(`⚠️ ${name} ya tiene lotes comprados registrados en esta partida. Si lo quitas, esas compras se van a eliminar también. ¿Continuar?`)) return;
-    } else if (!confirm(`¿Quitar a ${name} de esta partida?`)) {
-      return;
-    }
-    update((g) => ({
-      playerIds: g.playerIds.filter((pid) => pid !== id),
-      purchases: g.purchases.filter((p) => p.playerId !== id),
-      hostId: g.hostId === id ? "" : g.hostId,
-    }));
-  };
-
-  if (effectiveView === "finalizar") {
+  if (perfilesLoading) {
     return (
-      <FinalizeGame
-        game={game} roster={roster} update={update}
-        onBack={() => setTab && setTab("compra")}
-        onConfirm={(finalChips, finalChipsAdjust, finalRake, entregaFichasRows) => {
-          // El rake puede haber sido ajustado a mano en "Entrega de fichas"
-          // (para cuadrar a un número exacto) — ese valor es el que manda
-          // para el cálculo final, no el que quedó cargado en "Lote y Rakes".
-          const g2 = { ...game, finalChips, finalChipsAdjust, rake: Number(finalRake) || 0 };
-          const results = computeSettlement(g2, roster);
-          const finished = {
-            ...g2, finished: true, results,
-            entregaFichasRows: entregaFichasRows || [],
-            excelAuditError: "",
-          };
-          setGame(finished);
-          // Si esta partida ya estaba guardada (por ejemplo, volviste a
-          // editarla desde "Resultados" y la volviste a cerrar), reemplazamos
-          // la entrada vieja en vez de duplicarla.
-          setGames((gs) => [...gs.filter((x) => x.id !== finished.id), finished]);
-          // Este es el ÚNICO momento en que se toca el Excel para esta
-          // partida: el registro de "Partidas"/"Resultados" ya se dispara
-          // solo (más arriba, al cambiar `games`); acá, además, se empuja en
-          // bloque — de una sola vez — el log de compras de toda la noche y
-          // el snapshot final de "Entrega de fichas" a sus hojas de auditoría.
-          pushExcelAudit(finished, entregaFichasRows).then((err) => {
-            if (!err) return;
-            setGame((g) => (g && g.id === finished.id ? { ...g, excelAuditError: err } : g));
-            setGames((gs) => gs.map((x) => (x.id === finished.id ? { ...x, excelAuditError: err } : x)));
-          });
-        }}
-      />
+      <>
+        <Decor />
+        <VersionBadge />
+        <div className="wrap">
+          <p className="subtitle">Cargando…</p>
+        </div>
+      </>
     );
   }
 
-  if (effectiveView === "cena") {
+  if (perfilesError || !perfiles) {
     return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <Panel>
-          <SectionTitle icon={UtensilsCrossed}>Cena y servicio</SectionTitle>
-          <DinnerSection game={game} players={players} update={update} />
-        </Panel>
-      </div>
+      <>
+        <Decor />
+        <VersionBadge />
+        <div className="wrap">
+          <p className="subtitle">No se pudo cargar la información de usuarios: {perfilesError}</p>
+          <p className="section-sub">
+            Si el sitio se acaba de desplegar, confirma que la función <code>/api/perfiles</code> y el paquete{" "}
+            <code>@netlify/blobs</code> están publicados.
+          </p>
+        </div>
+      </>
     );
   }
 
-  if (effectiveView === "compra") {
+  const portalApagado = parametros?.portalActivo === false;
+
+  // portal apagado y todavía no hay sesión: se muestra el aviso de mantenimiento en vez del login,
+  // salvo que alguien pida explícitamente entrar como administrador (el interruptor solo se puede
+  // volver a encender desde dentro del sitio, así que un administrador siempre necesita poder entrar).
+  if (!session && portalApagado && !mostrarLoginAdmin) {
     return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <PendingRequestsPanel game={game} roster={roster} onResolve={resolveRequest} />
-        <Panel>
-          <SectionTitle icon={Banknote}>Compra de lotes por jugador</SectionTitle>
-          <div style={{ display: "grid", gap: 10 }}>
-            {players.map((p) => (
-              <PlayerBuyRow
-                key={p.id} player={p} game={game} onAdd={addPurchase} onRemoveLast={removeLastPurchase}
-              />
-            ))}
+      <>
+        <Decor />
+        <VersionBadge />
+        <div className="login-shell">
+          <div className="login-card">
+            <div className="login-eyebrow">♣ Torrente On Line Series - TOLS 3.0</div>
+            <div className="login-title">Portal en mantenimiento</div>
+            <p className="section-sub" style={{ textAlign: "center" }}>{parametros?.mensajeMantenimiento}</p>
+            <div className="login-hint">
+              <button type="button" className="link-btn" onClick={() => setMostrarLoginAdmin(true)}>
+                ¿Eres administrador? Inicia sesión aquí
+              </button>
+            </div>
           </div>
-        </Panel>
-        <PrimaryBtn onClick={() => setTab && setTab("finalizar")} icon={Square} style={{ padding: "13px 18px", fontSize: 15 }}>
-          Finalizar partida
-        </PrimaryBtn>
-      </div>
+        </div>
+      </>
     );
   }
 
-  if (effectiveView === "logcompras") {
+  if (!session) {
     return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <PurchaseLogPanel game={game} />
-      </div>
+      <>
+        <Decor />
+        <VersionBadge />
+        <Login perfiles={perfiles} onLogin={handleLogin} />
+      </>
     );
   }
 
-  if (effectiveView === "loterake") {
+  // ya hay sesión, pero el portal está apagado y quien entró no es administrador: se corta el paso al
+  // resto del sitio con el mismo aviso — no se cierra la sesión (si el administrador vuelve a encender
+  // el portal, basta con recargar para recuperar el acceso, sin tener que iniciar sesión de nuevo).
+  if (portalApagado && !esAdmin(session.rol)) {
     return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <Panel>
-          <div>
-            <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Lote y Rakes</div>
-            <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont }}>{game.date}</div>
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <Field label="Valor de lote">
-              <MoneyInput value={game.loteValue} onChange={setLote} />
-            </Field>
-          </div>
-          <div style={{ marginTop: 16, borderTop: `1px solid ${C.panelLine}`, paddingTop: 14 }}>
-            <div style={{ ...displayFont, fontSize: 16, color: C.goldSoft, marginBottom: 8, letterSpacing: "0.05em" }}>RAKE</div>
-            <Field label={rakeLocked ? "Rake para anfitrión 🔒" : "Rake para anfitrión"}>
-              <MoneyInput value={game.rakeHost || 0} onChange={setRakeHost} disabled={rakeLocked} />
-            </Field>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-              <Field label="Rake para autos — # de autos">
-                <input type="number" min="0" style={{ ...inputStyle, opacity: rakeLocked ? 0.55 : 1 }} value={game.rakeAutosCount || 0} disabled={rakeLocked} onChange={(e) => setRakeAutosCount(e.target.value)} onFocus={(e) => e.target.select()} />
-              </Field>
-              <Field label="Monto por auto">
-                <MoneyInput value={game.rakeAutoAmount ?? 300} onChange={setRakeAutoAmount} disabled={rakeLocked} />
-              </Field>
+      <>
+        <Decor />
+        <VersionBadge />
+        <div className="login-shell">
+          <div className="login-card">
+            <div className="login-eyebrow">♣ Torrente On Line Series - TOLS 3.0</div>
+            <div className="login-title">Portal en mantenimiento</div>
+            <p className="section-sub" style={{ textAlign: "center" }}>{parametros?.mensajeMantenimiento}</p>
+            <div className="login-hint">
+              <button type="button" className="link-btn" onClick={handleLogout}>Salir</button>
             </div>
-            <div style={{ marginTop: 10 }}>
-              <ScoreBox label="Rake total (anfitrión + autos)" value={money(game.rake)} />
-            </div>
-            {rakeLocked && <div style={{ fontSize: 11, color: "rgba(244,234,214,0.4)", marginTop: 8 }}>El rake queda fijo una vez que se hizo la entrega de fichas.</div>}
           </div>
-        </Panel>
-      </div>
+        </div>
+      </>
     );
   }
 
-  if (effectiveView === "jugadoresPartida") {
-    return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <Panel>
-          <SectionTitle icon={Users}>Jugadores en la mesa ({players.length})</SectionTitle>
-          <div style={{ display: "grid", gap: 8 }}>
-            {players.map((p) => {
-              const hasPurchases = game.purchases.some((pu) => pu.playerId === p.id);
-              return (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.18)", borderRadius: 9, padding: "8px 10px" }}>
-                  <Avatar player={p} size={24} />
-                  <span style={{ color: C.card, fontWeight: 600, fontSize: 13.5, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                  {game.hostId === p.id && <Badge tone="gold"><Crown size={10} /> Host</Badge>}
-                  {hasPurchases && <span title="Ya tiene lotes comprados" style={{ fontSize: 10.5, color: "rgba(244,234,214,0.4)" }}>tiene lotes</span>}
-                  <button onClick={() => removePlayerFromGame(p.id)} title="Quitar de la partida" style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(226,99,79,0.75)", padding: 4, flexShrink: 0 }}>
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-          {availableToAdd.length > 0 && (
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", marginBottom: 6 }}>Agregar a la mesa:</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {availableToAdd.map((p) => (
-                  <button key={p.id} onClick={() => addPlayerToGame(p.id)}
-                    style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", background: "rgba(0,0,0,0.18)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "8px 10px", cursor: "pointer", ...bodyFont }}>
-                    <Avatar player={p} size={20} />
-                    <span style={{ color: C.card, fontSize: 13 }}>{p.name}</span>
-                    <Plus size={13} color={C.goldSoft} style={{ marginLeft: "auto", flexShrink: 0 }} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </Panel>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <Panel>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
-          <div>
-            <div style={{ ...displayFont, fontSize: 24, color: C.goldSoft }}>Partida en curso</div>
-            <div style={{ color: "rgba(244,234,214,0.55)", fontSize: 12.5, ...monoFont, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <span>{game.date} · {players.length} jugadores</span>
-              {game.hostId && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(216,173,63,0.16)", color: C.goldSoft, padding: "2px 7px", borderRadius: 99 }}>
-                  <Crown size={11} /> Host: {roster.find((r) => r.id === game.hostId)?.name || "—"}
-                </span>
-              )}
-            </div>
-          </div>
-          <GhostBtn icon={X} color={C.loss} onClick={cancelPartida}>Cancelar partida</GhostBtn>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 14 }}>
-          <ScoreBox label="Monto del lote" value={money(game.loteValue)} />
-          <ScoreBox label="Rake + estacionamiento" value={money(game.rake)} />
-        </div>
-      </Panel>
-
-      <GameStatusBlock game={game} players={players} totals={totals} />
-    </div>
-  );
-}
-
-function PendingRequestsPanel({ game, roster, onResolve }) {
-  const pending = (game.requests || []).filter((r) => r.status === "pending");
-  if (pending.length === 0) return null;
-  return (
-    <Panel style={{ border: `1px solid ${C.gold}` }}>
-      <SectionTitle icon={AlertCircle}>Solicitudes pendientes ({pending.length})</SectionTitle>
-      <div style={{ display: "grid", gap: 8 }}>
-        {pending.map((r) => {
-          // Ojo: para una solicitud de "unirse a la mesa" el jugador todavía
-          // NO está en playerIds, así que hay que buscarlo en el roster
-          // completo (no solo entre los ya sentados) para poder mostrar su
-          // nombre y avatar.
-          const p = roster.find((pl) => pl.id === r.playerId);
-          const isJoin = r.type === "join";
-          return (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: isJoin ? "rgba(216,173,63,0.14)" : "rgba(0,0,0,0.18)", borderRadius: 9, padding: "9px 10px", flexWrap: "wrap" }}>
-              {p && <Avatar player={p} size={24} />}
-              <div style={{ flex: 1, minWidth: 120 }}>
-                <div style={{ color: C.card, fontWeight: 700, fontSize: 13.5 }}>{p ? p.name : "?"}</div>
-                {isJoin ? (
-                  <div style={{ ...monoFont, fontSize: 12, color: C.goldSoft, fontWeight: 700 }}>Pide unirse a la mesa</div>
-                ) : (
-                  <div style={{ ...monoFont, fontSize: 12, color: r.type === "cash" ? C.cash : C.virtual, fontWeight: 700 }}>
-                    {r.type === "cash" ? "Cash" : "Virtual"} · {money(r.amount)}
-                  </div>
-                )}
-              </div>
-              <GhostBtn icon={Check} color={C.win} onClick={() => onResolve(r.id, true)}>{isJoin ? "Agregar a la mesa" : "Aceptar"}</GhostBtn>
-              <GhostBtn icon={X} color={C.loss} onClick={() => onResolve(r.id, false)}>Rechazar</GhostBtn>
-            </div>
-          );
-        })}
-      </div>
-    </Panel>
-  );
-}
-
-// "Log Compras": historial detallado, evento por evento y con hora exacta,
-// de toda la actividad de compra/solicitud de lotes de la partida en curso
-// (compras directas del host, solicitudes de jugadores y su resolución,
-// cancelaciones). Sirve para reconstruir sin dudas el total de lotes
-// comprados durante la noche. Vive en el blob de la partida activa (no hay
-// nada que "sincronizar" mientras se juega); se empuja en bloque a la hoja
-// "LogPetLotes" del Excel una sola vez, al cerrar formalmente la partida.
-function PurchaseLogPanel({ game }) {
-  const log = game.purchaseLog || [];
-  const sorted = useMemo(() => [...log].sort((a, b) => b.ts - a.ts), [log]);
-
-  const actionColor = (action) => {
-    if (action === "solicitud rechazada") return "rgba(244,234,214,0.45)";
-    if (action === "cancelación") return C.loss;
-    return C.win;
-  };
-
-  const lotesLabel = (n) => `${n > 0 ? "+" : ""}${n} lote${Math.abs(n) === 1 ? "" : "s"}`;
-
-  return (
-    <Panel>
-      <SectionTitle icon={History}>Log Compras</SectionTitle>
-
-      {sorted.length === 0 && <Empty>Todavía no hay actividad de compra en esta partida.</Empty>}
-
-      <div style={{ display: "grid", gap: 6 }}>
-        {sorted.map((e) => {
-          // "compra directa" es, hoy, la única forma en la que se agregan
-          // lotes (ya no hay pedidos de jugadores) — mostrar esa etiqueta en
-          // cada renglón es ruido repetido, así que solo se muestra la
-          // acción cuando es una excepción (cancelación, o alguna solicitud
-          // vieja que haya quedado pendiente de antes de este cambio).
-          const showAction = e.action !== "compra directa";
-          const hasSaldo = typeof e.saldoInicial === "number" && typeof e.saldoFinal === "number";
-          return (
-            <div key={e.id} style={{
-              display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
-              background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "7px 10px",
-            }}>
-              <span style={{ ...monoFont, fontSize: 11, color: "rgba(244,234,214,0.45)", whiteSpace: "nowrap" }}>{formatClockSec(e.ts)}</span>
-              <span style={{ color: C.card, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.playerName}</span>
-              <span style={{ ...monoFont, fontSize: 11, fontWeight: 700, color: e.type === "cash" ? C.cash : C.virtual, textTransform: "uppercase" }}>{e.type === "cash" ? "Cash" : "Virtual"}</span>
-              {showAction && (
-                <span style={{ fontSize: 12, color: actionColor(e.action), fontWeight: 600 }}>
-                  {e.action}{e.origin === "host" ? " (host)" : ""}
-                </span>
-              )}
-              <span style={{ marginLeft: "auto", ...monoFont, fontSize: 12.5, fontWeight: 700, color: e.amount < 0 ? C.loss : "rgba(244,234,214,0.85)", whiteSpace: "nowrap" }}>
-                {hasSaldo ? (
-                  <>{money(e.saldoInicial)} &nbsp;{lotesLabel(e.lotes)}&nbsp; {money(e.saldoFinal)}</>
-                ) : (
-                  <>{e.lotes ? `${lotesLabel(e.lotes)} · ` : ""}{money(e.amount)}</>
-                )}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </Panel>
-  );
-}
-
-function JoinRequestPanel({ myRequests, onSubmit }) {
-  const joinRequests = myRequests.filter((r) => r.type === "join");
-  const pending = joinRequests.some((r) => r.status === "pending");
-  const rejected = [...joinRequests].reverse().find((r) => r.status === "rejected");
-
-  return (
-    <Panel>
-      <SectionTitle icon={Users}>Unirme a la mesa</SectionTitle>
-      <div style={{ fontSize: 12.5, color: "rgba(244,234,214,0.6)", marginBottom: 12 }}>
-        Todavía no estás en esta partida. Pídele al host que te agregue para poder comprar lotes.
-      </div>
-      {pending ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(216,173,63,0.1)", border: `1px dashed ${C.panelLine}`, borderRadius: 8, padding: "9px 10px" }}>
-          <span style={{ fontSize: 12.5, color: "rgba(244,234,214,0.7)" }}>Esperando a que el host te agregue a la mesa…</span>
-        </div>
-      ) : (
-        <>
-          {rejected && (
-            <div style={{ fontSize: 12, color: C.loss, marginBottom: 8 }}>El host rechazó tu solicitud anterior. Puedes volver a pedirlo.</div>
-          )}
-          <PrimaryBtn icon={Plus} onClick={onSubmit}>Solicitar unirme a la mesa</PrimaryBtn>
-        </>
-      )}
-    </Panel>
-  );
-}
-
-function RequestChipsPanel({ loteValue, myRequests, onSubmit }) {
-  const [customAmount, setCustomAmount] = useState("");
-  const [customType, setCustomType] = useState("cash");
-  const pending = myRequests.filter((r) => r.status === "pending");
-  const recent = myRequests.filter((r) => r.status !== "pending").slice(-4).reverse();
-
-  const submitCustom = () => {
-    onSubmit(customType, customAmount);
-    setCustomAmount("");
-  };
-
-  return (
-    <Panel>
-      <SectionTitle icon={Banknote}>Solicitar fichas</SectionTitle>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        <PrimaryBtn icon={Plus} onClick={() => onSubmit("cash", loteValue)} style={{ background: `linear-gradient(180deg, ${C.cash}, ${C.cashDeep})`, color: "#fff" }}>
-          1 lote cash
-        </PrimaryBtn>
-        <PrimaryBtn icon={Plus} onClick={() => onSubmit("virtual", loteValue)} style={{ background: `linear-gradient(180deg, ${C.virtual}, ${C.virtualDeep})`, color: "#fff" }}>
-          1 lote virtual
-        </PrimaryBtn>
-      </div>
-      <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", marginBottom: 6 }}>O pide un monto libre (no tiene que ser un lote completo):</div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", background: "rgba(0,0,0,0.24)", borderRadius: 8, padding: 2 }}>
-          <button onClick={() => setCustomType("cash")}
-            style={{ border: "none", cursor: "pointer", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 700, ...bodyFont, background: customType === "cash" ? C.cash : "transparent", color: customType === "cash" ? "#fff" : "rgba(244,234,214,0.6)" }}>
-            Cash
-          </button>
-          <button onClick={() => setCustomType("virtual")}
-            style={{ border: "none", cursor: "pointer", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 700, ...bodyFont, background: customType === "virtual" ? C.virtual : "transparent", color: customType === "virtual" ? "#fff" : "rgba(244,234,214,0.6)" }}>
-            Virtual
-          </button>
-        </div>
-        <input type="number" min="0" placeholder="Monto libre" style={{ ...inputStyle, width: 130 }} value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} onFocus={(e) => e.target.select()} />
-        <PrimaryBtn onClick={submitCustom} disabled={!customAmount || Number(customAmount) <= 0}>Solicitar</PrimaryBtn>
-      </div>
-      {pending.length > 0 && (
-        <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
-          {pending.map((r) => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(216,173,63,0.1)", border: `1px dashed ${C.panelLine}`, borderRadius: 8, padding: "7px 10px" }}>
-              <span style={{ ...monoFont, fontSize: 12, color: r.type === "cash" ? C.cash : C.virtual, fontWeight: 700 }}>{r.type === "cash" ? "Cash" : "Virtual"} {money(r.amount)}</span>
-              <span style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", marginLeft: "auto" }}>Esperando aprobación del host…</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {recent.length > 0 && (
-        <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {recent.map((r) => (
-            <span key={r.id} style={{ fontSize: 10.5, ...monoFont, padding: "3px 7px", borderRadius: 6, background: r.status === "approved" ? "rgba(63,191,114,0.14)" : "rgba(226,99,79,0.14)", color: r.status === "approved" ? C.win : C.loss }}>
-              {r.type === "cash" ? "Cash" : "Virtual"} {money(r.amount)} · {r.status === "approved" ? "aprobada" : "rechazada"}
-            </span>
-          ))}
-        </div>
-      )}
-    </Panel>
-  );
-}
-
-function DinnerReadOnly({ game, players }) {
-  const d = game.dinner;
-  const totalRecaudado = players.reduce((s, p) => {
-    const alcohol = !!d.alcohol?.[p.id];
-    return s + (alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0));
-  }, 0);
-  return (
-    <div>
-      <div style={{ marginBottom: 12 }}>
-        <ScoreBox label="Total recabado" value={money(totalRecaudado)} />
-      </div>
-      <div style={{ display: "grid", gap: 6 }}>
-        {players.map((p) => {
-          const alcohol = !!d.alcohol?.[p.id];
-          const charge = alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0);
-          const paid = !!d.paid?.[p.id];
-          return (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-                <Avatar player={p} size={22} />
-                <Wine size={13} color={alcohol ? C.virtual : "rgba(244,234,214,0.3)"} />
-                <span style={{ fontSize: 13, color: C.card, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)" }}>{money(charge)}</span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: paid ? C.win : C.loss, ...monoFont }}>{paid ? "PAGADO" : "PENDIENTE"}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ScoreBox({ label, value, tone }) {
-  const color = tone === "cash" ? C.cash : tone === "virtual" ? C.virtual : C.goldSoft;
-  return (
-    <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "8px 6px", textAlign: "center" }}>
-      <div style={{ fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase" }}>{label}</div>
-      <div style={{ ...monoFont, fontWeight: 700, fontSize: 14.5, color }}>{value}</div>
-    </div>
-  );
-}
-
-function buyBtnStyle(color, subtract, disabled) {
-  return {
-    background: subtract ? "transparent" : color,
-    border: `2px solid ${color}`,
-    color: subtract ? color : "#fff",
-    borderRadius: 10,
-    padding: "14px 20px",
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.35 : 1,
-    fontWeight: 800,
-    fontSize: 20,
-    ...bodyFont,
-  };
-}
-
-function PlayerBuyRow({ player, game, onAdd, onRemoveLast }) {
-  const entries = game.purchases.filter((p) => p.playerId === player.id);
-  const cashLotes = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.lotes, 0);
-  const virtualLotes = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.lotes, 0);
-  const cashAmount = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.amount, 0);
-  const virtualAmount = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.amount, 0);
-
-  return (
-    <div style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        <Avatar player={player} size={30} />
-        <span style={{ color: C.card, fontWeight: 700, fontSize: 17 }}>{player.name}</span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        <button onClick={() => onAdd(player.id, "cash")} style={buyBtnStyle(C.cash, false, false)}>
-          <Plus size={20} /> Cash
-        </button>
-        <button onClick={() => onRemoveLast(player.id, "cash")} disabled={cashLotes === 0} style={buyBtnStyle(C.cash, true, cashLotes === 0)}>
-          <Minus size={20} /> Cash
-        </button>
-        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 20, fontWeight: 800, color: C.cash, whiteSpace: "nowrap" }}>
-          {cashLotes} lotes · {money(cashAmount)}
-        </span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <button onClick={() => onAdd(player.id, "virtual")} style={buyBtnStyle(C.virtual, false, false)}>
-          <Plus size={20} /> Virtual
-        </button>
-        <button onClick={() => onRemoveLast(player.id, "virtual")} disabled={virtualLotes === 0} style={buyBtnStyle(C.virtual, true, virtualLotes === 0)}>
-          <Minus size={20} /> Virtual
-        </button>
-        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 20, fontWeight: 800, color: C.virtual, whiteSpace: "nowrap" }}>
-          {virtualLotes} lotes · {money(virtualAmount)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function DinnerSection({ game, players, update }) {
-  const d = game.dinner;
-  const setD = (patch) =>
-    update((g) => ({
-      dinner: { ...g.dinner, ...(typeof patch === "function" ? patch(g.dinner) : patch) },
-    }));
-
-  const totalRecaudado = players.reduce((s, p) => {
-    const alcohol = !!d.alcohol[p.id];
-    return s + (alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0));
-  }, 0);
-
-  return (
-    <div style={{ marginTop: 6 }}>
-      <div style={{ marginBottom: 14 }}>
-        <ScoreBox label="Total recabado" value={money(totalRecaudado)} />
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="Cena sin alcohol (por jugador)">
-          <MoneyInput value={d.amountNoAlcohol || 0} onChange={(v) => setD({ amountNoAlcohol: v })} />
-        </Field>
-        <Field label="Cena con alcohol (por jugador)">
-          <MoneyInput value={d.amountAlcohol || 0} onChange={(v) => setD({ amountAlcohol: v })} />
-        </Field>
-      </div>
-      <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
-        {players.map((p) => {
-          const alcohol = !!d.alcohol[p.id];
-          const charge = alcohol ? (d.amountAlcohol || 0) : (d.amountNoAlcohol || 0);
-          const paid = !!d.paid?.[p.id];
-          return (
-            <div key={p.id} style={{ background: "rgba(0,0,0,0.16)", borderRadius: 8, padding: "8px 10px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7, flex: 1, minWidth: 0 }}>
-                  <Avatar player={p} size={22} />
-                  <span style={{ fontSize: 13, color: C.card, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-                </div>
-                <div style={{ display: "flex", background: "rgba(0,0,0,0.24)", borderRadius: 7, padding: 2 }}>
-                  <button onClick={() => setD((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: false } }))}
-                    style={{ border: "none", cursor: "pointer", borderRadius: 5, padding: "4px 8px", fontSize: 11, fontWeight: 700, ...bodyFont, background: !alcohol ? C.gold : "transparent", color: !alcohol ? C.ink : "rgba(244,234,214,0.6)" }}>
-                    Sin alcohol
-                  </button>
-                  <button onClick={() => setD((dd) => ({ alcohol: { ...dd.alcohol, [p.id]: true } }))}
-                    style={{ border: "none", cursor: "pointer", borderRadius: 5, padding: "4px 8px", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 3, ...bodyFont, background: alcohol ? C.virtual : "transparent", color: alcohol ? "#fff" : "rgba(244,234,214,0.6)" }}>
-                    <Wine size={11} /> Con alcohol
-                  </button>
-                </div>
-                <span style={{ ...monoFont, fontSize: 13, color: "rgba(244,234,214,0.75)", whiteSpace: "nowrap" }}>{money(charge)}</span>
-              </div>
-              <div style={{ marginTop: 7 }}>
-                <button onClick={() => setD((dd) => ({ paid: { ...dd.paid, [p.id]: !dd.paid?.[p.id] } }))}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%",
-                    background: paid ? "rgba(63,191,114,0.16)" : "rgba(0,0,0,0.2)",
-                    border: `1px solid ${paid ? C.win : C.panelLine}`, borderRadius: 7, padding: "8px 9px",
-                    cursor: "pointer", color: paid ? C.win : "rgba(244,234,214,0.6)", fontSize: 12.5, fontWeight: 700, ...bodyFont,
-                  }}>
-                  <div style={{ width: 15, height: 15, borderRadius: 4, border: `1.5px solid ${paid ? C.win : "rgba(244,234,214,0.4)"}`, background: paid ? C.win : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    {paid && <Check size={11} color="#08251a" />}
-                  </div>
-                  {paid ? "Pagado" : "Confirmar pagado"}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.45)", marginTop: 8 }}>
-        Este cargo de cena es independiente del conteo de lotes y no afecta el balance de la partida. Un jugador no puede comprar lotes hasta confirmar que pagó la cena.
-      </div>
-    </div>
-  );
-}
-
-/* ----- Finalize: enter chips returned per player ----- */
-// Color fijo para "Virtual pendiente" (bloque 2) y las columnas relacionadas
-// con virtuales — no es ninguno de los tonos ya usados (cash/virtual/win/loss).
-const ORANGE = "#f2883c";
-
-function FinalizeGame({ game, roster, onBack, onConfirm, update }) {
-  // Orden alfabético, igual que el resto de las pantallas de la partida.
-  const players = useMemo(
-    () => game.playerIds.map((id) => roster.find((r) => r.id === id)).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name)),
-    [game.playerIds, roster]
-  );
-
-  // Todo lo que se va tecleando en esta pantalla (paga virtual, fichas
-  // remanentes, ajuste manual) se guarda de una vez en la propia partida
-  // (game.finalizeDraft), no solo al tocar "Volver". Así, sin importar por
-  // dónde se salga de esta pantalla, lo ya capturado nunca se pierde al
-  // volver a entrar a cerrar la partida.
-  const draft = game.finalizeDraft || {};
-  const draftFor = (pid, field) => {
-    const v = draft[pid] ? draft[pid][field] : undefined;
-    return v !== undefined && v !== null ? String(v) : "";
-  };
-
-  // Un único campo editable por jugador: "Fichas totales" (lo que el
-  // jugador entrega en mano). "Debe Virtual", "Paga Virtual" y "Fichas
-  // remanentes" se derivan solos de ese número (ver `rows` más abajo) — ya
-  // no hay que repartir manualmente entre dos campos.
-  const [fichasTotalesInput, setFichasTotalesState] = useState(() =>
-    Object.fromEntries(players.map((p) => [p.id, draftFor(p.id, "fichasTotales")]))
-  );
-  // Ajuste manual único de toda la partida (+/-), para corregir una
-  // descuadratura (un billete mal contado, etc.) — se asigna siempre al
-  // host, no por jugador.
-  const [globalAdjust, setGlobalAdjustState] = useState(() =>
-    (game.finalizeDraft && game.finalizeDraft.globalAdjust !== undefined && game.finalizeDraft.globalAdjust !== null)
-      ? String(game.finalizeDraft.globalAdjust)
-      : ""
-  );
-  // Qué jugador tiene un campo enfocado ahora mismo — el aviso de "pendiente
-  // por cuadrar" se muestra pegado a esa fila, para que se vea sin que el
-  // teclado del celular lo tape (a diferencia de una barra fija abajo de la
-  // pantalla, que el teclado sí bloquea).
-  const [focusedId, setFocusedId] = useState(null);
-  const moneySigned = (n) => (n < 0 ? "-" : n > 0 ? "+" : "") + "$" + Math.abs(Math.round(n)).toLocaleString("en-US");
-
-  const persistField = (playerId, field, value) => {
-    update((g) => ({
-      finalizeDraft: {
-        ...(g.finalizeDraft || {}),
-        [playerId]: { ...((g.finalizeDraft || {})[playerId] || {}), [field]: value },
-      },
-    }));
-  };
-  const setFichasTotales = (pid, v) => { setFichasTotalesState((c) => ({ ...c, [pid]: v })); persistField(pid, "fichasTotales", v); };
-  const setGlobalAdjust = (v) => {
-    setGlobalAdjustState(v);
-    update((g) => ({ finalizeDraft: { ...(g.finalizeDraft || {}), globalAdjust: v } }));
-  };
-
-  // Ajuste manual del total de Rake+Estacionamiento, por si hay que cuadrar
-  // a un número exacto (por ejemplo, redondear el rake para que el reparto
-  // de billetes salga justo). Si se deja vacío, se usa el total calculado en
-  // "Lote y Rakes" (rakeHost + autos × costo por auto) tal cual.
-  const [rakeOverride, setRakeOverrideState] = useState(() =>
-    (game.finalizeDraft && game.finalizeDraft.rakeOverride !== undefined && game.finalizeDraft.rakeOverride !== null)
-      ? String(game.finalizeDraft.rakeOverride)
-      : ""
-  );
-  const setRakeOverride = (v) => {
-    setRakeOverrideState(v);
-    update((g) => ({ finalizeDraft: { ...(g.finalizeDraft || {}), rakeOverride: v } }));
-  };
-
-  const buyIns = useMemo(() => {
-    const map = {};
-    players.forEach((p) => {
-      const entries = game.purchases.filter((pu) => pu.playerId === p.id);
-      const cash = entries.filter((e) => e.type === "cash").reduce((s, e) => s + e.amount, 0);
-      const virtual = entries.filter((e) => e.type === "virtual").reduce((s, e) => s + e.amount, 0);
-      map[p.id] = { cash, virtual, total: cash + virtual };
-    });
-    return map;
-  }, [players, game.purchases]);
-
-  const totalCash = useMemo(() => Object.values(buyIns).reduce((s, b) => s + b.cash, 0), [buyIns]);
-  const totalVirtual = useMemo(() => Object.values(buyIns).reduce((s, b) => s + b.virtual, 0), [buyIns]);
-  const rakeAuto = Number(game.rake) || 0;
-  const rake = (rakeOverride !== "" && !isNaN(Number(rakeOverride))) ? Number(rakeOverride) : rakeAuto;
-  const cashDisponible = round1(totalCash - rake);
-  const targetTotal = totalCash + totalVirtual;
-
-  const globalAdjustNum = Number(globalAdjust) || 0;
-  const hostPlayer = players.find((p) => p.id === game.hostId) || null;
-
-  // Filas concentradas por jugador — derivadas de un único número por
-  // jugador ("Fichas totales") más el ajuste único de descuadratura
-  // (asignado siempre al host):
-  // - Debe Virtual = lo que ese jugador compró en lotes virtuales (dato fijo).
-  // - Paga Virtual = lo que de las fichas totales entregadas alcanza para
-  //   saldar ese virtual: min(fichas totales ajustadas, debe virtual), sin
-  //   bajar de 0.
-  // - Fichas remanentes = lo que le queda después de pagar el virtual
-  //   (fichas totales ajustadas − paga virtual) — siempre ≥ 0.
-  // - Subtotal VRT (por jugador) = lotes virtuales que le quedan sin pagar.
-  // - Subtotal CSH (por jugador) = fichas totales ajustadas − lo usado para
-  //   pagar virtual, es decir, lo que le queda al jugador para cobrar en
-  //   cash/transferencia una vez saldado el virtual.
-  const rows = useMemo(() => players.map((p) => {
-    const bi = buyIns[p.id];
-    const ft = Number(fichasTotalesInput[p.id]) || 0;
-    const adj = p.id === game.hostId ? globalAdjustNum : 0;
-    const fichasTotales = round1(ft + adj);
-    const pv = Math.max(0, Math.min(fichasTotales, bi.virtual));
-    const rem = round1(fichasTotales - pv);
-    const totalA = round1(bi.virtual - pv);
-    const fichasPresentadas = fichasTotales;
-    const fichasEntregadasVirtual = pv;
-    const totalB = round1(fichasPresentadas - fichasEntregadasVirtual);
-    return { p, bi, ft, adj, pv, rem, fichasTotales, totalA, fichasPresentadas, fichasEntregadasVirtual, totalB };
-  }), [players, buyIns, fichasTotalesInput, globalAdjustNum, game.hostId]);
-
-  // "Paga virtual" que ya se fue capturando por jugador — es lo que reduce
-  // el virtual pendiente a nivel de toda la partida (bloque 2).
-  const pagaVirtualTotal = rows.reduce((s, r) => s + r.pv, 0);
-  const virtualPendiente = round1(totalVirtual - pagaVirtualTotal);
-
-  // El dinero total en juego (para el "cuadre") se basa en las fichas tal
-  // cual se entregaron (fichas totales + ajuste del host, si lo hay). El
-  // ajuste SÍ altera las fichas disponibles del host y por lo tanto el
-  // total general: si corrige un mal conteo, ese dinero corregido tiene que
-  // reflejarse en el cuadre.
-  const enteredCount = players.filter((p) => fichasTotalesInput[p.id] !== "").length;
-  const totalFinalValue = round1(rows.reduce((s, r) => s + r.fichasTotales, 0)) + rake;
-  const runningDiff = round1(totalFinalValue - targetTotal);
-
-  const ready = players.every((p) => fichasTotalesInput[p.id] === "" || !isNaN(Number(fichasTotalesInput[p.id])));
-  // Regla de la app: no se puede cerrar la partida si lo entregado (fichas +
-  // rake) no cuadra exactamente contra el total comprado (cash + virtual).
-  const canConfirm = ready && enteredCount > 0 && runningDiff === 0;
-
-  const cuadra = runningDiff === 0;
-
-  const grandTotalA = round1(rows.reduce((s, r) => s + r.totalA, 0));
-  const grandTotalB = round1(rows.reduce((s, r) => s + r.totalB, 0));
-  const cashPlusSubtotalVRT = round1(cashDisponible + grandTotalA);
-  const totalesCuadran = round1(cashPlusSubtotalVRT - grandTotalB) === 0;
-
-  // Snapshot final para la hoja de auditoría "EntregaFichas" del Excel — ya
-  // no se empuja con un botón mientras se juega (el borrador vive solo en el
-  // blob de la partida activa); se manda en bloque, una sola vez, junto con
-  // el resto del cierre formal (ver `onConfirm` más abajo).
-  const entregaFichasRows = useMemo(() => rows.map((r) => ({
-    playerId: r.p.id,
-    playerName: r.p.name,
-    debeVirtual: r.bi.virtual,
-    pagaVirtual: r.pv,
-    fichasRemanentes: r.rem,
-    ajusteManual: r.adj,
-    fichasTotales: r.fichasTotales,
-    rake,
-    cashDisponible,
-    virtualPendiente,
-    totalA: r.totalA,
-    totalB: r.totalB,
-  })), [rows, rake, cashDisponible, virtualPendiente]);
-
-  const rowLabelStyle = { fontSize: 10, color: "rgba(244,234,214,0.45)", textTransform: "uppercase", letterSpacing: "0.04em" };
-  const blockLabelStyle = { fontSize: 10, color: "rgba(244,234,214,0.5)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 };
-  const blockValueStyle = (color, big) => ({ ...monoFont, fontWeight: 800, fontSize: big ? 30 : 18, color });
-  const colLabelStyle = { fontSize: 9.5, color: "rgba(244,234,214,0.4)", textTransform: "uppercase", letterSpacing: "0.04em" };
-  const colValueStyle = (color) => ({ ...monoFont, fontWeight: 800, fontSize: 16, color });
-  const thStyle = { textAlign: "right", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.03em", color: "rgba(244,234,214,0.42)", fontWeight: 600, padding: "0 8px 8px", whiteSpace: "nowrap" };
-  const tdStyle = { textAlign: "right", padding: "7px 8px", ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.85)", borderTop: "1px solid rgba(255,255,255,0.06)", whiteSpace: "nowrap" };
-  const tdNameStyle = { ...tdStyle, textAlign: "left", ...bodyFont, fontWeight: 600, color: C.card };
-
-  return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <Panel>
-        <SectionTitle icon={Trophy}>Entrega de fichas</SectionTitle>
-        <div style={{ color: "rgba(244,234,214,0.6)", fontSize: 12.5, marginBottom: 10 }}>
-          Tu avance se guarda solo, al instante. El registro definitivo en Excel se genera automáticamente al cerrar la partida.
-        </div>
-
-        {/* Bloques 1 y 2: Cash (arriba) y Virtual (justo debajo, alineados por columna) */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.3fr", gap: 8, marginBottom: 14 }}>
-          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Cash</div>
-            <div style={blockValueStyle(C.card)}>{money(totalCash)}</div>
-          </div>
-          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>menos Rake+Estacionamiento</div>
-            <input
-              type="number" step="1" placeholder={String(rakeAuto)}
-              style={{
-                width: "100%", background: "transparent", border: "none",
-                borderBottom: `1px solid ${C.panelLine}`, textAlign: "center",
-                ...monoFont, fontWeight: 800, fontSize: 18, color: C.card, padding: "0 0 2px",
-              }}
-              value={rakeOverride !== "" ? rakeOverride : String(rakeAuto)}
-              onChange={(e) => setRakeOverride(e.target.value)}
-              onFocus={(e) => e.target.select()}
-            />
-            {rakeOverride !== "" && Number(rakeOverride) !== rakeAuto && (
-              <div style={{ fontSize: 9.5, color: "rgba(244,234,214,0.45)", marginTop: 3 }}>
-                auto: {money(rakeAuto)}{" · "}
-                <span onClick={() => setRakeOverride("")} style={{ color: C.goldSoft, cursor: "pointer", textDecoration: "underline" }}>usar auto</span>
-              </div>
-            )}
-          </div>
-          <div style={{ background: "rgba(47,174,102,0.14)", border: `1px solid ${C.cashDeep}`, borderRadius: 9, padding: "10px 8px", textAlign: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            <div style={blockLabelStyle}>Cash disponible</div>
-            <div style={blockValueStyle(C.cash, true)}>{money(cashDisponible)}</div>
-          </div>
-
-          <div style={{ gridColumn: "1 / 3", background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Virtual</div>
-            <div style={blockValueStyle(C.card)}>{money(totalVirtual)}</div>
-          </div>
-          <div style={{ background: "rgba(0,0,0,0.22)", border: `1px solid ${C.panelLine}`, borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Virtual pendiente</div>
-            <div style={blockValueStyle(ORANGE, true)}>{money(virtualPendiente)}</div>
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gap: 10 }}>
-          {players.map((p) => {
-            const row = rows.find((r) => r.p.id === p.id);
-            const bi = row.bi;
-            const focused = focusedId === p.id;
-            const isHost = p.id === game.hostId;
-            const cashOutPendiente = round1(row.fichasTotales - bi.virtual);
-            const debeVirtualPendiente = cashOutPendiente < 0;
-            return (
-              <div key={p.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "12px 14px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 }}>
-                  <Avatar player={p} size={22} />
-                  <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{p.name}</span>
-                  {isHost && <span style={{ fontSize: 10, color: C.goldSoft, border: `1px solid ${C.goldSoft}`, borderRadius: 6, padding: "1px 6px", textTransform: "uppercase", letterSpacing: "0.04em" }}>Host</span>}
-                </div>
-
-                {/* Orden vertical pedido (de arriba hacia abajo): Fichas
-                    totales (único campo editable) → Debe Virtual → Paga
-                    Virtual → Fichas remanentes (los tres últimos, derivados
-                    solos y no editables). */}
-                <div style={{ display: "grid", gap: 10 }}>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={colLabelStyle}>Fichas totales</div>
-                    <input
-                      type="number" min="0" placeholder="0"
-                      style={{
-                        width: "100%", background: "transparent", border: "none",
-                        borderBottom: `1px solid ${C.panelLine}`, textAlign: "center",
-                        ...monoFont, fontWeight: 800, fontSize: 22, color: C.goldSoft, padding: "0 0 2px",
-                      }}
-                      value={fichasTotalesInput[p.id]}
-                      onChange={(e) => setFichasTotales(p.id, e.target.value)}
-                      onFocus={(e) => { e.target.select(); setFocusedId(p.id); }}
-                      onBlur={(e) => {
-                        if (e.target.value !== "") setFichasTotales(p.id, String(roundTo100(e.target.value)));
-                        setFocusedId((cur) => (cur === p.id ? null : cur));
-                      }}
-                      step="100"
-                    />
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <span style={rowLabelStyle}>Debe Virtual</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.virtual }}>{money(bi.virtual)}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <span style={rowLabelStyle}>Paga Virtual</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.win }}>{money(row.pv)}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <span style={rowLabelStyle}>Fichas remanentes</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.card }}>{money(row.rem)}</span>
-                  </div>
-                  {debeVirtualPendiente && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <span style={rowLabelStyle}>Debe virtual pendiente</span>
-                      <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.loss }}>{money(Math.abs(cashOutPendiente))}</span>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ display: "grid", gap: 8, borderTop: `1px solid ${C.panelLine}`, marginTop: 10, paddingTop: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <span style={rowLabelStyle}>Cash (buy-in)</span>
-                    <span style={{ ...monoFont, fontSize: 16, fontWeight: 800, color: C.cash }}>{money(bi.cash)}</span>
-                  </div>
-                  {!debeVirtualPendiente && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                      <span style={rowLabelStyle}>Cash out pendiente</span>
-                      <span style={{ ...monoFont, fontSize: 22, fontWeight: 800, color: C.win }}>{money(Math.abs(cashOutPendiente))}</span>
-                    </div>
-                  )}
-                </div>
-
-                {focused && (
-                  <div style={{
-                    marginTop: 8, display: "inline-flex", alignItems: "center", gap: 6,
-                    background: cuadra ? "rgba(63,191,114,0.14)" : "rgba(226,99,79,0.14)",
-                    border: `1px solid ${cuadra ? C.win : C.loss}`, borderRadius: 8, padding: "5px 10px",
-                  }}>
-                    {cuadra ? (
-                      <span style={{ ...bodyFont, fontWeight: 700, fontSize: 13, color: C.win }}>Cuadrado</span>
-                    ) : (
-                      <>
-                        <span style={{ ...bodyFont, fontSize: 11.5, color: "rgba(244,234,214,0.7)" }}>Pendiente por cuadrar:</span>
-                        <span style={{ ...monoFont, fontWeight: 700, fontSize: 13, color: C.loss }}>{moneySigned(runningDiff)}</span>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {/* Único ajuste manual de toda la partida (para descuadraturas),
-              asignado siempre al host. */}
-          <div style={{ background: "rgba(255,205,90,0.08)", border: `1px solid ${C.goldSoft}`, borderRadius: 10, padding: "12px 14px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ ...rowLabelStyle, fontSize: 11 }}>
-                Ajuste manual por descuadratura (+/-){hostPlayer ? ` — se asigna a ${hostPlayer.name} (host)` : " — se asigna al host"}
-              </span>
-              <input
-                type="number" placeholder="0" style={{ ...inputStyle, width: 110, textAlign: "right" }}
-                value={globalAdjust}
-                onChange={(e) => setGlobalAdjust(e.target.value)}
-                onFocus={(e) => e.target.select()}
-              />
-            </div>
-          </div>
-        </div>
-        {ready && enteredCount > 0 && runningDiff !== 0 && (
-          <div style={{ display: "flex", gap: 7, alignItems: "flex-start", marginTop: 12, background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
-            <AlertCircle size={15} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
-            <div style={{ fontSize: 12, color: "rgba(244,234,214,0.85)" }}>
-              <strong>No se puede cerrar la partida hasta que el total cuadre exactamente</strong> — ajustá los montos de cierre. Total entregado: {money(totalFinalValue)} · Total general: {money(targetTotal)}
-            </div>
-          </div>
-        )}
-      </Panel>
-
-      {/* Bloque 4: VIRTUALES — tabla concentrada, no editable, para cuadrar */}
-      <Panel>
-        <SectionTitle icon={Coins}>Virtuales</SectionTitle>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr>
-              <th style={{ ...thStyle, textAlign: "left" }}>Jugador</th>
-              <th style={thStyle}>Lotes virtuales</th>
-              <th style={thStyle}>Lotes virtuales pagados</th>
-              <th style={thStyle}>Subtotal VRT</th>
-            </tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.p.id}>
-                  <td style={tdNameStyle}>{r.p.name}</td>
-                  <td style={{ ...tdStyle, color: C.virtual }}>{money(r.bi.virtual)}</td>
-                  <td style={tdStyle}>{money(r.pv)}</td>
-                  <td style={{ ...tdStyle, color: r.totalA === 0 ? C.win : ORANGE, fontWeight: 700 }}>{money(r.totalA)}</td>
-                </tr>
-              ))}
-              <tr>
-                <td style={{ ...tdNameStyle, fontWeight: 800 }}>Subtotal VRT</td>
-                <td style={tdStyle} />
-                <td style={tdStyle} />
-                <td style={{ ...tdStyle, fontWeight: 800, color: grandTotalA === 0 ? C.win : ORANGE }}>{money(grandTotalA)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-
-      {/* Bloque 5: CASH — tabla concentrada, no editable, para cuadrar */}
-      <Panel>
-        <SectionTitle icon={Banknote}>Cash</SectionTitle>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr>
-              <th style={{ ...thStyle, textAlign: "left" }}>Jugador</th>
-              <th style={thStyle}>Fichas Presentadas</th>
-              <th style={thStyle}>Fichas entregadas (para lotes virtuales)</th>
-              <th style={thStyle}>Subtotal CSH</th>
-            </tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.p.id}>
-                  <td style={tdNameStyle}>{r.p.name}</td>
-                  <td style={{ ...tdStyle, color: C.cash }}>{money(r.fichasPresentadas)}</td>
-                  <td style={tdStyle}>{money(r.fichasEntregadasVirtual)}</td>
-                  <td style={{ ...tdStyle, fontWeight: 700, color: C.goldSoft }}>{money(r.totalB)}</td>
-                </tr>
-              ))}
-              <tr>
-                <td style={{ ...tdNameStyle, fontWeight: 800 }}>Subtotal CSH</td>
-                <td style={tdStyle} />
-                <td style={tdStyle} />
-                <td style={{ ...tdStyle, fontWeight: 800, color: C.goldSoft }}>{money(grandTotalB)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-
-      {/* Bloque 6: TOTALES — Cash + Subtotal VRT contra Subtotal CSH, en un mismo recuadro de cuadre */}
-      <Panel>
-        <SectionTitle icon={CircleDollarSign}>Totales</SectionTitle>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.7fr", gap: 8 }}>
-          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Cash remanente</div>
-            <div style={blockValueStyle(C.cash)}>{money(cashDisponible)}</div>
-          </div>
-          <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 9, padding: "9px 8px", textAlign: "center" }}>
-            <div style={blockLabelStyle}>Subtotal VRT</div>
-            <div style={blockValueStyle(ORANGE)}>{money(grandTotalA)}</div>
-          </div>
-          <div style={{
-            background: totalesCuadran ? "rgba(63,191,114,0.14)" : "rgba(226,99,79,0.14)",
-            border: `1px solid ${totalesCuadran ? C.win : C.loss}`,
-            borderRadius: 9, padding: "9px 8px",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-          }}>
-            <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
-              <div style={blockLabelStyle}>Cash + Subtotal VRT</div>
-              <div style={blockValueStyle(C.card)}>{money(cashPlusSubtotalVRT)}</div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: totalesCuadran ? C.win : C.loss, flexShrink: 0 }}>
-              {totalesCuadran ? "=" : "≠"}
-            </div>
-            <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
-              <div style={blockLabelStyle}>Subtotal CSH</div>
-              <div style={blockValueStyle(C.card)}>{money(grandTotalB)}</div>
-            </div>
-          </div>
-        </div>
-      </Panel>
-
-      <div style={{ display: "flex", gap: 10 }}>
-        <GhostBtn onClick={onBack}>Volver</GhostBtn>
-        <PrimaryBtn
-          disabled={!canConfirm}
-          onClick={() => onConfirm(
-            Object.fromEntries(rows.map((r) => [r.p.id, r.ft])),
-            globalAdjustNum !== 0 ? { [game.hostId]: globalAdjustNum } : {},
-            rake,
-            entregaFichasRows
-          )}
-          icon={Trophy} style={{ flex: 1, padding: "12px 16px" }}
-        >
-          Ir a pagos y transferencias
-        </PrimaryBtn>
-      </div>
-    </div>
-  );
-}
-
-/* ----- Finalized game: results table + transfers + save/close ----- */
-function ChampionBanner({ winner, player }) {
-  if (!winner) return null;
-  return (
-    <div style={{
-      display: "flex", flexDirection: "column", gap: 8,
-      background: "linear-gradient(135deg, rgba(255,205,90,0.18), rgba(255,205,90,0.05))",
-      border: `1px solid ${C.gold}`, borderRadius: 12,
-      padding: "10px 14px", margin: "6px 0 12px",
-    }}>
-      <div style={{
-        fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase",
-        color: "rgba(244,234,214,0.55)", fontWeight: 700,
-        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-      }}>
-        Próximos postres, cortesía de:
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Trophy size={48} color={C.gold} style={{ flexShrink: 0 }} />
-        {player ? <Avatar player={player} size={30} /> : null}
-        <div style={{ ...displayFont, fontSize: 22, color: C.gold, letterSpacing: "0.02em", lineHeight: 1.1, minWidth: 0 }}>
-          {winner.name}
-        </div>
-        <span style={{ marginLeft: "auto", ...monoFont, fontSize: 15, fontWeight: 800, color: C.win }}>
-          {(winner.balance > 0 ? "+" : "") + money(winner.balance)}
-        </span>
-      </div>
-    </div>
-  );
-}
-function ResultRow({ label, value, tone, strong }) {
-  const color = tone === "cash" ? C.cash : tone === "virtual" ? C.virtual : tone === "win" ? C.win : tone === "loss" ? C.loss : "rgba(244,234,214,0.85)";
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
-      <span style={{ fontSize: 12.5, color: "rgba(244,234,214,0.55)" }}>{label}</span>
-      <span style={{ ...monoFont, fontSize: 14, fontWeight: strong ? 800 : 600, color }}>{value}</span>
-    </div>
-  );
-}
-// Tarjeta de detalle por jugador — compacta por default (solo nombre y
-// balance final); al tocarla se amplía y muestra buy-in cash/virtual/total y
-// cash out. "Balance", "Recibe/Debe Cash" y "Recibe/Debe Transfer" ya no se
-// repiten acá: el balance está siempre visible en el encabezado, y el cash
-// out ya se ve en los bloques "Reparto de efectivo" / "Transferencias
-// sugeridas".
-function PlayerResultCard({ p, player }) {
-  const [expanded, setExpanded] = useState(false);
-  const win = p.balance > 0;
-  const flat = p.balance === 0;
-  return (
-    <div style={{ background: "rgba(0,0,0,0.2)", border: `1px solid ${win ? "rgba(63,191,114,0.35)" : flat ? C.panelLine : "rgba(226,99,79,0.35)"}`, borderRadius: 12, padding: "12px 14px" }}>
-      <button
-        onClick={() => setExpanded((e) => !e)}
-        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: 0, marginBottom: expanded ? 6 : 0 }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-          {player ? <Avatar player={player} size={30} /> : null}
-          <span style={{ ...displayFont, fontSize: 19, color: C.card, letterSpacing: "0.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <span style={{
-            ...monoFont, fontWeight: 800, fontSize: 15,
-            color: win ? C.win : flat ? "rgba(244,234,214,0.6)" : C.loss,
-          }}>
-            {(p.balance > 0 ? "+" : "") + money(p.balance)}
-          </span>
-          {expanded ? <ChevronUp size={15} color={C.goldSoft} /> : <ChevronDown size={15} color={C.goldSoft} />}
-        </div>
-      </button>
-      {expanded && (
-        <>
-          <ResultRow label="Buy-in cash" value={money(p.cashAmount)} tone="cash" />
-          <ResultRow label="Buy-in virtual" value={money(p.virtualAmount)} tone="virtual" />
-          <ResultRow label="Total buy-in" value={money(p.totalBuyIn)} />
-          <ResultRow label="Cash out (fichas)" value={money(p.cashOut)} />
-        </>
-      )}
-    </div>
-  );
-}
-
-// Bloque "Reparto de efectivo": a quién y cuánto cash físico le toca cobrar.
-// Se ordena de mayor a menor monto — así se le da prioridad visual a quien
-// más cash puso (el que más puso es, en general, a quien más cash le toca
-// devolver, ya que el pago en cash de cada jugador nunca supera lo que él
-// mismo aportó en cash).
-function CashRepartoList({ players }) {
-  const withCash = useMemo(
-    () => players.filter((p) => p.pagoCash > 0).sort((a, b) => b.pagoCash - a.pagoCash),
-    [players]
-  );
-  return (
-    <div style={{ display: "grid", gap: 8 }}>
-      {withCash.map((p) => (
-        <div key={p.playerId} style={{ display: "flex", justifyContent: "space-between", background: "rgba(0,0,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
-          <span style={{ color: C.card, fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
-          <span style={{ ...monoFont, fontSize: 12.5, color: C.cash }}>{money(p.pagoCash)}</span>
-        </div>
-      ))}
-      {withCash.length === 0 && <Empty>No hay efectivo para repartir.</Empty>}
-    </div>
-  );
-}
-function CashRepartoBlock({ players }) {
-  return (
-    <Panel>
-      <SectionTitle icon={Banknote}>Reparto de efectivo</SectionTitle>
-      <CashRepartoList players={players} />
-    </Panel>
-  );
-}
-
-// Bloque "Transferencias sugeridas": agrupado en tarjetas personales por
-// jugador, con un switch para ver la lista agrupada por quién recibe (default)
-// o por quién paga. Cada tarjeta muestra el nombre y el total (a la derecha),
-// y abajo, indentado, el detalle renglón por renglón con cada contraparte.
-function TransfersList({ transfers }) {
-  const [view, setView] = useState("reciben"); // "reciben" | "pagan"
-
-  const receiverGroups = useMemo(() => {
-    const map = new Map();
-    transfers.forEach((t) => {
-      if (!map.has(t.toId)) map.set(t.toId, { id: t.toId, name: t.to, total: 0, items: [] });
-      const g = map.get(t.toId);
-      g.total = round1(g.total + t.amount);
-      g.items.push({ id: t.fromId, name: t.from, amount: t.amount });
-    });
-    return [...map.values()]
-      .map((g) => ({ ...g, items: [...g.items].sort((a, b) => b.amount - a.amount) }))
-      .sort((a, b) => b.total - a.total);
-  }, [transfers]);
-
-  const payerGroups = useMemo(() => {
-    const map = new Map();
-    transfers.forEach((t) => {
-      if (!map.has(t.fromId)) map.set(t.fromId, { id: t.fromId, name: t.from, total: 0, items: [] });
-      const g = map.get(t.fromId);
-      g.total = round1(g.total + t.amount);
-      g.items.push({ id: t.toId, name: t.to, amount: t.amount });
-    });
-    return [...map.values()]
-      .map((g) => ({ ...g, items: [...g.items].sort((a, b) => b.amount - a.amount) }))
-      .sort((a, b) => b.total - a.total);
-  }, [transfers]);
-
-  const groups = view === "reciben" ? receiverGroups : payerGroups;
-  const toggleBtn = (active) => ({
-    background: active ? C.goldSoft : "transparent",
-    color: active ? "#1a1208" : "rgba(244,234,214,0.6)",
-    border: "none", borderRadius: 18, padding: "5px 10px",
-    fontSize: 11, fontWeight: 700, cursor: "pointer", ...bodyFont, whiteSpace: "nowrap",
-  });
+  // todas las pestañas se muestran siempre (para tener el panorama completo de la liga);
+  // las que el rol no tiene permitidas aparecen deshabilitadas en vez de ocultarse — EXCEPCIÓN: el
+  // rol "Jugador" tiene una experiencia reducida a propósito (pedido de Federico) y solo debe ver
+  // Calendario, Estadísticas y Mi Perfil; el resto de las pestañas se oculta por completo para ese rol,
+  // no solo se deshabilita. (66ª entrega: Game Night salió de esta lista — quedó oculta para todos.)
+  const SOLO_JUGADOR_TABS = ["calendario", "estadisticas", "proyecciones", "miperfil"];
+  // 72ª entrega: "sesión efectiva" — igual a la real, salvo que quien puede usar el switch (administrador
+  // real, o desde la 75ª entrega también el Tesorero) activó "Ver como jugador" en Mi Perfil, en cuyo
+  // caso se fuerza rol "Jugador" para que `puedeVerTab()`/la lista de pestañas reproduzcan EXACTAMENTE
+  // lo que ve un Jugador (permisos.js decide todo por `session.rol`, así que alcanza con este único
+  // cambio). La sesión REAL se sigue usando para Nav (nombre/rol mostrados) y para toda la lógica de
+  // portal apagado / login, que nunca debe verse afectada por el switch.
+  const puedeAlternarVista = puedeAlternarVistaJugador(session.rol);
+  const effectiveSession = verComoJugador && puedeAlternarVista ? { ...session, rol: "Jugador" } : session;
+  const tabsConPermiso = TABS.filter((t) => !t.oculto)
+    .map((t) => ({ ...t, permitido: puedeVerTab(t, effectiveSession) }))
+    .filter((t) => effectiveSession.rol !== "Jugador" || SOLO_JUGADOR_TABS.includes(t.key));
+  const permitidas = tabsConPermiso.filter((t) => t.permitido);
+  const active = permitidas.find((t) => t.key === tab) || permitidas[0];
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10, marginTop: -4 }}>
-        <div style={{ display: "flex", background: "rgba(0,0,0,0.25)", borderRadius: 20, padding: 2, gap: 2 }}>
-          <button onClick={() => setView("reciben")} style={toggleBtn(view === "reciben")}>Quienes reciben</button>
-          <button onClick={() => setView("pagan")} style={toggleBtn(view === "pagan")}>Quienes pagan</button>
-        </div>
-      </div>
-      <div style={{ display: "grid", gap: 10 }}>
-        {transfers.length === 0 && <Empty>No se requieren transferencias.</Empty>}
-        {groups.map((g) => (
-          <div key={g.id} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 10, padding: "10px 12px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ color: C.card, fontWeight: 700, fontSize: 14.5 }}>{g.name}</span>
-              <span style={{ ...monoFont, fontWeight: 800, fontSize: 14.5, color: view === "reciben" ? C.win : C.loss }}>{money(g.total)}</span>
-            </div>
-            <div style={{ display: "grid", gap: 4, marginTop: 6, paddingLeft: 14, borderLeft: `2px solid ${C.panelLine}` }}>
-              {g.items.map((it) => (
-                <div key={it.id} style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "rgba(244,234,214,0.7)", fontSize: 12.5 }}>{it.name}</span>
-                  <span style={{ ...monoFont, fontSize: 12.5, color: "rgba(244,234,214,0.85)" }}>{money(it.amount)}</span>
-                </div>
-              ))}
-            </div>
+      <Decor />
+      <VersionBadge />
+      <div className="wrap">
+        <Nav tabs={tabsConPermiso} active={active?.key} onChange={setTab} session={session} onLogout={handleLogout} />
+        {portalApagado && (
+          <div className="campeonato-banner campeonato-banner-alerta" style={{ marginBottom: 16 }}>
+            ⚠ El portal está APAGADO para los jugadores (modo mantenimiento) — solo los administradores
+            pueden entrar en este momento. Enciéndelo desde Tablero de Control · Parámetros Generales
+            cuando quieras abrir el acceso de nuevo.
           </div>
-        ))}
+        )}
+        {verComoJugador && puedeAlternarVista && (
+          <div className="campeonato-banner" style={{ marginBottom: 16 }}>
+            👤 Estás viendo el sitio como perfil Jugador — volvé a tu vista normal desde el botón en
+            "Mi Perfil".
+          </div>
+        )}
+        {active ? (
+          <active.Component
+            session={effectiveSession}
+            perfiles={perfiles}
+            onPerfilesChange={setPerfiles}
+            verComoJugador={verComoJugador}
+            puedeAlternarVista={puedeAlternarVista}
+            onToggleVerComoJugador={() => setVerComoJugador((v) => !v)}
+          />
+        ) : (
+          <p className="subtitle">Tu perfil no tiene acceso a ningún módulo todavía. Pídele a un administrador que revise tus permisos.</p>
+        )}
       </div>
     </>
-  );
-}
-function TransfersBlock({ transfers }) {
-  return (
-    <Panel>
-      <SectionTitle icon={ArrowRightLeft}>Transferencias sugeridas</SectionTitle>
-      <TransfersList transfers={transfers} />
-    </Panel>
-  );
-}
-function FinalizedGame({ game, roster, onClose, setActiveGame, setGames, adminPassword }) {
-  const r = useMemo(() => computeSettlement(game, roster), [game, roster]);
-  const players = game.playerIds.map((id) => roster.find((p) => p.id === id)).filter(Boolean);
-  const winner = [...r.players].sort((a, b) => b.balance - a.balance)[0];
-  const winnerPlayer = players.find((pl) => pl.id === winner?.playerId);
-
-  // Vuelve a dejar la partida "en curso" para poder corregir lotes, fichas
-  // de cierre, rake, etc. La sacamos del historial hasta que se vuelva a
-  // cerrar, para no dejar una copia vieja e inconsistente dando vueltas.
-  // Se pide la contraseña de administrador porque la partida ya se finalizó
-  // "formalmente" — reabrirla es una acción sensible.
-  const handleBack = async () => {
-    if (!(await requestAdminPassword(adminPassword, "reabrir esta partida"))) return;
-    setGames((gs) => gs.filter((g) => g.id !== game.id));
-    setActiveGame({ ...game, finished: false });
-  };
-
-  // Si el empuje en bloque del log de compras / entrega de fichas a Excel
-  // (hecho al cerrar) falló (p. ej. sin conexión un instante), se puede
-  // reintentar desde acá sin perder nada — el detalle ya quedó guardado
-  // dentro de la propia partida. El registro de "Partidas"/"Resultados" (lo
-  // esencial: quién ganó, quién le debe a quién) no depende de esto.
-  const [retrying, setRetrying] = useState(false);
-  const retryAudit = async () => {
-    setRetrying(true);
-    const err = await pushExcelAudit(game, game.entregaFichasRows || []);
-    setGames((gs) => gs.map((x) => (x.id === game.id ? { ...x, excelAuditError: err } : x)));
-    setActiveGame((g) => (g && g.id === game.id ? { ...g, excelAuditError: err } : g));
-    setRetrying(false);
-  };
-
-  return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <GhostBtn onClick={handleBack} icon={ChevronLeft} color={C.goldSoft}>Reabrir partida</GhostBtn>
-
-      {game.excelAuditError && (
-        <div style={{ display: "flex", gap: 7, alignItems: "flex-start", background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "8px 10px" }}>
-          <AlertCircle size={15} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.85)", flex: 1, minWidth: 0 }}>
-            <div style={{ ...monoFont, wordBreak: "break-word", marginBottom: 6 }}>
-              <strong style={{ ...bodyFont }}>No se pudo guardar el log de compras / entrega de fichas en Excel:</strong> {game.excelAuditError}
-            </div>
-            <GhostBtn onClick={retryAudit} icon={ArrowRightLeft} color={C.goldSoft}>
-              {retrying ? "Reintentando…" : "Reintentar"}
-            </GhostBtn>
-          </div>
-        </div>
-      )}
-
-      <ChampionBanner winner={winner} player={winnerPlayer} />
-
-      <Panel>
-        <SectionTitle icon={Trophy}>Resultados de la partida</SectionTitle>
-        <div style={{ ...displayFont, fontSize: 18, color: C.goldSoft, marginTop: -4 }}>{game.date}</div>
-        <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)", display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-          <Crown size={12} color={C.gold} /> Operó: {roster.find((pl) => pl.id === game.hostId)?.name || "—"}
-        </div>
-      </Panel>
-
-      <CashRepartoBlock players={r.players} />
-      <TransfersBlock transfers={r.transfers} />
-
-      <Panel>
-        <SectionTitle icon={Users}>Detalle por jugador</SectionTitle>
-        <div style={{ display: "grid", gap: 10 }}>
-          {[...r.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
-            <PlayerResultCard key={p.playerId} p={p} player={players.find((pl) => pl.id === p.playerId)} />
-          ))}
-        </div>
-      </Panel>
-
-      <PrimaryBtn onClick={onClose} icon={Save} style={{ padding: "13px 18px", fontSize: 15 }}>
-        Guardar y cerrar partida
-      </PrimaryBtn>
-    </div>
-  );
-}
-function Th({ children, align }) {
-  return <th style={{ textAlign: align || "right", padding: "0 8px 8px", whiteSpace: "nowrap" }}>{children}</th>;
-}
-function Td({ children, align, bold, tone, signed, value, strong }) {
-  let color = "rgba(244,234,214,0.85)";
-  if (tone === "cash") color = C.cash;
-  if (tone === "virtual") color = C.virtual;
-  if (signed && typeof value === "number") color = value > 0 ? C.win : value < 0 ? C.loss : color;
-  return (
-    <td style={{ textAlign: align || "right", padding: "8px", ...monoFont, fontSize: 13, color, fontWeight: bold || strong ? 700 : 500, whiteSpace: "nowrap" }}>
-      {children}
-    </td>
-  );
-}
-
-/* ----------------------------------------------------------------------
-   HISTORY TAB
----------------------------------------------------------------------- */
-function SwipeableRow({ children, onDelete }) {
-  const [dragX, setDragX] = useState(0);
-  const [open, setOpen] = useState(false);
-  const startX = useRef(0);
-  const dragging = useRef(false);
-  const OPEN_X = -84;
-
-  const onTouchStart = (e) => {
-    startX.current = e.touches[0].clientX;
-    dragging.current = true;
-  };
-  const onTouchMove = (e) => {
-    if (!dragging.current) return;
-    const delta = e.touches[0].clientX - startX.current;
-    const base = open ? OPEN_X : 0;
-    const next = Math.max(OPEN_X, Math.min(0, base + delta));
-    setDragX(next);
-  };
-  const onTouchEnd = () => {
-    dragging.current = false;
-    if (dragX < OPEN_X / 2) { setDragX(OPEN_X); setOpen(true); }
-    else { setDragX(0); setOpen(false); }
-  };
-
-  return (
-    <div style={{ position: "relative", overflow: "hidden", borderRadius: 14 }}>
-      <div style={{
-        position: "absolute", top: 0, right: 0, bottom: 0, width: 84,
-        display: "flex", alignItems: "center", justifyContent: "center", background: C.loss,
-      }}>
-        <button
-          onClick={() => { onDelete(); setDragX(0); setOpen(false); }}
-          style={{ background: "transparent", border: "none", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer", width: "100%", height: "100%" }}
-        >
-          <Trash2 size={18} />
-          <span style={{ fontSize: 10.5, fontWeight: 700, ...bodyFont }}>Eliminar</span>
-        </button>
-      </div>
-      <div
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onClick={() => { if (open) { setDragX(0); setOpen(false); } }}
-        style={{ transform: `translateX(${dragX}px)`, transition: dragging.current ? "none" : "transform 0.2s ease" }}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function HistoryTab({ games, roster, setGames, adminPassword, activeGame, setActiveGame }) {
-  const [openId, setOpenId] = useState(null);
-  const [syncing, setSyncing] = useState(false);
-  const sorted = [...games].sort((a, b) => (a.date < b.date ? 1 : -1));
-
-  const handleDelete = async (g) => {
-    if (!(await requestAdminPassword(adminPassword, "eliminar partidas"))) return;
-    if (!confirm(`¿Eliminar definitivamente la partida del ${g.date}? Esta acción no se puede deshacer.`)) return;
-    setGames((gs) => gs.filter((x) => x.id !== g.id));
-  };
-
-  // Reabre una partida ya cerrada (y ya reemplazada por otra en curso, o
-  // sin ninguna partida activa) para poder ajustar algo pendiente. Pide
-  // contraseña de administrador porque es una acción sensible: se pierde
-  // temporalmente el resultado ya calculado hasta volver a cerrarla.
-  const handleReopen = async (g) => {
-    if (activeGame && !activeGame.finished) {
-      alert("Ya hay una partida en curso. Finalízala o cancélala antes de reabrir otra.");
-      return;
-    }
-    if (!(await requestAdminPassword(adminPassword, "reabrir esta partida"))) return;
-    setGames((gs) => gs.filter((x) => x.id !== g.id));
-    setActiveGame({ ...g, finished: false });
-  };
-
-  // Fuerza un reguardado de todas las partidas sin cambiar ningún dato — sirve
-  // para que la hoja "Resultados" del Excel se regenere con la fórmula de
-  // liquidación más reciente, sin tener que reabrir y reingresar cada partida.
-  const handleResync = async () => {
-    if (!(await requestAdminPassword(adminPassword, "recalcular y sincronizar la base de datos"))) return;
-    setSyncing(true);
-    setGames((gs) => [...gs]);
-    setTimeout(() => setSyncing(false), 1200);
-  };
-
-  // Reintento del empuje en bloque del log de compras / entrega de fichas a
-  // Excel, por si falló al cerrar la partida y nadie lo reintentó todavía
-  // desde la pantalla de resultados.
-  const [retryingId, setRetryingId] = useState(null);
-  const retryAudit = async (g) => {
-    setRetryingId(g.id);
-    const err = await pushExcelAudit(g, g.entregaFichasRows || []);
-    setGames((gs) => gs.map((x) => (x.id === g.id ? { ...x, excelAuditError: err } : x)));
-    setRetryingId(null);
-  };
-
-  if (sorted.length === 0) {
-    return <Panel><Empty>Aún no hay partidas guardadas.</Empty></Panel>;
-  }
-
-  return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <div style={{ display: "flex", justifyContent: "center" }}>
-        <GhostBtn onClick={handleResync} icon={ArrowRightLeft} color={C.goldSoft}>
-          {syncing ? "Sincronizando…" : "Recalcular y sincronizar con la base de datos"}
-        </GhostBtn>
-      </div>
-      <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.45)", textAlign: "center" }}>
-        Deslizá una partida hacia la izquierda para eliminarla (pide contraseña).
-      </div>
-      {sorted.map((g) => {
-        const open = openId === g.id;
-        const results = computeSettlement(g, roster);
-        const winner = results.players.slice().sort((a, b) => b.balance - a.balance)[0];
-        return (
-          <SwipeableRow key={g.id} onDelete={() => handleDelete(g)}>
-            <Panel>
-              <button onClick={() => setOpenId(open ? null : g.id)} style={{ width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ textAlign: "left" }}>
-                    <div style={{ ...displayFont, fontSize: 18, color: C.goldSoft }}>{g.date}</div>
-                    <div style={{ fontSize: 11.5, color: "rgba(244,234,214,0.5)" }}>
-                      {g.playerIds.length} jugadores · lote {money(g.loteValue)} · rake {money(g.rake)}
-                    </div>
-                    <div style={{ fontSize: 11, color: "rgba(244,234,214,0.4)", marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
-                      <Crown size={11} color={C.gold} /> Operó: {roster.find((r) => r.id === g.hostId)?.name || "—"}
-                    </div>
-                  </div>
-                  {open ? <ChevronUp size={16} color={C.goldSoft} /> : <ChevronDown size={16} color={C.goldSoft} />}
-                </div>
-              </button>
-              <ChampionBanner winner={winner} player={roster.find((pl) => pl.id === winner?.playerId)} />
-              {g.excelAuditError && (
-                <div style={{ display: "flex", gap: 7, alignItems: "flex-start", background: "rgba(226,99,79,0.12)", border: `1px solid ${C.loss}`, borderRadius: 8, padding: "7px 9px", marginBottom: 4 }}>
-                  <AlertCircle size={13} color={C.loss} style={{ flexShrink: 0, marginTop: 1 }} />
-                  <div style={{ fontSize: 11, color: "rgba(244,234,214,0.85)", flex: 1, minWidth: 0 }}>
-                    <div style={{ marginBottom: 5 }}>No se pudo guardar el log de compras / entrega de fichas de esta partida en Excel.</div>
-                    <GhostBtn onClick={() => retryAudit(g)} icon={ArrowRightLeft} color={C.goldSoft}>
-                      {retryingId === g.id ? "Reintentando…" : "Reintentar"}
-                    </GhostBtn>
-                  </div>
-                </div>
-              )}
-              {open && (
-                <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-                  <div style={{ marginTop: 6 }}>
-                    <SectionTitle icon={Banknote}>Reparto de efectivo</SectionTitle>
-                    <CashRepartoList players={results.players} />
-                  </div>
-
-                  <div style={{ marginTop: 6 }}>
-                    <SectionTitle icon={ArrowRightLeft}>Transferencias sugeridas</SectionTitle>
-                    <TransfersList transfers={results.transfers} />
-                  </div>
-
-                  <div style={{ marginTop: 6 }}>
-                    <SectionTitle icon={Users}>Detalle por jugador</SectionTitle>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {[...results.players].sort((a, b) => b.cashOut - a.cashOut).map((p) => (
-                        <PlayerResultCard key={p.playerId} p={p} player={roster.find((pl) => pl.id === p.playerId)} />
-                      ))}
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
-                    <GhostBtn onClick={() => handleReopen(g)} icon={ChevronLeft} color={C.goldSoft}>Reabrir partida</GhostBtn>
-                  </div>
-                </div>
-              )}
-            </Panel>
-          </SwipeableRow>
-        );
-      })}
-    </div>
   );
 }

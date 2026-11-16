@@ -1,0 +1,223 @@
+const RESEND_API = "https://api.resend.com/emails";
+
+// envía un correo transaccional vía Resend (API-key simple, sin OAuth).
+// EMAIL_RESEND_API nunca debe viajar por el chat con Claude — se agrega directo en Netlify.
+export async function enviarCorreo({ to, subject, html }) {
+  const apiKey = process.env.EMAIL_RESEND_API;
+  if (!apiKey) throw new Error("Falta configurar EMAIL_RESEND_API en Netlify.");
+  const from = process.env.MAIL_FROM || "TOLS 3.0 <onboarding@resend.dev>";
+  const r = await fetch(RESEND_API, {
+    method: "POST",
+    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ from, to, subject, html }),
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(json.message || `No se pudo enviar el correo (HTTP ${r.status}).`);
+  return json;
+}
+
+export function plantillaReset(codigo, nombre) {
+  return `
+  <div style="font-family: Segoe UI, Arial, sans-serif; background:#0f1720; padding:32px; color:#e8edf2;">
+    <div style="max-width:420px; margin:0 auto; background:#182430; border-radius:14px; padding:28px; border:1px solid #2a3a4a;">
+      <div style="font-size:13px; letter-spacing:.06em; color:#8fd694; text-transform:uppercase; margin-bottom:8px;">♣ Torrente On Line Series - TOLS 3.0</div>
+      <h2 style="margin:0 0 12px; color:#fff;">Recupera tu contraseña</h2>
+      <p style="margin:0 0 20px; color:#b6c2cd; font-size:14px;">
+        Hola${nombre ? " " + nombre : ""}, usa este código para definir una nueva contraseña en TOLS 3.0.
+        Es válido por <strong>5 minutos</strong>.
+      </p>
+      <div style="font-size:34px; font-weight:700; letter-spacing:.3em; text-align:center; background:#0f1720; border-radius:10px; padding:16px; color:#8fd694; border:1px solid #2a3a4a;">
+        ${codigo}
+      </div>
+      <p style="margin:20px 0 0; color:#7c8a97; font-size:12px;">
+        Si no pediste este código, puedes ignorar este correo — tu contraseña actual sigue funcionando.
+      </p>
+    </div>
+  </div>`;
+}
+
+// 66ª entrega: plantillaHost() se eliminó junto con el resto del concepto de "Host" (ver
+// netlify/functions/jugadores.js) — ya no se manda ningún correo de asignación de Host.
+
+// envuelve el mensaje que el Tesorero ya redactó y aprobó (texto plano, con saltos de línea en
+// blanco entre párrafos) en el mismo diseño de correo del resto del sitio — no es una plantilla fija
+// de texto, es solo el "sobre" visual alrededor de lo que el Tesorero escribió
+export function plantillaEstadoCuenta(asunto, cuerpoTexto) {
+  const parrafos = String(cuerpoTexto || "")
+    .split(/\n\s*\n/)
+    .map((p) => `<p style="margin:0 0 14px; color:#b6c2cd; font-size:14px; white-space:pre-line;">${p}</p>`)
+    .join("");
+  return `
+  <div style="font-family: Segoe UI, Arial, sans-serif; background:#0f1720; padding:32px; color:#e8edf2;">
+    <div style="max-width:480px; margin:0 auto; background:#182430; border-radius:14px; padding:28px; border:1px solid #2a3a4a;">
+      <div style="font-size:13px; letter-spacing:.06em; color:#8fd694; text-transform:uppercase; margin-bottom:8px;">♦ Torrente On Line Series - TOLS 3.0</div>
+      <h2 style="margin:0 0 16px; color:#fff;">${asunto}</h2>
+      ${parrafos}
+      <p style="margin:20px 0 0; color:#7c8a97; font-size:12px;">
+        Si ya realizaste este pago o tienes dudas, contacta directamente al Tesorero de la liga.
+      </p>
+    </div>
+  </div>`;
+}
+
+export function plantillaRegistroExitoso(nombre, numeroRegistro) {
+  const num = String(numeroRegistro).padStart(2, "0");
+  return `
+  <div style="font-family: Segoe UI, Arial, sans-serif; background:#0f1720; padding:32px; color:#e8edf2;">
+    <div style="max-width:460px; margin:0 auto; background:#182430; border-radius:14px; padding:28px; border:1px solid #2a3a4a;">
+      <div style="font-size:13px; letter-spacing:.06em; color:#8fd694; text-transform:uppercase; margin-bottom:8px;">♥ Torrente On Line Series - TOLS 3.0</div>
+      <h2 style="margin:0 0 12px; color:#fff;">¡Tu registro quedó completo!</h2>
+      <p style="margin:0 0 16px; color:#b6c2cd; font-size:14px;">
+        Hola${nombre ? " " + nombre : ""}, tu cuenta en TOLS 3.0 ya está activa. Bienvenido a la liga.
+      </p>
+      <p style="margin:0 0 8px; color:#b6c2cd; font-size:14px;">
+        Tu <strong>número de registro</strong> es:
+      </p>
+      <div style="font-size:34px; font-weight:700; letter-spacing:.2em; text-align:center; background:#0f1720; border-radius:10px; padding:16px; color:#8fd694; border:1px solid #2a3a4a;">
+        ${num}
+      </div>
+      <p style="margin:20px 0 8px; color:#b6c2cd; font-size:14px;">
+        Guárdalo bien: cada vez que hagas un depósito relacionado con la liga (inscripción, buy-in, re-buy, etc.),
+        debes agregar este número como los <strong>centavos</strong> del monto que transfieras. Así el Tesorero
+        puede identificar de quién es cada depósito.
+      </p>
+      <div style="margin:0 0 16px; background:#0f1720; border-radius:10px; padding:16px; border:1px solid #2a3a4a;">
+        <p style="margin:0 0 8px; color:#8fd694; font-size:13px; font-weight:600;">Ejemplos con tu número (${num}):</p>
+        <p style="margin:0 0 6px; color:#b6c2cd; font-size:14px;">
+          Si la inscripción es de <strong>$400</strong>, depositas <strong>$400.${num}</strong>
+        </p>
+        <p style="margin:0; color:#b6c2cd; font-size:14px;">
+          Si depositas buy-in + re-buy de un torneo regular (<strong>$300 + $250 = $550</strong>), depositas <strong>$550.${num}</strong>
+        </p>
+      </div>
+      <p style="margin:0; color:#7c8a97; font-size:12px;">
+        Si tienes dudas sobre tu número de registro o algún depósito, contacta a un administrador de la liga.
+      </p>
+    </div>
+  </div>`;
+}
+
+// 74ª entrega: correo de "Saldo Torneo" — lo dispara el Tesorero desde Cobranza ("Resultados de
+// Torneos") para uno o varios jugadores con saldo negativo en un torneo ya publicado. Mismo look & feel
+// que plantillaRegistroExitoso() (mismo layout de tarjeta oscura), pero con el monto de la deuda como
+// protagonista: grande, centrado y en rojo, con los centavos siempre iguales al número de registro del
+// jugador (mismo campo que ya se usa como "id" en tols-jugadores y que ya se le explicó al jugador en el
+// correo de bienvenida) — así el Tesorero identifica de quién es cada depósito.
+// 103ª entrega: `fechaLimite` (opcional) — a pedido de Federico, la fecha límite para pagar ahora la
+// pone el Tesorero a mano (recuadro en "Torneos publicados", con default "viernes xx de mmmm" de la
+// semana en curso) en vez de salir siempre fija como "el viernes de esta semana".
+export function plantillaSaldoTorneo(nombre, torneoLabel, montoDeuda, numeroRegistro, fechaLimite, castigo = 0) {
+  const num = String(numeroRegistro).padStart(2, "0");
+  const fmt = (n) => Math.round(Math.abs(Number(n) || 0)).toLocaleString("en-US");
+  // 125ª entrega: si el jugador tiene castigo (≠ 0), el correo desglosa compras + castigo y da el total.
+  // Sin castigo, el correo es exactamente el de siempre. Los centavos de referencia van en las cifras de
+  // compras y total; el castigo siempre lleva .00.
+  const castigoPesos = Math.round(Math.abs(Number(castigo) || 0));
+  const resultado = Number(montoDeuda) || 0; // negativo = debe por compras; positivo = a favor
+  let montoPrincipal;
+  let desglose = "";
+  if (castigoPesos > 0) {
+    const totalPesos = Math.round(Math.abs(resultado - castigoPesos));
+    montoPrincipal = `($ ${totalPesos.toLocaleString("en-US")}.${num})`;
+    const lineaCompras = resultado < 0
+      ? `($ ${fmt(resultado)}.${num}) por compras`
+      : `$ ${fmt(resultado)}.00 a favor por resultado del torneo`;
+    desglose = `
+      <p style="margin:0 0 6px; color:#b6c2cd; font-size:14px; text-align:center;">
+        ${lineaCompras}<br />
+        + ($ ${castigoPesos.toLocaleString("en-US")}.00) por castigo<br />
+        <strong>Total:</strong>
+      </p>`;
+  } else {
+    montoPrincipal = `($ ${fmt(resultado)}.${num})`;
+  }
+  return `
+  <div style="font-family: Segoe UI, Arial, sans-serif; background:#0f1720; padding:32px; color:#e8edf2;">
+    <div style="max-width:460px; margin:0 auto; background:#182430; border-radius:14px; padding:28px; border:1px solid #2a3a4a;">
+      <div style="font-size:13px; letter-spacing:.06em; color:#8fd694; text-transform:uppercase; margin-bottom:8px;">♦ Torrente On Line Series - TOLS 3.0</div>
+      <h2 style="margin:0 0 16px; color:#fff;">Saldo pendiente — Torneo ${torneoLabel}</h2>
+      <p style="margin:0 0 14px; color:#b6c2cd; font-size:14px;">
+        Estimado ${nombre || ""}:
+      </p>
+      <p style="margin:0 0 16px; color:#b6c2cd; font-size:14px;">
+        Nuestros registros indican que, después de cerrado el torneo ${torneoLabel}, tu saldo es de:
+      </p>${desglose}
+      <div style="font-size:32px; font-weight:800; text-align:center; background:#0f1720; border-radius:10px; padding:18px 12px; color:#ff5c5c; border:1px solid #3a2530; margin:0 0 16px;">
+        ${montoPrincipal}
+      </div>
+      <p style="margin:0 0 20px; color:#b6c2cd; font-size:14px;">
+        <strong>Importante:</strong> los dos últimos dígitos de esa cifra (<strong>.${num}</strong>) son tu
+        <strong>número de registro</strong> — inclúyelos siempre como los centavos de tu depósito, para que
+        el Tesorero pueda identificar que el pago es tuyo.
+      </p>
+      <p style="margin:0 0 8px; color:#b6c2cd; font-size:14px;">
+        Te invitamos a depositar a la cuenta <strong style="color:#8fd694;">CLABE 01 21 80 00 44 77 57 11 57</strong>
+        de <strong>BBVA</strong> a nombre de <strong>Oscar del Valle</strong>.
+      </p>
+      <p style="margin:22px 0 4px; color:#b6c2cd; font-size:14px;">
+        Te recordamos que la fecha límite para pagar es el <strong>${fechaLimite || "viernes de esta semana"}</strong>.
+      </p>
+      <p style="margin:0 0 20px; color:#b6c2cd; font-size:14px;">
+        En caso de no recibir tu pago, estarás inhabilitado para jugar el siguiente torneo.
+      </p>
+      <p style="margin:0; color:#b6c2cd; font-size:14px;">
+        Atentamente,<br />
+        El Comité Organizador<br />
+        TOLS 3.0
+      </p>
+    </div>
+  </div>`;
+}
+
+// 89ª entrega: correo que el Tesorero dispara desde "Registrar pagos y depósitos" (Cobranza), cuando va
+// a hacer un Depósito (TOLS → jugador) y los datos de cuenta de cobro del jugador (tipo de cuenta, cuenta,
+// banco — los mismos que se editan en Mi Perfil, src/lib/cobranza.js) están incompletos. Pedido de
+// Federico: "...que aparezca un botón para que el tesorero al oprimir le mande un correo corporativo de
+// TOLS a su correo solicitando los datos, indicando que en caso de que no se llenen, no se podrá pagar."
+export function plantillaSolicitarDatosCuenta(nombre) {
+  return `
+  <div style="font-family: Segoe UI, Arial, sans-serif; background:#0f1720; padding:32px; color:#e8edf2;">
+    <div style="max-width:460px; margin:0 auto; background:#182430; border-radius:14px; padding:28px; border:1px solid #2a3a4a;">
+      <div style="font-size:13px; letter-spacing:.06em; color:#8fd694; text-transform:uppercase; margin-bottom:8px;">♦ Torrente On Line Series - TOLS 3.0</div>
+      <h2 style="margin:0 0 16px; color:#fff;">Nos faltan tus datos de cuenta para depositarte</h2>
+      <p style="margin:0 0 16px; color:#b6c2cd; font-size:14px;">
+        Estimado${nombre ? " " + nombre : ""}:
+      </p>
+      <p style="margin:0 0 16px; color:#b6c2cd; font-size:14px;">
+        Tenemos un depósito pendiente de hacerte (premio, gasto del campeonato u otro concepto de TOLS), pero
+        no contamos con tus datos de cuenta para transferirte — tipo de cuenta, número de cuenta y banco.
+      </p>
+      <p style="margin:0 0 20px; color:#b6c2cd; font-size:14px;">
+        Por favor entra a <strong>Mi Perfil</strong> en el sitio y completa esos tres datos.
+      </p>
+      <p style="margin:0 0 8px; color:#ff5c5c; font-size:14px; font-weight:600;">
+        Importante: mientras esos datos no estén completos, no podremos hacerte el depósito.
+      </p>
+      <p style="margin:20px 0 0; color:#b6c2cd; font-size:14px;">
+        Atentamente,<br />
+        El Comité Organizador<br />
+        TOLS 3.0
+      </p>
+    </div>
+  </div>`;
+}
+
+export function plantillaCodigo(codigo, nombre) {
+  return `
+  <div style="font-family: Segoe UI, Arial, sans-serif; background:#0f1720; padding:32px; color:#e8edf2;">
+    <div style="max-width:420px; margin:0 auto; background:#182430; border-radius:14px; padding:28px; border:1px solid #2a3a4a;">
+      <div style="font-size:13px; letter-spacing:.06em; color:#8fd694; text-transform:uppercase; margin-bottom:8px;">♣ Torrente On Line Series - TOLS 3.0</div>
+      <h2 style="margin:0 0 12px; color:#fff;">Confirma tu correo</h2>
+      <p style="margin:0 0 20px; color:#b6c2cd; font-size:14px;">
+        Hola${nombre ? " " + nombre : ""}, este es tu código para completar tu registro en TOLS 3.0.
+        Es válido por <strong>5 minutos</strong> — ingrésalo apenas lo veas.
+      </p>
+      <div style="font-size:34px; font-weight:700; letter-spacing:.3em; text-align:center; background:#0f1720; border-radius:10px; padding:16px; color:#8fd694; border:1px solid #2a3a4a;">
+        ${codigo}
+      </div>
+      <p style="margin:20px 0 0; color:#7c8a97; font-size:12px;">
+        Si no solicitaste este código, puedes ignorar este correo.
+      </p>
+    </div>
+  </div>`;
+}

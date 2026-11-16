@@ -1,0 +1,131 @@
+// Lógica de cálculo de Cobranza, compartida entre netlify/functions/cobranza.js (servidor) y
+// src/components/Cobranza.jsx (cliente) — así los montos que ve el Tesorero en pantalla son
+// exactamente los mismos que los que se guardan/sincronizan. No depende de nada del DOM ni de
+// Netlify, así que se puede importar desde ambos lados sin problema.
+
+// 44ª entrega: validación de la cuenta de cobro (CLABE o Tarjeta de Débito), en el formato ORIGINAL
+// que exige el banco — solo dígitos, sin espacios ni guiones. Compartida entre el cliente (MiPerfil.jsx,
+// Cobranza.jsx, para el combo y el mensaje de error antes de guardar) y el servidor
+// (netlify/functions/jugadores.js, para no guardar basura aunque el navegador falle o alguien pegue el
+// dato con espacios).
+export const TIPOS_CUENTA = ["CLABE", "Tarjeta de Débito"];
+
+export function longitudEsperada(tipoCuenta) {
+  if (tipoCuenta === "CLABE") return 18;
+  if (tipoCuenta === "Tarjeta de Débito") return 16;
+  return null;
+}
+
+// devuelve un mensaje de error (string) si la combinación cuenta+tipoCuenta no es válida, o null si
+// está bien. Ambos vacíos NO es error (el jugador todavía no cargó sus datos de cobro).
+export function validarCuentaCobro(cuenta, tipoCuenta) {
+  const limpio = String(cuenta || "").trim();
+  const tipo = String(tipoCuenta || "").trim();
+  if (!limpio && !tipo) return null;
+  if (!tipo) return "Elige si es CLABE o Tarjeta de Débito.";
+  if (!TIPOS_CUENTA.includes(tipo)) return "Tipo de cuenta no reconocido — elige CLABE o Tarjeta de Débito.";
+  const longitud = longitudEsperada(tipo);
+  if (!limpio) return `Falta el número de ${tipo === "CLABE" ? "CLABE" : "tarjeta"}.`;
+  if (!/^\d+$/.test(limpio)) return `${tipo} debe contener solo dígitos, sin espacios ni guiones.`;
+  if (limpio.length !== longitud) return `${tipo} debe tener exactamente ${longitud} dígitos (tiene ${limpio.length}).`;
+  return null;
+}
+
+// tarifa (regular/main) de un concepto ("buyin" | "rebuy" | "addon") para un campeonato, leída del
+// Tablero de Control (tols-tablero). Si el campeonato no tiene datos todavía, devuelve 0 en vez de
+// tronar — el Tesorero va a ver montos en $0 hasta que el Tablero tenga ese campeonato configurado.
+export function tarifa(tableroMapa, campeonato, id, tipo) {
+  const cobros = tableroMapa?.[campeonato]?.cobrosPorTorneo || [];
+  const c = cobros.find((x) => x.id === id);
+  if (!c) return 0;
+  return Number(tipo === "Main" ? c.main : c.regular) || 0;
+}
+
+// Regular/Main de una fecha puntual, buscando en el Calendario (mismo criterio que el resto del
+// sitio: la marca "main" del torneo, no el nombre del campeonato).
+//
+// 116ª entrega (bugfix): `calendarioTorneos` es el Calendario COMPLETO — todos los campeonatos y las
+// prácticas juntos, cada uno con su propia fecha. Buscar solo por `fecha` es ambiguo en cuanto dos
+// torneos de campeonatos distintos (o una práctica) comparten la misma fecha: devolvía el `.main` del
+// primero que encontraba en el arreglo, no necesariamente el del torneo que se estaba preguntando — así
+// se originó el bug de "no toma los costos de Main" reportado por Federico (una práctica con la misma
+// fecha, que nunca es Main, se colaba antes en la búsqueda). Por eso ahora se pide `campeonato` también
+// y se exige que coincida con `temporada` (las prácticas siempre tienen `temporada: ""`, así que nunca
+// matchean un campeonato real) — se deja `campeonato` opcional, sin filtrar por campeonato, SOLO como
+// resguardo por si algún llamador viejo no lo pasa todavía, pero todos los llamadores actuales ya lo
+// pasan (ver `conMontos()` más abajo).
+export function tipoDeFecha(calendarioTorneos, fecha, campeonato) {
+  const candidatos = (calendarioTorneos || []).filter((x) => x.fecha === fecha);
+  const t = campeonato ? candidatos.find((x) => x.temporada === campeonato) : candidatos[0];
+  return t?.main ? "Main" : "Regular";
+}
+
+// monto que debe un movimiento (buy-in + rebuys + add-on), según las tarifas vigentes del campeonato
+export function montosMovimiento(m, tableroMapa, tipo) {
+  const montoBuyIn = m.buyInPagado ? tarifa(tableroMapa, m.campeonato, "buyin", tipo) : 0;
+  const montoRebuys = (Number(m.rebuys) || 0) * tarifa(tableroMapa, m.campeonato, "rebuy", tipo);
+  const montoAddOn = m.addonComprado ? tarifa(tableroMapa, m.campeonato, "addon", tipo) : 0;
+  const montoTotal = montoBuyIn + montoRebuys + montoAddOn;
+  const totalGanado = (Number(m.premioPartida) || 0) + (Number(m.premioCampeonato) || 0);
+  return { montoBuyIn, montoRebuys, montoAddOn, montoTotal, totalGanado, balanceNeto: totalGanado - montoTotal };
+}
+
+// enriquece cada movimiento con tipo (Regular/Main) y los montos calculados — lo que consume la UI
+export function conMontos(movimientos, tableroMapa, calendarioTorneos) {
+  return (movimientos || []).map((m) => {
+    const tipo = tipoDeFecha(calendarioTorneos, m.fecha, m.campeonato);
+    return { ...m, tipo, ...montosMovimiento(m, tableroMapa, tipo) };
+  });
+}
+
+// resumen por jugador (correo): total debido, total ganado, saldo — sumando todos sus movimientos
+export function resumenPorJugador(movimientosConMontos, jugadoresDict) {
+  const porCorreo = {};
+  for (const m of movimientosConMontos) {
+    if (!porCorreo[m.correo]) porCorreo[m.correo] = { pago: 0, deposito: 0 };
+    porCorreo[m.correo].pago += m.montoTotal;
+    porCorreo[m.correo].deposito += m.totalGanado;
+  }
+  const correos = new Set([...Object.keys(jugadoresDict || {}), ...Object.keys(porCorreo)]);
+  const resumen = {};
+  for (const correo of correos) {
+    const jd = jugadoresDict?.[correo] || {};
+    const tot = porCorreo[correo] || { pago: 0, deposito: 0 };
+    resumen[correo] = {
+      correo,
+      nombre: jd.nombre || "",
+      // 92ª entrega: se agrega acá (puramente aditivo, nadie más lee este campo todavía salvo el
+      // export a Excel nuevo de "Pagos y depósitos confirmados") para no tener que repetir el lookup
+      // al directorio de Jugadores en otro lado.
+      aliasPokerStars: jd.aliasPokerStars || "",
+      cuenta: jd.cuenta || "",
+      banco: jd.banco || "",
+      tipoCuenta: jd.tipoCuenta || "",
+      pago: tot.pago,
+      deposito: tot.deposito,
+      saldo: tot.deposito - tot.pago,
+    };
+  }
+  return resumen;
+}
+
+// ¿este jugador tiene un adeudo (movimiento con monto > 0 sin pagar) de una fecha ANTERIOR a la
+// próxima fecha de torneo, sin una excepción aprobada para esa próxima fecha? Ese es el criterio que
+// lo inhabilita para el siguiente torneo — no importa si su saldo global es positivo por premios, lo
+// que bloquea es tener un cobro puntual pendiente de pago.
+export function tieneAdeudoBloqueante(correo, movimientosConMontos, jugadoresDict, proximaFecha) {
+  if (!proximaFecha) return false;
+  const excepciones = jugadoresDict?.[correo]?.excepciones || [];
+  if (excepciones.includes(proximaFecha)) return false;
+  return movimientosConMontos.some(
+    (m) => m.correo === correo && !m.pagado && m.montoTotal > 0 && m.fecha < proximaFecha
+  );
+}
+
+// 96ª entrega: `finanzasCampeonato()` (recaudado/premios pagados/gastos fijos/saldo neto, calculados
+// sobre `movimientos`) se eliminó por prolijidad — ese modelo quedó deprecado desde la 66ª entrega
+// (Game Night oculto) y `movimientos` nunca se puebla en producción, así que estos números siempre
+// daban $0 en el sitio real. "Finanzas generales" (Cobranza.jsx) se rediseñó en la 96ª entrega para
+// calcular todo desde los mapas confirmados de Cobranza (pagosTorneo/depositosTorneo/depositosGasto/
+// pagosInscripcion) y los montos ya calculados por Estadísticas — ver esa entrega en el mapa del
+// proyecto para el detalle completo.

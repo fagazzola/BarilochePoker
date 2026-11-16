@@ -1,135 +1,170 @@
-# BARILOCHE — Registro de Poker (con Excel como base de datos)
+# TOLS 3.0
 
-El Excel en tu OneDrive (vía Microsoft Graph) es el registro **definitivo**
-de cada partida, pero ya no se toca mientras se juega. Mientras una partida
-está en curso, todo (compras, cena, lote/rake, log de compras, entrega de
-fichas) vive en un **blob de Netlify** — almacenamiento propio del sitio,
-sin OAuth ni límites de Microsoft Graph, mucho más rápido y sin la
-intermitencia de "se guarda y después desaparece". Recién al cerrar
-formalmente la partida se escribe todo de una vez al Excel: la fila de
-"Partidas"/"Resultados" y, en bloque, las hojas de auditoría "EntregaFichas"
-y "LogPetLotes". Cualquiera con el link del sitio ve y edita los mismos
-datos.
+Sitio de la liga de póker en línea Torrente (Torrente On Line Series). React + Vite, pensado para desplegarse en Netlify conectado a este repo (build command `npm run build`, publish directory `dist` — ya configurado en `netlify.toml`).
 
-## 1. Crear el archivo Excel
+## Versión del sitio
+Se muestra un número de versión (`vX.XX.XXX`) fijo en la esquina superior izquierda de toda pantalla,
+con o sin sesión (`src/components/VersionBadge.jsx`). El número vive en `src/version.js` — **se actualiza a
+mano en cada entrega**, no es automático. Esquema acordado con Federico (2026-09-03):
+- **1er número** (1 dígito) — generación del sitio; se queda en `1` hasta una reescritura mayor.
+- **2º número** (2 dígitos) — sube solo con cambios a los módulos "núcleo" que gobiernan la operación de la
+  liga: **Tablero de Control, Calendario o Game Night**. El resto de los módulos no lo mueven.
+- **3er número** (3 dígitos) — contador total de **todas** las entregas, toquen núcleo o no; nunca baja,
+  nunca se reinicia, coincide con el número de "entrega" que se lleva en el mapa del proyecto.
+El 2º y el 3er número son independientes entre sí (uno no vive "dentro" del otro) — el 2º cuenta solo cambios
+de núcleo, el 3ero cuenta absolutamente todo. Como las primeras 26 entregas no llevaron el conteo de
+"solo núcleo" por separado, el esquema arrancó desde la 27ª entrega en `1.02.027` (a petición de Federico).
 
-En tu OneDrive, creá un archivo llamado **`BarilochePoker.xlsx`** (en la raíz,
-o ajustá `MS_EXCEL_PATH` si lo ponés en una carpeta). Adentro, creá 4 hojas
-con estos nombres **exactos** y estos encabezados en la fila 1:
+## Módulos
+Los nombres "MOD 1", "MOD 2", etc. son solo referencia interna de trabajo — no aparecen en ninguna pantalla del sitio. Esta pantalla (`App.jsx`) es la **administración de toda la liga**; **Game Night** es una pantalla aparte (pendiente de definir) y no vive en este menú.
 
-**Hoja "Jugadores"**
-| id | nombre | activo | avatarTipo | avatarValor | fechaAlta | pin |
-|----|--------|--------|------------|-------------|-----------|-----|
+El orden fijo de pestañas es: **Tablero de Control, Calendario, Cobranza, Usuarios**. Cobranza todavía no existe como pantalla real, así que no aparece hasta que se construya. **Usuarios** (antes "Jugadores"/"Perfiles") solo la ve y usa el rol **Administrador General** — es un caso especial fuera de la matriz de permisos normal.
 
-**Hoja "Partidas"**
-| id | fecha | loteValue | rake | hostId | playerIds | finished | detalleJson |
-|----|-------|-----------|------|--------|-----------|----------|--------------|
+- **Tablero de Control** (`src/components/Tablero.jsx`) — editable en vivo, **por campeonato**, y es quien **gobierna el sitio**: el combo para elegir campeonato ya no es solo una vista local — cada vez que se cambia (o se agrega/renombra uno), se guarda como el campeonato **"activo"** en `tols-campeonatos`, y ese mismo valor es el que usa el Calendario y Jugadores para saber "cuál es el torneo vigente". Cambiar de campeonato activo (elegir uno existente en el combo, o crear uno nuevo — que se activa de inmediato) está protegido en dos niveles: (1) si el campeonato que se va a dejar ya está **"en curso"** (algunas fechas jugadas, otras pendientes, mismo criterio que el estatus del Calendario), el cambio se **bloquea por completo** con un mensaje explicando por qué; (2) si no está en curso pero sí tiene fechas registradas en el Calendario, aparece un **modal de confirmación** advirtiendo que esas fechas van a dejar de contar como vigentes en el resto del sitio (no se borran, pero el Calendario, Jugadores y Host dejan de operar sobre ellas). — antes cada pantalla lo adivinaba por su cuenta y podían quedar desincronizadas (ej. el Tablero mostrando `2026-I` y el Calendario `2026 Clausura`). El guardado de `activo` se **espera** (`await`) y cualquier error de red o del servidor se muestra en pantalla de inmediato (antes era "dispara y olvida": si el guardado fallaba, el combo se veía cambiado localmente pero el sitio seguía gobernado por el campeonato viejo, sin ningún aviso — esa fue la causa real del desajuste `2026-I`/`2026 Clausura` que se seguía viendo). Un panel permite agregar, renombrar o eliminar campeonatos; los premios, puntos y costos que se ven/editan abajo corresponden solo al campeonato seleccionado. Contiene: premios (por torneo y por campeonato, con % de Rey Killer obligatorio), puntos por posición, cuota de inscripción (por jugador, una vez por campeonato), recompras máximas, gastos del campeonato (Tesorero, Pulsera, etc. — se extraen del acumulado y se descuentan del monto a repartir), cobros por torneo (Buy-in, Re-buy y Add-on siempre presentes y no eliminables) y pagos por torneo (Sale en burbuja, Mejor Mano, etc.). Los montos se muestran en formato `$ ###,###`. Los datos viven en **Netlify Blobs** (`tols-tablero`), servidos por `netlify/functions/tablero.js` en `/api/tablero` como un mapa `{ [nombreCampeonato]: datos }`. `src/data/tablero.json` es solo la semilla inicial.
+- **Campeonatos** — registro compartido `{ nombres, activo }`, administrado desde el propio Tablero de Control y consumido también por el Calendario y Jugadores. `activo` es el campeonato que gobierna el sitio (ver arriba); si por algún motivo deja de existir en `nombres` (ej. se eliminó), se cae solo al primero de la lista. Vive en **Netlify Blobs** (`tols-campeonatos`), servido por `netlify/functions/campeonatos.js` en `/api/campeonatos`. `src/data/campeonatos.json` es la semilla inicial.
+- **Calendario** (`src/components/Calendario.jsx`), vista mensual (domingo a sábado) con crear/editar/borrar torneo por día para Administrador; vista en **lista** para roles de solo lectura (ej. Jugador). El campeonato de cada fecha **ya no se elige por torneo** — al crear o editar una fecha, el modal solo muestra (de solo lectura) el campeonato **activo** definido en el Tablero de Control, y esa es la temporada con la que se guarda siempre; ya no hay combo para asignar una fecha a otro campeonato desde aquí. Las fechas guardadas antes de que existiera este campo (o que por algún motivo se quedaron sin asignar) se completan automáticamente con el campeonato activo — tanto en el servidor (al leer `/api/calendario`) como, como respaldo, en el propio navegador la primera vez que un Administrador entra a esta pantalla después de desplegar. **Arriba de ambas vistas** (la cuadrícula del Administrador y la lista del Jugador) hay el mismo bloque, compacto y fijo (sticky) al hacer scroll — se asume que los administradores también son jugadores de la liga: el nombre del **campeonato activo** (el que gobierna el Tablero) con su **estatus** ("No iniciado" / "En curso" / "Terminado", según cuántas fechas del campeonato activo ya pasaron), el nombre de quien tiene la sesión del lado derecho, y debajo un resumen de 6 datos — Fechas, Main Events, Jugadas, % de Avance, Puntos en el torneo y Posición en la tabla — calculados **solo sobre las fechas del campeonato activo**; los dos últimos muestran "Próximamente" porque dependen de resultados que todavía no se capturan en ningún lado (eso va a vivir en Game Night). Debajo de ese bloque: para Administrador, la cuadrícula del mes con un botón compacto de "Pago final" en la barra de herramientas (antes era una tarjeta más en el resumen); para Jugador, la lista de fechas del campeonato activo, cada una con tipo (Regular/Main Event), si ya fue "Efectuado" o sigue "Pendiente", y una línea de "Posición"/"Puntos" siempre visible en "Próximamente (Game Night)" — a propósito, para que quede indicado y no se olvide. Los datos viven en **Netlify Blobs** (`tols-calendario`), servidos por `netlify/functions/calendario.js` en `/api/calendario`. `src/data/calendario.json` es solo la semilla inicial.
+- **Usuarios** (`src/components/Perfiles.jsx`) — visible y editable solo para Administrador General. Muestra primero la tabla de usuarios (Nombre, Correo electrónico, Perfil, Contraseña enmascarada con ícono de ojo para mostrar/ocultar, y un botón para cambiar la contraseña directamente), y debajo la tabla de **Permisos por módulo**, con un combo por celda (`sin acceso` / `sólo lectura` / `lectura/escritura`) por cada rol × módulo. El correo electrónico **es** el usuario de acceso al sitio — no hay un campo de "usuario" separado en la tabla; internamente el registro sigue guardando un campo `usuario` (por compatibilidad con cuentas antiguas), pero se mantiene siempre igual al correo al editar desde esta pantalla. Los datos viven en **Netlify Blobs** (`tols-perfiles`), servidos por `netlify/functions/perfiles.js` en `/api/perfiles`. `src/data/perfiles.json` es solo la semilla inicial.
+- **Jugadores** (`src/components/Jugadores.jsx` + `src/components/Registro.jsx`) — directorio de jugadores dados de alta por autorregistro. Cualquier visitante puede entrar a `/registro` (sin necesidad de login) y llenar: Nombre y Apellido, Alias Jugador, Alias PokerStars, Teléfono (10 dígitos), Correo electrónico, Contraseña, Fecha de nacimiento y Emoticón. El **Id** lo asigna el sitio, la **Edad** se calcula sola a partir de la fecha de nacimiento (nunca se escribe a mano), el **Tipo de Usuario** siempre inicia como "Jugador", y el **Padrino** solo lo llena un administrador después, desde la pestaña Jugadores — nunca el propio jugador. Antes de crear el registro se valida el correo con un código de 6 dígitos (ver abajo). Al confirmarlo, el jugador queda dado de alta en dos lugares a la vez: la hoja de Jugadores (`tols-jugadores`) y como Usuario normal del sitio con rol "Jugador" (`tols-perfiles`) — inicia sesión después con su correo y la contraseña que eligió, igual que cualquier otro usuario. Los datos viven en **Netlify Blobs** (`tols-jugadores`), servidos por `netlify/functions/jugadores.js` en `/api/jugadores`. Desde la pestaña Jugadores del sitio, quien tenga permiso de escritura en `mod6` puede editar el Padrino, el Estatus (Activo/Inactivo) y el **Host** de cada jugador (ver abajo) — el resto de los campos son de solo lectura ahí porque los llenó el propio jugador. Arriba a la derecha de la tabla hay un filtro **Activos / Inactivos / Todos** para acotar la lista sin tener que buscar renglón por renglón.
 
-**Hoja "Resultados"** (se regenera sola, es solo para que la mires — no hace falta tocarla)
-| gameId | fecha | jugador | lotesCash | buyInCash | lotesVirtual | buyInVirtual | totalBuyIn | cashOut | pagoCash | pagoTransfer | balance |
-|--------|-------|---------|-----------|-----------|--------------|--------------|------------|---------|----------|--------------|---------|
+  Si un jugador se autorregistra y el envío automático al Excel de OneDrive falla en ese momento (ej. el archivo estaba abierto, o el token de OneDrive no estaba autorizado todavía — ese envío es "best effort" y no bloquea el alta en el sitio, ver la sección de sincronización más abajo), el jugador **sí** queda dado de alta en el sitio pero no aparece en el Excel hasta el siguiente sync. No hay un botón dedicado de "reenviar a Excel" para Jugadores todavía; el arreglo práctico es editar cualquier campo de ese jugador desde esta pantalla (Padrino, Estatus o Host) y guardar — cualquier `PUT` reenvía la lista completa al Excel.
+- **Host del Game Night** (dentro de la pestaña Jugadores) — un jugador puede quedar marcado como **Host**, responsable de la ejecución del Game Night del próximo torneo del campeonato activo. Reglas: solo lo asigna quien tenga escritura en `mod6` (Administrador/Administrador General); solo puede haber **un Host a la vez** en toda la liga — asignar uno nuevo quita automáticamente al anterior; un mismo jugador puede volver a ser Host en otro torneo más adelante, sin límite; al asignarlo se le manda un **correo** (vía Resend, `plantillaHost` en `lib/resend.js`) avisándole; la marca se **desactiva sola** cuando pasa la fecha del torneo para el que fue asignado (revisado en `netlify/functions/jugadores.js` cada vez que se leen los datos, sin necesidad de una tarea programada); si no hay ningún jugador marcado como Host y ya hay un próximo torneo en el Calendario, arriba de la pestaña Jugadores aparece una alerta, y además — para cualquier administrador que entre al sitio, en cualquier pestaña — un banner debajo del menú avisando que falta asignarlo (`App.jsx`, comparando contra `/api/jugadores` + `/api/calendario` + `/api/campeonatos` cada vez que hay sesión). Cuando el jugador asignado como Host entra al sitio ve una marca **"🎙 Modo Host"** junto a su nombre en el menú — si ya tenía una sesión abierta cuando se le asignó, tiene que salir y volver a entrar para que aparezca (la sesión no se actualiza en vivo, a propósito, para no complicar el modelo). Los permisos concretos que tendrá un Host sobre el Tablero de cada Game Night quedan **por definir** cuando se construya ese módulo — por ahora la marca solo identifica quién es.
+- Cobranza y **Game Night** (antes "Game Day") — pendientes (permisos ya definidos en el esquema de Usuarios). La hora límite de la Mejor Mano vivirá en Game Night, ya no en el Calendario.
 
-**Hoja "Meta"**
-| key | value |
-|-----|-------|
+## Validación de correo al autorregistrarse
+Al llenar el formulario de `/registro` y darle clic a "Continuar", el sitio genera un código aleatorio de 6
+dígitos, lo guarda en **Netlify Blobs** (`tols-verificacion-jugadores`) con una vigencia de **30 segundos**, y
+lo envía por correo (vía **Resend**) a la dirección que escribió el jugador. Aparece entonces una pantalla con
+6 casillas para ingresar el código. Si coincide y no ha expirado, se crea el registro (jugador + usuario). Si
+expira, se ofrece **Regenerar código** (pide uno nuevo) o **Cancelar** (regresa al formulario). Si el código
+no coincide, se muestra el error y se puede reintentar mientras siga vigente.
 
-**Hoja "EntregaFichas"** (auditoría — se le agrega un snapshot una sola vez, al cerrar formalmente cada partida; nunca se sobreescribe)
-| timestamp | gameId | fecha | jugadorId | jugador | debeVirtual | pagaVirtual | fichasRemanentes | ajusteManual | fichasTotales | rake | cashDisponible | virtualPendiente | totalA | totalB |
-|-----------|--------|-------|-----------|---------|-------------|-------------|-------------------|---------------|----------------|------|-----------------|-------------------|--------|--------|
+Nota: 30 segundos es un margen ajustado — así lo pidió explícitamente Federico. Si en la práctica el correo
+tarda en llegar y da tiempo justo, se puede alargar la vigencia (`DURACION_MS` en
+`netlify/functions/jugadores-codigo.js`) con solo pedírselo a Claude.
 
-**Hoja "LogPetLotes"** (auditoría — se le agrega el log completo de la noche una sola vez, al cerrar formalmente cada partida, un renglón por cada evento de compra/solicitud de lotes, con hora exacta; nunca se sobreescribe)
-| timestamp | gameId | fecha | jugadorId | jugador | tipo | accion | origen | lotes | monto | valorLote |
-|-----------|--------|-------|-----------|---------|------|--------|--------|-------|-------|-----------|
+**Variables de entorno requeridas en Netlify** (Site settings → Environment variables):
+- `EMAIL_RESEND_API` — API key de [resend.com](https://resend.com). Crear una cuenta gratis, generar la key
+  desde su panel, y agregarla directo aquí. **Nunca debe viajar por el chat con Claude.**
+- `MAIL_FROM` (opcional) — remitente de los correos. Por defecto usa `onboarding@resend.dev`, que funciona sin
+  verificar dominio propio (limitado a envíos de prueba/bajo volumen); para un remitente con el dominio de la
+  liga (ej. `no-responde@tols.mx`) hay que verificar ese dominio en Resend primero.
 
-`tipo` es `cash` o `virtual`. `accion` es una de: `compra directa` (el host le suma un lote a mano), `solicitud enviada`, `solicitud aprobada`, `solicitud rechazada` (pedido de un jugador desde su celular) o `cancelación` (el host deshace la última compra de ese tipo). `origen` es `host` o `jugador`. `lotes`/`monto` van en negativo en una `cancelación`; en una `solicitud enviada` o `solicitud rechazada` llevan el monto que se pidió aunque no haya generado ninguna compra real (la compra real solo queda contabilizada en `compra directa` y `solicitud aprobada`). Por eso esta hoja es un registro narrativo para auditar la actividad — para totales de buy-in siempre hay que usar la hoja "Partidas" (columna `detalleJson.purchases`) o "Resultados", nunca sumar esta.
+## Permisos por módulo
+Todas las pestañas del menú (`src/App.jsx` + `src/lib/permisos.js`) se muestran siempre — las que el rol de la sesión no tiene permitidas aparecen **deshabilitadas** (atenuadas, no clicables) en vez de ocultarse, usando la matriz cargada de `/api/perfiles`. Dentro del Calendario y del Tablero, los controles de edición solo aparecen si el rol tiene "lectura/escritura" en `mod1` / `mod2` respectivamente. `accesoDe`/`puedeVer`/`puedeEditar` en `permisos.js` ahora reciben los datos de perfiles como primer parámetro (ya no se importan estáticos), porque viven en Blobs y pueden cambiar en caliente desde la pantalla de Usuarios sin volver a desplegar el sitio.
 
-Si ese empuje en bloque falla al cerrar una partida (por ejemplo, sin
-conexión un instante), la app lo avisa con un botón "Reintentar" en la
-pantalla de resultados y en el histórico — no se pierde nada, el detalle ya
-quedó guardado dentro de la propia partida.
+## Cómo se actualizan los datos
+Campeonatos, Tablero, Calendario y Usuarios se editan directo en el sitio (con permiso de escritura) y se guardan en **Netlify Blobs** — los `.json` en `src/data/` son solo semillas iniciales para el primer arranque y ya no se vuelven a leer salvo que se borre el store de Blobs correspondiente.
 
-No hace falta escribir nada más — la app llena las filas de datos sola.
+## Pantalla de Usuarios: búsqueda y botón de cambiar contraseña compacto
+Arriba de la tabla de Usuarios hay un campo de búsqueda ("Buscar por nombre o correo…") que filtra la
+lista en vivo — tolerante a mayúsculas/minúsculas y acentos (`normalizarBusqueda` en `Perfiles.jsx`), así
+que buscar "jose" encuentra tanto "José" como "JOSÉ". Si no hay resultados, muestra un aviso en vez de
+dejar la tabla vacía sin explicación. Es útil cuando la lista de jugadores crece.
 
-## Partida en curso: blob de Netlify, no Excel
+El botón "Cambiar contraseña" dejó de ser una fila completa siempre visible debajo de cada usuario: ahora
+es un ícono pequeño (🔑) al lado del botón de eliminar (✕) en la misma fila, y el campo para escribir la
+nueva contraseña solo aparece debajo cuando se oprime ese ícono en esa fila específica — así la lista
+ocupa mucho menos espacio vertical cuando hay varios usuarios.
 
-Mientras una partida está en curso (botón "active" en `src/App.jsx`), la app
-no toca el Excel en absoluto: lee y escribe un blob de Netlify (ver
-`netlify/functions/lib/blobs.js`, paquete `@netlify/blobs`). En la gran
-mayoría de los sitios esto funciona solo, sin ninguna variable de entorno —
-Netlify le inyecta el contexto necesario a la función automáticamente. La
-hoja "Meta" del Excel sigue existiendo solo para la contraseña de
-administrador (fila `admin_password`, la cargás a mano); la fila vieja
-`active` que pudiera haber quedado ahí de versiones anteriores de la app ya
-no se lee ni se escribe — es basura inofensiva, se puede borrar a mano o
-dejar como está.
+## Campeonato activo en el Tablero de Control
+El combo de campeonato tiene un banner destacado debajo ("Estás viendo y editando: **X**...") y el nombre
+del campeonato acompaña cada título de sección (Premios, Puntos, Costos), para que nunca se pierda de
+vista cuál campeonato se está editando. Al crear uno nuevo aparece un modal ofreciendo **copiar los
+valores** del campeonato que estaba activo o **inicializar todos los parámetros en cero** — nunca hereda
+valores en silencio. Al eliminar uno aparece un modal de advertencia (borrado permanente, incluye lo que
+en el futuro viva en Cobranza/Game Night para ese campeonato) antes de ejecutar.
 
-### Blobs: configuración manual (solo si ves "problemas de conexión")
+## Sincronización con Excel (OneDrive)
+El sitio escribe en vivo, directo en un Excel guardado en el OneDrive personal de Federico
+(`TOLS3.0-Base-de-Datos.xlsx`), cada vez que se guarda algo en el Tablero, el Calendario o Usuarios —
+usando la API de Microsoft Graph (OneDrive/Excel). Ese sentido (**sitio → Excel**) es automático, siempre.
 
-Si la app te muestra un error como:
+**Excel → sitio (solo para Usuarios, manual y explícito):** en la pantalla de Usuarios hay un botón
+**"Importar desde Excel"**, visible solo para Administrador General. Al oprimirlo (con una advertencia
+previa, porque **reemplaza** lo que hay guardado y no se puede deshacer), el sitio lee las hojas Usuarios y
+Permisos del Excel tal como estén en ese momento y sobrescribe `tols-perfiles` con eso — así el Excel puede
+ser la fuente de verdad cuando Federico prefiera editar ahí directo. Esto es intencionalmente manual (no
+automático ni periódico) para no arriesgar perder un autorregistro de un jugador (`/registro`) u otro cambio
+hecho en el sitio que todavía no esté reflejado en el Excel. Por ahora solo cubre Usuarios/Permisos — el
+resto de los módulos (Tablero, Calendario, Campeonatos, Jugadores) siguen siendo de un solo sentido
+(sitio → Excel); se puede extender el mismo botón a esos módulos si hace falta.
 
-> poker-active-game: The environment has not been configured to use Netlify
-> Blobs. To use it manually, supply the following properties when creating
-> a store: siteID, token
+Piezas del sistema:
+- `netlify/functions/lib/msgraph.js` — obtiene un access token fresco a partir de un refresh token
+  guardado en **Netlify Blobs** (`tols-ms-token`), y expone `syncCampeonatos`/`syncTablero`/
+  `syncCalendario`/`syncPerfiles`/`syncJugadores` (sitio → Excel) y `leerUsuariosYPermisosDesdeExcel`
+  (Excel → sitio, solo para el botón de importar). Cada sync de escritura es "best effort": si Graph API
+  falla (token vencido, sin conexión, etc.), el guardado en el sitio **no se ve afectado** — solo se
+  registra el error en los logs de Netlify.
+- `netlify/functions/perfiles-importar-excel.js` (`/api/perfiles-importar-excel`, POST) — lee Usuarios y
+  Permisos del Excel, valida el resultado con las mismas reglas que el resto del sitio, y si todo está bien
+  sobrescribe `tols-perfiles`. Si el Excel queda con datos inválidos (ej. sin ningún Administrador General),
+  la importación se rechaza con un mensaje de error y no se aplica nada.
+- `netlify/functions/auth-onedrive-start.js` (`/api/auth-onedrive-start`) — redirige a la pantalla de
+  login/consentimiento de Microsoft. Se visita **una sola vez** para autorizar.
+- `netlify/functions/auth-onedrive-callback.js` (`/api/auth-onedrive-callback`) — recibe el código de
+  autorización, lo cambia por un refresh token, y lo guarda en Blobs. Microsoft rota el refresh token en
+  cada uso, así que `msgraph.js` siempre guarda el más reciente después de usarlo.
 
-significa que en tu sitio esa inyección automática no está llegando, y hay
-que indicarle a mano a qué sitio conectarse. Cargá estas 2 variables en
-**Site settings → Environment variables** (igual que las `MS_*`):
+**Variables de entorno requeridas en Netlify** (Site settings → Environment variables):
+- `MS_CLIENT_ID` — el Application (client) ID del registro de app en Azure Portal.
+- `MS_CLIENT_SECRET` — el Client Secret generado en Azure Portal. **Nunca debe viajar por el chat con
+  Claude** — se agrega directo aquí.
+- `MS_EXCEL_PATH` (opcional) — ruta del archivo dentro del OneDrive, relativa a la raíz. Por defecto:
+  `Personal/MX/TOLS/TOLS 3.0/TOLS3.0-Base-de-Datos.xlsx`.
 
-- **`NETLIFY_SITE_ID`** — en el panel de Netlify, andá a **Site settings →
-  General → Site details**, copiá el **"Site ID"** (es un código largo tipo
-  `a1b2c3d4-...`).
-- **`NETLIFY_BLOBS_TOKEN`** — hace falta un token personal de Netlify.
-  Arriba a la derecha, tu avatar de usuario → **User settings** →
-  **Applications** → sección "Personal access tokens" → **New access
-  token**. Le ponés cualquier nombre (por ej. `bariloche-blobs`) y Netlify
-  te muestra el token **una sola vez**: copialo entero y pegalo en esta
-  variable.
+**Registro de app en Azure Portal** (una sola vez): App registrations → New registration → cuenta
+personal de Microsoft soportada → plataforma **Web** con redirect URI
+`https://tolsv3.netlify.app/api/auth-onedrive-callback` → API permissions → Microsoft Graph →
+delegated → `Files.ReadWrite` + `offline_access` → Certificates & secrets → nuevo client secret.
 
-Redeployá el sitio después de cargar las 2 variables (Netlify no las toma
-hasta el próximo deploy). Con eso `getStore()` ya no depende de la
-inyección automática y el error desaparece.
+**Autorización** (una sola vez, después de desplegar con las variables de entorno ya configuradas):
+visitar `https://tolsv3.netlify.app/api/auth-onedrive-start`, iniciar sesión con la cuenta de Microsoft
+del OneDrive, aceptar los permisos. La página confirma "OneDrive conectado" cuando queda listo.
 
-## 2. Desplegar en Netlify
+## Acceso
+Login simple de correo electrónico/contraseña contra los datos de `/api/perfiles` (Netlify Blobs) — **no es
+seguridad de nivel bancario**, es una interfaz que pide correo y contraseña y valida contra ese registro.
+Sirve para mantener el sitio fuera de curiosos casuales, no para proteger información sensible.
 
-1. Subí esta carpeta a un repo de GitHub y conectalo en Netlify (o usá
-   `netlify deploy` con la CLI desde acá). Netlify va a correr `npm run build`
-   y desplegar `dist/` + las funciones de `netlify/functions`.
-2. Una vez que el sitio tenga una URL (`https://TU-SITIO.netlify.app`), andá a
-   **Site settings → Environment variables** y cargá:
-   - `MS_CLIENT_ID` — el que copiaste de Azure
-   - `MS_CLIENT_SECRET` — el que generaste en Azure
-   - `MS_REDIRECT_URI` — `https://TU-SITIO.netlify.app/api/auth-callback`
-   - `MS_EXCEL_PATH` — `/BarilochePoker.xlsx` (o la ruta donde lo creaste)
-   - `MS_REFRESH_TOKEN` — lo vamos a completar en el paso 4
-3. Redeployá el sitio para que tome las variables.
+El correo electrónico es el usuario de acceso; para mantener compatibilidad con cuentas creadas antes de este
+cambio (que tenían un "usuario" distinto del correo, ej. la cuenta semilla de Federico), el login acepta lo
+que se escriba tanto contra el campo `correo` como contra el campo `usuario` de cada registro — así ninguna
+cuenta antigua queda bloqueada sin tener que editarla primero.
 
-## 3. Terminar el registro en Azure
+Cuenta semilla: correo `fagazzola@gmail.com` / contraseña `cambia-esta-clave` (rol Administrador General,
+usuario interno `federico`) — cámbiala desde la pantalla de Usuarios en cuanto el sitio esté desplegado.
 
-Volvé a la app registration que creaste (`portal.azure.com` → Entra ID → App
-registrations → tu app) → **Authentication** → **Add a platform** → **Web**,
-y pegá ahí el mismo valor de `MS_REDIRECT_URI` de arriba.
+Todos los campos de contraseña (Entrar, autorregistro, recuperar contraseña) tienen un ícono de ojo para
+mostrar/ocultar lo que se escribió (`src/components/CampoPassword.jsx`, reutilizado en los tres lugares).
 
-## 4. Autorización única (para obtener el refresh token)
+**Cierre de sesión automático por inactividad**: si no hay ningún clic, tecla, scroll o movimiento del mouse
+durante **30 minutos** con una sesión abierta, el sitio la cierra solo y regresa a la pantalla de Entrar (que
+es siempre el punto de partida cuando no hay sesión activa o válida). Esto cubre el caso de una pestaña que
+se queda abierta y olvidada. La actividad se registra en `localStorage` (`tols-last-activity`) y se revisa
+cada minuto; usar el sitio con normalidad renueva el conteo, así que no interrumpe una sesión en uso.
 
-Con el `MS_CLIENT_ID` y el `MS_REDIRECT_URI` armá esta URL (reemplazando esos
-dos valores) y abrila en el navegador, logueada con tu cuenta de Microsoft:
+**Importante: los usuarios se dan de alta desde el sitio, no editando el Excel directamente.** El Excel de
+OneDrive es un espejo de solo lectura (sitio → Excel automático, ver abajo); si agregas o editas un renglón
+de la hoja Usuarios directo en el Excel, ese cambio **no llega al sitio** y el login va a fallar con "Usuario
+o contraseña incorrectos" — el sitio solo conoce lo que está guardado en Netlify Blobs. Para dar de alta a
+alguien, hazlo desde la pantalla de Usuarios del sitio (o dile a esa persona que se autorregistre en
+`/registro`, ver el módulo de Jugadores más abajo).
 
+**Recuperar contraseña**: en la pantalla de Entrar hay un link "¿Olvidaste tu contraseña?". Pide el correo
+electrónico registrado, manda un código de 6 dígitos por correo (vía Resend, válido 5 minutos), y al
+confirmarlo junto con la nueva contraseña deja la cuenta actualizada e inicia sesión automáticamente. Piezas:
+`netlify/functions/reset-codigo.js` (`/api/reset-codigo`) y `netlify/functions/reset-confirmar.js`
+(`/api/reset-confirmar`), con los códigos pendientes en Blobs (`tols-verificacion-reset`, efímero). Solo
+funciona para usuarios que ya tienen un correo electrónico guardado en su registro.
+
+## Desarrollo local
+```bash
+npm install
+npm run dev
 ```
-https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=TU_CLIENT_ID&response_type=code&redirect_uri=TU_REDIRECT_URI&response_mode=query&scope=offline_access%20Files.ReadWrite
+
+## Build de producción
+```bash
+npm run build
 ```
-
-Te va a pedir iniciar sesión y aceptar permisos. Al aceptar, te redirige a
-`/api/auth-callback`, que te muestra un `refresh_token` en pantalla. Copiá ese
-valor completo y pegalo en la variable `MS_REFRESH_TOKEN` en Netlify. Redeployá
-una última vez.
-
-Después de esto, la app ya lee y escribe directo en tu Excel. Si en unos meses
-ves errores de "token expirado", es porque el refresh token venció por
-inactividad — se repite solo este paso 4.
-
-## Notas
-
-- Las fotos de avatar muy grandes no se guardan en Excel (hay un límite de
-  tamaño por celda) — para el roster funciona mejor usar los íconos.
-- La hoja "Resultados" se reescribe entera cada vez que se cierra una partida,
-  no hace falta editarla a mano.

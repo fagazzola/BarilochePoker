@@ -1,0 +1,741 @@
+/* Identidad única de la mesa: paño verde sobre negro por fuera, tarjeta clara
+   (la "mesa de trabajo") por dentro para que las tablas de datos se lean bien.
+   Deliberadamente no cambia con el tema del sistema — es un casino, no una app. */
+:root {
+  --bg: #f2ede1;
+  --surface: #fffdf8;
+  --surface-2: #ece4d3;
+  --line: #d9cfb8;
+  --ink: #1c2b23;
+  --ink-soft: #5c6b60;
+  --gold: #a8791c;
+  --gold-strong: #8a611a;
+  --felt: #24463a;
+  --felt-soft: #3d6553;
+  --burgundy: #8a3324;
+  --burgundy-soft: #b45a3f;
+  --good: #3d6b47;
+  --bad: #a13d3d;
+  --shadow: 0 1px 2px rgba(28, 43, 35, 0.06), 0 8px 24px -12px rgba(28, 43, 35, 0.18);
+  --felt-1: #1f6b46;
+  --felt-2: #071310;
+  --felt-3: #010302;
+}
+
+* { box-sizing: border-box; }
+
+html { background: #000; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+  background:
+    radial-gradient(120% 65% at 50% -10%, rgba(255, 255, 255, 0.08), transparent 55%),
+    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.02) 0px, rgba(255, 255, 255, 0.02) 1px, transparent 1px, transparent 3px),
+    radial-gradient(130% 130% at 50% 18%, var(--felt-1) 0%, var(--felt-2) 60%, var(--felt-3) 100%);
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+/* fichas y cartas decorativas reales (PokerArt.jsx vía Decor.jsx), fijas en pantalla, detrás de todo */
+.decor {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+.decor-cluster {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  filter: drop-shadow(0 16px 30px rgba(0, 0, 0, 0.5));
+  opacity: 0.85;
+}
+.version-badge {
+  position: fixed; top: 8px; left: 10px; z-index: 40;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-soft);
+  background: color-mix(in srgb, var(--surface) 85%, transparent); padding: 2px 7px;
+  border-radius: 6px; border: 1px solid var(--line); pointer-events: none; user-select: none;
+}
+.decor-tl { top: 6%; left: -40px; }
+.decor-br { bottom: 4%; right: -20px; }
+@media (max-width: 720px) {
+  .decor-cluster { display: none; }
+}
+
+/* the "table surface" card that holds every page's content, floating on the felt */
+.wrap {
+  position: relative;
+  z-index: 1;
+  max-width: 900px;
+  margin: 36px auto 64px;
+  padding: 40px 32px 64px;
+  background: var(--surface);
+  border-radius: 26px;
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 64px -24px rgba(0, 0, 0, 0.55), 0 0 0 7px rgba(168, 121, 28, 0.1), 0 0 0 8px rgba(168, 121, 28, 0.18);
+}
+
+.nav { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.nav-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.nav-tab {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12.5px; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 8px 14px; border-radius: 999px; border: 2px dashed var(--line);
+  background: var(--surface); color: var(--ink-soft); cursor: pointer;
+}
+.nav-tab.active { background: var(--ink); color: var(--bg); border: 2px solid var(--ink); }
+.nav-tab-disabled { opacity: 0.4; cursor: not-allowed; }
+.nav-tab-disabled:hover { opacity: 0.4; }
+.nav-session { font-size: 12px; color: var(--ink-soft); font-family: "IBM Plex Mono", monospace; display: flex; align-items: center; gap: 10px; }
+
+.suit-divider {
+  display: flex; justify-content: center; gap: 24px;
+  margin: 0 0 36px; font-size: 30px; user-select: none;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+.suit-divider .suit-red { color: #d81e2c; }
+.suit-divider .suit-black { color: #0a0a0a; }
+
+.headtop { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+
+/* 53ª entrega: recuadro del número de registro en Mi Perfil — bien visible, letra grande, con el
+   recordatorio de usarlo como centavos al depositar. */
+.mp-registro-card {
+  flex-shrink: 0; text-align: center; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--shadow); padding: 10px 16px 12px; max-width: 220px;
+}
+.mp-registro-numero {
+  font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 40px; line-height: 1;
+  color: var(--gold-strong); font-variant-numeric: tabular-nums;
+}
+.mp-registro-leyenda { font-size: 10.5px; color: var(--ink-soft); line-height: 1.35; margin-top: 6px; }
+
+/* 53ª entrega: tarjeta amarilla (estilo fútbol) para indicar amonestación en las vistas de solo lectura
+   de Game Night y Calendario — un poco inclinada, como una tarjeta real. */
+.tarjeta-amarilla {
+  display: inline-block; width: 12px; height: 17px; background: #f5c518; border: 1px solid #9c7a00;
+  border-radius: 2px; transform: rotate(-14deg); vertical-align: middle; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.eyebrow {
+  display: flex; align-items: center; gap: 10px;
+  font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: clamp(1.5rem, 3.4vw, 2.1rem);
+  letter-spacing: 0.01em; text-transform: none; color: var(--gold-strong); margin-bottom: 10px;
+  line-height: 1.1;
+}
+h1 {
+  font-family: "IBM Plex Mono", monospace; font-weight: 600;
+  font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft);
+  margin: 0 0 8px;
+}
+.subtitle { font-size: 16px; color: var(--ink-soft); max-width: 58ch; line-height: 1.5; margin: 0; }
+
+.btn {
+  font-family: "Work Sans", sans-serif; font-size: 13px; font-weight: 600;
+  padding: 9px 16px; border-radius: 9px; cursor: pointer; white-space: nowrap;
+  transition: opacity 0.15s ease; border: 1px solid transparent;
+}
+.btn:hover { opacity: 0.85; }
+.btn-primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn-secondary { background: transparent; color: var(--ink-soft); border-color: var(--line); }
+.btn-danger { background: var(--bad); color: #fff; border-color: var(--bad); }
+.btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 85%, black); }
+
+.section { margin-top: 48px; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; margin: 0 0 6px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.section-title { font-family: "Fraunces", serif; font-weight: 600; font-size: 20px; }
+.section-title::before { content: "♠ "; color: var(--gold-strong); font-size: 15px; }
+.section-title-campeonato { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: 13px; color: var(--gold-strong); }
+
+/* Tablero: banner que recuerda en todo momento a qué campeonato pertenece lo que se está viendo/editando */
+.campeonato-banner {
+  margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 13.5px;
+  background: color-mix(in srgb, var(--gold) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--gold) 40%, var(--line));
+  color: var(--ink);
+}
+.campeonato-banner strong { color: var(--gold-strong); font-family: "IBM Plex Mono", monospace; }
+.campeonato-banner-alerta {
+  background: color-mix(in srgb, var(--bad) 14%, var(--surface)); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); color: var(--bad);
+}
+.badge-host { color: var(--gold-strong); background: color-mix(in srgb, var(--gold) 22%, transparent); border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); font-weight: 600; }
+.btn-host-asignar { font-size: 11.5px; padding: 5px 10px; }
+.btn-filtro { font-size: 12px; padding: 5px 10px; }
+.btn-filtro.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.campeonato-banner-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.campeonato-banner-jugador { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--ink-soft); white-space: nowrap; }
+
+/* Calendario (Administrador y Jugador por igual): el bloque de campeonato + resumen queda fijo arriba
+   al hacer scroll — compacto a propósito para dejarle más espacio a la cuadrícula o a la lista de fechas */
+.cal-resumen-sticky {
+  position: sticky; top: 0; z-index: 10; background: var(--surface);
+  padding: 6px 0 10px; margin: 4px 0 12px; border-bottom: 1px solid var(--line);
+}
+
+/* bloque superior compacto del Calendario (28ª → rediseño): reemplaza el banner + las tarjetas de
+   stat grandes por una barra angosta (campeonato + ganancias acumuladas) y una fila de mini-stats,
+   para bajar bastante la altura total y dejar la cuadrícula/lista de fechas visible sin tener que
+   hacer scroll de entrada */
+.cal-top-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; border-radius: 12px;
+  background: color-mix(in srgb, var(--gold) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--gold) 38%, var(--line));
+}
+.cal-top-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cal-top-campeonato {
+  font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: 15px; color: var(--gold-strong);
+}
+.cal-top-jugador { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-soft); }
+/* 89ª entrega: .cal-ganancia-box/.cal-ganancia-label/.cal-ganancia-value (el recuadro "Ganancias
+   acumuladas" de arriba de la pantalla) se eliminaron por prolijidad junto con el recuadro mismo, a
+   pedido de Federico. .cal-ganancia-inline sigue vigente — lo usa la lista de fechas del Jugador más
+   abajo (Posición/Puntos/Resultado/Auto), nada que ver con el recuadro eliminado. */
+.cal-ganancia-inline { color: var(--good); font-weight: 600; }
+
+.cal-mini-stats { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; }
+.cal-mini-stat {
+  flex: 1; min-width: 78px; text-align: center; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 9px; padding: 5px 8px;
+}
+.cal-mini-stat-label { font-size: 8.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-soft); }
+.cal-mini-stat-value {
+  font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 13.5px; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.cal-mini-stat-proximamente { font-style: italic; opacity: 0.7; font-size: 11.5px; }
+
+/* recuadro de ganancia por fecha, tanto en la cuadrícula del Administrador (cal-chip) como reusado
+   visualmente por cal-ganancia-inline en la lista del Jugador */
+.cal-chip-ganancia {
+  flex-direction: row; align-items: center; gap: 3px;
+  background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); font-weight: 600;
+}
+/* 38ª entrega: confirmación de check-in por fecha en la cuadrícula del Administrador (mismo patrón
+   visual que cal-chip-ganancia, con el acento de "lectura" en vez de "ganancia" para distinguirlos) */
+.cal-chip-checkin {
+  flex-direction: row; align-items: center; gap: 3px; font-size: 10.5px;
+  background: color-mix(in srgb, var(--gold) 16%, transparent); color: var(--gold-strong); font-weight: 600;
+}
+/* 54ª entrega: ícono de "Resultado final" para un torneo ya Concluido en Game Night — mismo patrón
+   visual que los otros chips de la cuadrícula/lista del Calendario, pero clickeable (abre el modal con
+   la tabla de resultados de esa fecha). */
+.cal-chip-resultado {
+  flex-direction: row; align-items: center; gap: 3px; font-size: 10.5px; cursor: pointer;
+  background: color-mix(in srgb, var(--burgundy) 14%, transparent); color: var(--burgundy);
+  font-weight: 700; transition: filter 0.15s ease;
+}
+.cal-chip-resultado:hover { filter: brightness(1.08); }
+.cal-chip-resultado-lista { display: inline-flex; margin-top: 4px; padding: 3px 8px; border-radius: 999px; }
+/* filas de podio (lugares 1º-3º) en la tabla de "Resultado final" — mismo acento dorado que
+   `.badge-campeon`, para que salten a la vista de inmediato */
+.cal-resultado-podio {
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  font-weight: 600;
+}
+/* 54ª entrega: el encabezado de la tabla de "Resultado final" queda fijo arriba (sticky) y solo el
+   cuerpo (las filas de jugadores) hace scroll interno — así, aunque el torneo tenga muchos jugadores,
+   el título del modal y el botón "Cerrar" siguen siempre a la vista, sin depender únicamente del scroll
+   general del modal (`.modal-card`, ver arriba). */
+.cal-resultado-tbl .thead { position: sticky; top: 0; z-index: 1; }
+.cal-resultado-tbl-body { max-height: 44vh; overflow-y: auto; }
+.section-note { font-size: 12.5px; color: var(--ink-soft); font-family: "IBM Plex Mono", monospace; }
+.section-sub { font-size: 13px; color: var(--ink-soft); margin: 10px 0 14px; line-height: 1.5; }
+.subhead { font-size: 13px; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.05em; margin: 22px 0 10px; }
+
+/* 97ª entrega: "Finanzas generales" (Cobranza.jsx) se rediseñó para calzar con el Excel de Federico —
+   layout a dos columnas (INGRESOS/EGRESOS a la izquierda, PASIVOS a la derecha), apiladas en pantallas
+   angostas. 98ª entrega: Federico pidió reemplazar los recuadros por una vista tipo hoja de
+   trabajo/cuadrícula (como Excel) — cada columna pasó de `.stats`/`.stat` a una tabla real
+   (`<TablaFin>`/`<FilaFin>`/`<FilaSeccionFin>`, en Cobranza.jsx), así que ya no queda ningún `.stats`
+   dentro de `.finanzas-cols` — el grid de dos columnas en sí no cambió.*/
+.finanzas-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+@media (max-width: 900px) {
+  .finanzas-cols { grid-template-columns: 1fr; }
+}
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 40px 0 44px; }
+.stat {
+  position: relative; background: var(--surface); padding: 24px 20px 18px;
+  border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden;
+}
+/* 51ª entrega: Federico pidió cambiar el borde punteado de arriba ("se ve infantil") por algo más de
+   dashboard profesional — se reemplazó el patrón a rayas por una barra sólida en degradé, más fina. */
+.stat::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--gold) 0%, var(--burgundy) 100%);
+  opacity: 0.9;
+}
+.stat-label { font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 8px; }
+.stat-value { font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: 26px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stat-value small { font-family: "Work Sans", sans-serif; font-weight: 500; font-size: 13px; color: var(--ink-soft); margin-left: 4px; }
+
+.tbl { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); margin-top: 12px; }
+.trow { display: grid; gap: 12px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.trow:last-child { border-bottom: none; }
+/* variante compacta: más columnas visibles a costa de un tipo más chico — Jugadores la usa por pedido
+   explícito de Federico ("baja el font para que quepan más columnas") */
+.tbl-compacta .trow { font-size: 12px; padding: 9px 14px; gap: 8px; }
+.tbl-compacta .thead { font-size: 9.5px; }
+.thead { background: var(--surface-2); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); font-family: "IBM Plex Mono", monospace; }
+/* 89ª entrega: nowrap — un monto negativo en formato "($ 1,234)" es más ancho que uno positivo y, en una
+   columna angosta, podía partirse en dos líneas y desalinear el renglón (Cobranza, "Pagos y depósitos
+   confirmados" — Federico: "las cantidades en negativo no caben en la columna... ajusta para que todo
+   quede en un mismo renglón"). */
+.num { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.right { text-align: right; }
+.center { text-align: center; }
+/* 79ª entrega: convención general de color para cantidades en dinero — verde para positivo/ingreso,
+   rojo para negativo/egreso — a pedido de Federico, reutilizando las variables --good/--bad que ya
+   usa el resto del sitio (badges, check-ok/check-bad, etc.). */
+.money-pos { color: var(--good); font-weight: 600; }
+.money-neg { color: var(--bad); font-weight: 600; }
+.muted { opacity: 0.6; }
+
+/* 58ª entrega: link discreto en texto (sin fondo ni borde) para acciones secundarias dentro de una fila
+   de controles — ej. "Mostrar todos" junto al combo de campeonato de Game Night. */
+.btn-link {
+  background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+  color: var(--ink-soft); text-decoration: underline; font-family: inherit;
+}
+.btn-link:hover { color: var(--ink); }
+
+.badge { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; display: inline-block; }
+.badge-main { color: var(--burgundy); background: color-mix(in srgb, var(--burgundy) 14%, transparent); border-color: color-mix(in srgb, var(--burgundy) 30%, transparent); }
+.badge-regular { color: var(--ink-soft); background: var(--surface-2); }
+/* 43ª entrega: partidas de práctica — no pertenecen a ningún campeonato, así que llevan su propio
+   color (gold) en vez de compartir el de Main/Regular, para que se distingan de un vistazo. */
+.badge-practica { color: var(--gold-strong); background: color-mix(in srgb, var(--gold) 18%, transparent); border-color: color-mix(in srgb, var(--gold) 34%, transparent); }
+
+.badge-nivel-escritura { color: var(--good); background: color-mix(in srgb, var(--good) 16%, transparent); border-color: color-mix(in srgb, var(--good) 32%, transparent); }
+.badge-nivel-lectura { color: var(--gold-strong); background: color-mix(in srgb, var(--gold) 18%, transparent); border-color: color-mix(in srgb, var(--gold) 34%, transparent); }
+.badge-nivel-ninguno { color: var(--ink-soft); background: var(--surface-2); opacity: 0.7; }
+.badge-deuda { color: var(--bad); background: color-mix(in srgb, var(--bad) 16%, transparent); border-color: color-mix(in srgb, var(--bad) 32%, transparent); font-weight: 600; }
+
+.check-line { margin-top: 10px; font-size: 12.5px; font-family: "IBM Plex Mono", monospace; }
+.check-ok { color: var(--good); }
+.check-bad { color: var(--bad); }
+
+/* editable-table controls, used by Tablero */
+.btn-add { margin-top: 10px; font-size: 12px; padding: 7px 12px; }
+.btn-icon-remove {
+  width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--bad); cursor: pointer; font-size: 12px; line-height: 1; justify-self: end;
+}
+.btn-icon-remove:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 12%, var(--surface)); }
+.btn-icon-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+.btn-icon-confirm {
+  width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--good); cursor: pointer; font-size: 12px; line-height: 1; justify-self: end;
+}
+.btn-icon-confirm:hover:not(:disabled) { background: color-mix(in srgb, var(--good) 12%, var(--surface)); }
+.btn-icon-confirm:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Usuarios: campo de contraseña con ícono de ojo, y renglón para cambiarla */
+.pass-field { position: relative; display: flex; align-items: center; }
+.pass-field .field { padding-right: 32px; }
+.btn-icon-eye {
+  position: absolute; right: 4px; border: none; background: transparent; cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 4px; color: var(--ink-soft);
+}
+.btn-icon-eye:hover { color: var(--ink); }
+.pass-change-row { display: flex; gap: 8px; align-items: center; padding: 6px 0 10px; flex-wrap: wrap; }
+.pass-change-row .field { max-width: 220px; }
+.login-field-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.tablero-savebar {
+  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 16px;
+  margin: 4px 0 28px; box-shadow: var(--shadow);
+}
+
+.login-shell { position: relative; z-index: 1; min-height: 80vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.login-card {
+  position: relative; width: 100%; max-width: 360px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 18px; padding: 40px 32px;
+  box-shadow: 0 28px 70px -22px rgba(0, 0, 0, 0.55), 0 0 0 7px rgba(168, 121, 28, 0.1), 0 0 0 8px rgba(168, 121, 28, 0.18);
+}
+.login-card::before,
+.login-card::after {
+  content: "3♣"; position: absolute; font-family: "Fraunces", Georgia, serif;
+  font-weight: 600; font-size: 15px; line-height: 1; color: var(--felt-soft);
+}
+.login-card::before { top: 16px; left: 18px; }
+.login-card::after { bottom: 16px; right: 18px; transform: rotate(180deg); }
+.login-eyebrow { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--gold-strong); margin-bottom: 10px; text-align: center; }
+.login-title { font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: 28px; text-align: center; margin: 0 0 26px; }
+.login-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.login-field label { font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+.login-field input { font-family: "IBM Plex Mono", monospace; font-size: 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: 100%; }
+.login-field input:focus { outline: 2px solid var(--gold-strong); outline-offset: 1px; }
+.login-submit { width: 100%; margin-top: 6px; padding: 11px; }
+.login-error { color: var(--bad); font-size: 12.5px; margin-top: 12px; text-align: center; font-family: "IBM Plex Mono", monospace; }
+.login-hint { color: var(--ink-soft); font-size: 12px; margin-top: 20px; text-align: center; line-height: 1.5; }
+
+/* generic form field, reused by the calendar's create/edit modal */
+.field { font-family: "IBM Plex Mono", monospace; font-size: 13px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: 100%; }
+.field:focus { outline: 2px solid var(--gold-strong); outline-offset: 1px; }
+.field-readonly { box-sizing: border-box; background: var(--surface-2); color: var(--ink-soft); cursor: default; }
+/* 81ª entrega: quita las flechitas de subir/bajar de un <input type="number"> (Cobranza — "Monto
+   realmente recibido"/"Monto real" en la edición de un pago/depósito) sin tocar el resto de .field. */
+.field-no-spin::-webkit-outer-spin-button,
+.field-no-spin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.field-no-spin[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.chk-inline { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink); margin: 4px 0 18px; }
+.chk-inline input { width: 16px; height: 16px; accent-color: var(--burgundy); }
+
+/* month calendar */
+.cal-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0 16px; flex-wrap: wrap; }
+.cal-toolbar-compact { margin: 0 0 10px; }
+.cal-toolbar-pago { font-size: 12.5px; padding: 7px 12px; white-space: nowrap; }
+.cal-nav { display: flex; align-items: center; gap: 14px; }
+.cal-nav-btn {
+  width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.cal-nav-btn:hover { background: var(--surface-2); }
+.cal-month-label { font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: 19px; min-width: 170px; text-align: center; }
+
+.cal-grid { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+.cal-row { display: grid; grid-template-columns: repeat(7, 1fr); }
+.cal-row-head { background: var(--surface-2); }
+.cal-headcell {
+  padding: 9px 0; text-align: center; font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); border-bottom: 1px solid var(--line);
+}
+.cal-cell {
+  min-height: 92px; padding: 8px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 4px; background: var(--surface);
+}
+.cal-row .cal-cell:last-child { border-right: none; }
+.cal-cell-out { background: var(--surface-2); opacity: 0.55; }
+.cal-cell-clickable { cursor: pointer; transition: background 0.12s ease; }
+.cal-cell-clickable:hover { background: color-mix(in srgb, var(--gold) 10%, var(--surface)); }
+.cal-daynum { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink-soft); }
+.cal-daynum-today {
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+  border-radius: 50%; background: var(--ink); color: var(--bg); font-weight: 600;
+}
+.cal-chip {
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px; padding: 3px 6px; border-radius: 6px;
+  background: var(--surface-2); color: var(--ink-soft); display: flex; flex-direction: column; gap: 2px; white-space: nowrap;
+}
+.cal-chip-row { display: flex; align-items: center; gap: 5px; }
+.cal-chip-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--felt-soft); flex-shrink: 0; }
+.cal-chip-hora { color: var(--ink); }
+.cal-chip-tag { font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; font-size: 9.5px; }
+.cal-chip-tag-main { color: var(--burgundy); }
+.cal-chip-tag-regular { color: var(--good); }
+.cal-chip-tag-practica { color: var(--gold-strong); }
+.cal-chip-temporada {
+  font-size: 9px; letter-spacing: 0.04em; color: var(--gold-strong); background: color-mix(in srgb, var(--gold) 14%, transparent);
+  border-radius: 4px; padding: 1px 5px; align-self: flex-start;
+}
+.cal-chip-pago {
+  flex-direction: row; align-items: center; gap: 5px;
+  background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); font-weight: 600;
+  cursor: pointer;
+}
+
+/* vista de lista del Calendario para roles de solo lectura (ej. Jugador) — sin cuadrícula mensual */
+.cal-list { display: flex; flex-direction: column; gap: 8px; }
+.cal-list-item {
+  display: flex; align-items: center; gap: 16px; padding: 12px 16px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--surface); box-shadow: var(--shadow);
+}
+.cal-list-item-pasado { opacity: 0.5; }
+.cal-list-item-hoy { border-color: var(--gold-strong); background: color-mix(in srgb, var(--gold) 8%, var(--surface)); }
+.cal-list-item-pago { border-style: dashed; background: color-mix(in srgb, var(--good) 8%, var(--surface)); }
+.cal-list-date {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 56px;
+  font-family: "IBM Plex Mono", monospace;
+}
+.cal-list-day { font-size: 15px; font-weight: 600; color: var(--ink); }
+.cal-list-mes { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+.cal-list-info { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.cal-list-info-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cal-list-hora { font-family: "IBM Plex Mono", monospace; font-size: 14px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.cal-list-hoy-tag {
+  font-family: "IBM Plex Mono", monospace; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--gold-strong); background: color-mix(in srgb, var(--gold) 18%, transparent); border-radius: 999px; padding: 2px 8px;
+}
+.cal-list-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge-efectuado { color: var(--good); background: color-mix(in srgb, var(--good) 16%, transparent); border-color: color-mix(in srgb, var(--good) 32%, transparent); }
+.badge-pendiente { color: var(--ink-soft); background: var(--surface-2); }
+.cal-list-resultado {
+  display: flex; gap: 18px; flex-wrap: wrap; font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink-soft);
+}
+.stat-value-proximamente { font-style: italic; opacity: 0.75; }
+
+.notes-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 12px; max-width: 420px; }
+.note-box { border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; background: var(--surface); font-size: 14.5px; line-height: 1.5; }
+.note-label { font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--gold-strong); margin-bottom: 6px; }
+
+/* create/edit modal */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(5, 12, 9, 0.55); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
+}
+.modal-card {
+  width: 100%; max-width: 340px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 16px; padding: 26px 26px 22px; box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.6);
+  /* 54ª entrega: sin esto, un modal con contenido largo (ej. la tabla de "Resultado final" del
+     Calendario con muchos jugadores) podía crecer más alto que la pantalla, tapado por los bordes de
+     `.modal-backdrop` (que centra pero no da scroll) sin ninguna forma de bajar a ver el resto — el
+     modal entero ahora tiene un tope de alto y hace scroll interno si hace falta. */
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+.modal-title { font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: 19px; margin-bottom: 18px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+
+/* modales de advertencia (crear/eliminar campeonato) — más anchos, con ícono y acento de color */
+.modal-card-wide { max-width: 480px; }
+/* 62ª entrega: modal "Editar jugadores" de Game Night — tiene una tabla de 11 columnas, necesita mucho
+   más ancho que los modales normales de confirmación; hace scroll horizontal propio en pantallas chicas
+   (ver `overflowX: "auto"` + `minWidth` en las filas, en GameNight.jsx) en vez de angostar columnas. */
+.modal-card-xwide { max-width: 1080px; }
+.modal-icon-badge {
+  width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 20px; margin-bottom: 14px; border: 1px solid color-mix(in srgb, var(--gold) 45%, var(--line));
+  background: color-mix(in srgb, var(--gold) 20%, var(--surface)); color: var(--gold-strong);
+}
+.modal-icon-badge.danger {
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--line));
+  background: color-mix(in srgb, var(--bad) 16%, var(--surface)); color: var(--bad);
+}
+.modal-choice-row { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.modal-choice-btn {
+  display: block; width: 100%; text-align: left; padding: 13px 15px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.modal-choice-btn:hover:not(:disabled) {
+  border-color: var(--gold-strong); background: color-mix(in srgb, var(--gold) 9%, var(--surface));
+}
+.modal-choice-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.modal-choice-title {
+  display: block; font-weight: 600; font-size: 14px; color: var(--ink); margin-bottom: 3px;
+  font-family: "Fraunces", Georgia, serif;
+}
+.modal-choice-desc { display: block; font-size: 12px; color: var(--ink-soft); line-height: 1.4; }
+
+/* Selector de "Mano favorita" en Mi Perfil (34ª entrega) — matriz 13x13 de manos iniciales de poker,
+   adaptada del artefacto "Rango de Manos". Colores de "tier" propios (no las variables del tema claro
+   de la mesa) porque replican exactamente la referencia con la que Federico ya está familiarizado. */
+.manofav-card {
+  max-width: 400px; max-height: 88vh; padding: 18px 18px 14px;
+  display: flex; flex-direction: column;
+}
+.manofav-scroll { overflow-y: auto; padding-right: 2px; }
+.manofav-actions { flex: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.manofav-grid { display: grid; grid-template-columns: repeat(13, 1fr); gap: 2px; margin-top: 4px; }
+.manofav-cell {
+  aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center;
+  border-radius: 4px; border: 1px solid transparent; font-family: "IBM Plex Mono", monospace;
+  font-size: clamp(6.5px, 1.9vw, 8.5px); font-weight: 600; cursor: pointer; padding: 0;
+  transition: transform 0.08s ease, box-shadow 0.12s ease;
+}
+.manofav-cell:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); }
+.manofav-tier-premium { background: #3f7fc1; color: #eaf3ff; }
+.manofav-tier-strong { background: #6fb7c9; color: #062226; }
+.manofav-tier-playable { background: var(--gold); color: #2b1c02; }
+.manofav-tier-marginal { background: #8a8f87; color: #f4efe3; }
+.manofav-tier-fold { background: var(--surface-2); color: var(--ink-soft); }
+.manofav-selected { box-shadow: 0 0 0 2px var(--ink), 0 2px 8px rgba(0, 0, 0, 0.35); transform: scale(1.08); z-index: 2; position: relative; }
+.manofav-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 12px; font-size: 11.5px; color: var(--ink-soft); }
+.manofav-legend-item { display: flex; align-items: center; gap: 6px; }
+.manofav-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; display: inline-block; }
+.manofav-selected-row { margin-top: 12px; font-size: 13.5px; color: var(--ink); font-family: "IBM Plex Mono", monospace; }
+
+/* registro de jugadores: link tipo texto, selector de emoticón, casillas de código OTP */
+.link-btn {
+  background: none; border: none; padding: 0; color: var(--gold-strong); font-family: inherit;
+  font-size: inherit; text-decoration: underline; cursor: pointer;
+}
+.link-btn:hover { opacity: 0.8; }
+
+.emoji-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.emoji-opt {
+  width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg);
+  font-size: 19px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.emoji-opt:hover { border-color: var(--gold-strong); }
+.emoji-opt.selected { border-color: var(--gold-strong); background: color-mix(in srgb, var(--gold) 20%, var(--surface)); }
+
+.otp-row { display: flex; justify-content: center; gap: 10px; margin: 18px 0 8px; }
+.otp-box {
+  width: 44px; height: 52px; text-align: center; font-family: "IBM Plex Mono", monospace; font-size: 24px;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+}
+.otp-box:focus { outline: 2px solid var(--gold-strong); outline-offset: 1px; }
+.otp-box:disabled { opacity: 0.4; }
+.otp-timer { text-align: center; font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 14px; }
+
+/* Game Night: podio de premios en efectivo, arriba de la pantalla, con el 1er lugar destacado */
+.gn-podium { display: flex; gap: 16px; align-items: flex-end; justify-content: center; margin: 18px 0 36px; flex-wrap: wrap; }
+.gn-podium-spot {
+  text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+  padding: 18px 18px 16px; box-shadow: var(--shadow); min-width: 150px;
+}
+.gn-podium-1 { order: 2; padding: 28px 26px 22px; min-width: 210px; border-color: var(--gold-strong); background: color-mix(in srgb, var(--gold) 12%, var(--surface)); }
+.gn-podium-2 { order: 1; }
+.gn-podium-3 { order: 3; }
+.gn-podium-trophy { font-size: 32px; line-height: 1; }
+.gn-podium-1 .gn-podium-trophy { font-size: 48px; }
+.gn-podium-lugar { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-soft); margin-top: 8px; }
+.gn-podium-nombre { font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: 15px; margin-top: 4px; color: var(--ink); }
+.gn-podium-1 .gn-podium-nombre { font-size: 23px; }
+.gn-podium-nombre-vacio { color: var(--ink-soft); font-style: italic; font-weight: 400; }
+.gn-podium-monto { font-family: "IBM Plex Mono", monospace; color: var(--gold-strong); margin-top: 6px; font-size: 13px; }
+.gn-podium-1 .gn-podium-monto { font-size: 16px; }
+
+.badge-amonestado { color: var(--bad); background: color-mix(in srgb, var(--bad) 16%, transparent); border-color: color-mix(in srgb, var(--bad) 32%, transparent); font-weight: 600; }
+.badge-burbuja { color: var(--burgundy); background: color-mix(in srgb, var(--burgundy) 16%, transparent); border-color: color-mix(in srgb, var(--burgundy) 32%, transparent); }
+.badge-campeon { color: var(--gold-strong); background: color-mix(in srgb, var(--gold) 26%, transparent); border-color: color-mix(in srgb, var(--gold) 48%, var(--line)); font-weight: 700; }
+.badge-manual { color: var(--ink-soft); background: var(--surface-2); }
+
+.gn-stats-row { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 4px; }
+.gn-stats-row .stat { flex: 1; min-width: 130px; }
+
+/* 51ª entrega: bloque de totales de Buy-in/Re-buys/Add-on — Federico pidió que sea UN SOLO recuadro
+   con 2 líneas (cantidades arriba, montos en $ abajo) en vez de 6 tarjetas sueltas, con un estilo de
+   dashboard profesional de app de poker (fondo oscuro tipo "mesa", acentos dorados, números grandes en
+   monoespaciada) en vez de las tarjetas claras genéricas del resto del sitio. */
+.gn-totales-card {
+  position: relative; overflow: hidden; border-radius: 16px; margin: 20px 0;
+  background: linear-gradient(155deg, #1b2420 0%, #10201c 55%, #14211d 100%);
+  border: 1px solid color-mix(in srgb, var(--gold) 35%, #0c1512);
+  box-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  padding: 18px 22px 16px;
+}
+.gn-totales-card::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--gold) 0%, var(--burgundy) 100%);
+}
+.gn-totales-titulo {
+  font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; font-family: "IBM Plex Mono", monospace;
+  color: color-mix(in srgb, var(--gold) 70%, #fff); margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.gn-totales-titulo::before { content: "♠"; font-size: 13px; }
+
+/* 62ª entrega: bloque destacado con la Bolsa total y "Jugadores en juego" — Federico pidió que resalten
+   más que el resto de los números del recuadro (antes vivían aparte, en tarjetas genéricas del bloque de
+   subtotales de abajo). Números bastante más grandes que `.gn-totales-item-valor` y en el color dorado
+   más fuerte del recuadro, con un separador vertical entre los dos para que se lean como el encabezado
+   del recuadro completo. */
+.gn-totales-destacado {
+  display: flex; align-items: center; justify-content: space-around; gap: 18px; flex-wrap: wrap;
+  margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.gn-totales-destacado-item { text-align: center; }
+.gn-totales-destacado-valor {
+  font-family: "Fraunces", Georgia, serif; font-weight: 700; font-size: 34px; line-height: 1.1;
+  color: color-mix(in srgb, var(--gold) 75%, #fff); font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--gold) 35%, transparent);
+}
+.gn-totales-destacado-valor small { font-family: "Work Sans", sans-serif; font-weight: 500; font-size: 15px; color: rgba(255, 255, 255, 0.55); }
+.gn-totales-destacado-sep { width: 1px; align-self: stretch; background: rgba(255, 255, 255, 0.12); }
+@media (max-width: 640px) {
+  .gn-totales-destacado-sep { display: none; }
+  .gn-totales-destacado-valor { font-size: 28px; }
+}
+
+.gn-totales-fila { display: flex; gap: 18px; flex-wrap: wrap; }
+.gn-totales-fila + .gn-totales-fila { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.gn-totales-item { flex: 1; min-width: 120px; text-align: center; }
+.gn-totales-item-label {
+  font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; font-family: "IBM Plex Mono", monospace;
+  color: rgba(255, 255, 255, 0.55); margin-bottom: 6px;
+}
+.gn-totales-item-valor {
+  font-family: "Fraunces", Georgia, serif; font-weight: 600; font-size: 24px; color: #f4ead0;
+  font-variant-numeric: tabular-nums;
+}
+.gn-totales-fila-usd .gn-totales-item-valor { color: color-mix(in srgb, var(--gold) 55%, #fff); font-size: 20px; }
+@media (max-width: 640px) {
+  .gn-totales-fila { gap: 10px; }
+  .gn-totales-item { min-width: 90px; }
+}
+
+.gn-stepper { display: flex; align-items: center; gap: 6px; justify-content: center; }
+.gn-stepper button {
+  width: 24px; height: 24px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface);
+  cursor: pointer; font-size: 13px; line-height: 1; color: var(--ink);
+}
+.gn-stepper button:hover:not(:disabled) { background: var(--surface-2); }
+.gn-stepper button:disabled { opacity: 0.3; cursor: not-allowed; }
+.gn-stepper-val { min-width: 16px; text-align: center; font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+
+.gn-toggle {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 10px;
+  font-size: 11px; font-family: "IBM Plex Mono", monospace; cursor: pointer; color: var(--ink-soft);
+}
+.gn-toggle.on { background: var(--good); border-color: var(--good); color: #fff; }
+/* 48ª entrega: toggle manual de "Amonestado" en la celda de Check-in — mismo look que gn-toggle
+   pero en rojo/alerta cuando está activo, para distinguirlo de los Sí/No de buy-in/add-on. */
+.gn-toggle-chico { padding: 3px 7px; font-size: 10px; }
+.gn-toggle-chico.on { background: var(--danger, #c0392b); border-color: var(--danger, #c0392b); }
+/* 50ª entrega: se pone en un control ágil (Buy-in/Re-buys/Add-on/Amonestado) mientras su guardado más
+   reciente sigue en camino — el control NO se deshabilita (se puede seguir clickeando, los clics se
+   juntan solos), esto es solo una señal visual sutil de "todavía guardando". */
+.gn-en-camino { opacity: 0.55; }
+
+.gn-host-line { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink-soft); margin: 2px 0 0; }
+.gn-row-eliminado { color: var(--ink-soft); opacity: 0.85; }
+.gn-select { font-family: "IBM Plex Mono", monospace; font-size: 12px; padding: 5px 7px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+
+@media (max-width: 640px) {
+  .wrap { margin: 0; border-radius: 0; box-shadow: none; border: none; padding: 28px 18px 56px; }
+  .stats { grid-template-columns: 1fr; }
+  .thead { display: none; }
+  .headtop { flex-direction: column; }
+  .cal-cell { min-height: 64px; padding: 5px; }
+  .cal-month-label { min-width: 0; }
+  .otp-box { width: 38px; height: 46px; font-size: 20px; }
+}
+
+/* ───────── 123ª entrega: "Estadísticas y proyecciones" (Proyecciones.jsx) ───────── */
+.pry { padding-bottom: 48px; }
+.pry-lead { font-size: 15px; line-height: 1.55; max-width: 75ch; margin: 8px 0 18px; }
+.pry-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 18px; }
+.pry-tab { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.pry-tab.activo { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.pry-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 18px 20px; margin-bottom: 18px; min-width: 0; }
+.pry-card h2 { font-family: "Fraunces", serif; font-weight: 600; font-size: 18px; margin: 0 0 6px; }
+.pry-nota { font-size: 13px; color: var(--ink-soft); margin: 0 0 12px; line-height: 1.5; max-width: 75ch; }
+.pry-rejilla { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; align-items: start; }
+.pry-controles { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 16px; }
+.pry-campo { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-soft); }
+.pry-campo select { font: inherit; font-size: 14px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 160px; }
+.pry-fichas { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.pry-ficha { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.pry-ficha span { font-size: 12px; color: var(--ink-soft); }
+.pry-ficha strong { font-family: "Fraunces", serif; font-size: 22px; font-weight: 600; }
+.pry-wrap { overflow-x: auto; }
+.pry-tabla { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 6px 0 14px; font-variant-numeric: tabular-nums; }
+.pry-tabla th, .pry-tabla td { border: 1px solid var(--line); padding: 6px 8px; text-align: center; white-space: nowrap; }
+.pry-tabla th { background: var(--surface-2); font-weight: 600; }
+.pry-tabla .pry-l { text-align: left; }
+.pry-tabla tr.pry-total td { font-weight: 600; background: var(--surface-2); }
+.pry-sort { appearance: none; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer; }
+.pry-sort.activo { color: var(--gold-strong); }
+.pry-pos { color: var(--good); }
+.pry-neg { color: var(--bad); }
+.pry-barra { display: inline-block; height: .5rem; border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+.pry-metodo { display: flex; flex-direction: column; gap: 10px; max-width: 75ch; margin: 0; padding-left: 1.2rem; line-height: 1.55; font-size: 14.5px; }
+.pry-leyenda { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+.pry-leyenda i { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; margin-right: .35rem; }
+.pry-svg { display: block; font-size: 12px; }
+.pry-grid { stroke: var(--line); }
+.pry-eje { fill: var(--ink-soft); font-size: 11px; }
+.pry-txt { fill: var(--ink); font-size: 12px; }
+.pry-etq { font-size: 12px; font-weight: 600; }
+.pry-rango { stroke: var(--line); }
+.pry-matriz td { width: 1.6rem; min-width: 1.6rem; height: 1.6rem; padding: 0; }
+.pry-matriz th.pry-v { writing-mode: vertical-rl; transform: rotate(180deg); height: 7rem; padding: 4px 2px; text-align: left; }
+.pry-matriz .pry-k { position: sticky; left: 0; background: var(--surface); text-align: left; padding: 0 8px; z-index: 1; }

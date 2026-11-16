@@ -1,0 +1,339 @@
+import { getStore } from "@netlify/blobs";
+import seed from "../../src/data/tablero.json";
+import { syncTablero } from "./lib/msgraph.js";
+import { PUNTOS_PRACTICA_KEY } from "../../src/lib/gamenight.js";
+
+const HEADERS = { "content-type": "application/json; charset=utf-8" };
+const TOL = 0.01; // tolerancia para sumas de porcentaje por redondeo flotante
+const MAX_LUGARES_PRACTICA = 15;
+
+// ids antiguos que cambiaron de nombre entre versiones del esquema — se renombran en vez de
+// duplicarse cuando más abajo se asegura que los conceptos protegidos existan
+const RENOMBRAR_ID_COBRO = { "addon-1": "addon" };
+
+const PLANTILLA = Object.values(seed)[0];
+
+function sumPct(lugares) {
+  return lugares.reduce((a, l) => a + Number(l.pct || 0), 0);
+}
+
+// completa/corrige los datos de UN campeonato (no el mapa completo) con la plantilla como respaldo
+function normalizarUno(datos, plantilla) {
+  const base = plantilla || PLANTILLA;
+  const d = datos && typeof datos === "object" ? { ...datos } : {};
+  d.premios = d.premios || base.premios;
+  d.premios.porTorneo = d.premios.porTorneo || base.premios.porTorneo;
+  d.premios.porCampeonato = d.premios.porCampeonato || base.premios.porCampeonato;
+  d.puntos = d.puntos || base.puntos;
+  d.puntos.asistencia = d.puntos.asistencia || base.puntos.asistencia;
+  d.puntos.posiciones = Array.isArray(d.puntos.posiciones) ? d.puntos.posiciones : base.puntos.posiciones;
+  if (typeof d.recomprasMax !== "number") d.recomprasMax = base.recomprasMax;
+  if (typeof d.cuotaInscripcion !== "number") d.cuotaInscripcion = base.cuotaInscripcion;
+  // minutos de tolerancia, desde que se "inicia" el torneo en Game Night, antes de que activar
+  // manualmente a un jugador (que no hizo check-in) le genere una amonestación — parámetro que pidió
+  // Federico que viviera en el Tablero de Control, no fijo en el código
+  if (typeof d.toleranciaCheckinMin !== "number") d.toleranciaCheckinMin = typeof base.toleranciaCheckinMin === "number" ? base.toleranciaCheckinMin : 10;
+  // 118ª entrega: castigo por no declarar un Re-buy o Add-on realmente hecho — editable por campeonato
+  // desde el Tablero de Control, default $100. Usado como default (editable caso por caso) por el motivo
+  // "Castigo x no declarar compra" en Cobranza > Registrar pagos y depósitos.
+  if (typeof d.castigoNoDeclarar !== "number") d.castigoNoDeclarar = typeof base.castigoNoDeclarar === "number" ? base.castigoNoDeclarar : 100;
+  d.gastosCampeonato = Array.isArray(d.gastosCampeonato) ? d.gastosCampeonato : base.gastosCampeonato;
+  d.cobrosPorTorneo = Array.isArray(d.cobrosPorTorneo) ? d.cobrosPorTorneo : base.cobrosPorTorneo;
+  d.pagosPorTorneo = Array.isArray(d.pagosPorTorneo) ? d.pagosPorTorneo : base.pagosPorTorneo;
+
+  d.cobrosPorTorneo = d.cobrosPorTorneo.map((c) => (RENOMBRAR_ID_COBRO[c.id] ? { ...c, id: RENOMBRAR_ID_COBRO[c.id] } : c));
+  const idsVistos = new Set();
+  d.cobrosPorTorneo = d.cobrosPorTorneo.filter((c) => {
+    if (idsVistos.has(c.id)) return false;
+    idsVistos.add(c.id);
+    return true;
+  });
+  for (const req of (base.cobrosPorTorneo || []).filter((c) => c.protegido)) {
+    const existente = d.cobrosPorTorneo.find((c) => c.id === req.id);
+    if (!existente) d.cobrosPorTorneo.push({ ...req });
+    else existente.protegido = true;
+  }
+  delete d.nombreCampeonato; // campo del esquema anterior (ahora el nombre es la llave del mapa)
+  return d;
+}
+
+// completa/corrige el mapa completo { [campeonato]: datos }. Migra el esquema plano de versiones
+// anteriores (un solo campeonato con "nombreCampeonato" y los campos al nivel raíz) envolviéndolo
+// bajo su propio nombre como llave — así los datos ya guardados en Blobs no se pierden.
+function normalizarMapa(raw) {
+  if (!raw || typeof raw !== "object") return structuredCloneSafe(seed);
+  if (raw.premios || raw.nombreCampeonato) {
+    const nombre = raw.nombreCampeonato && String(raw.nombreCampeonato).trim() ? String(raw.nombreCampeonato).trim() : Object.keys(seed)[0];
+    return { [nombre]: normalizarUno(raw, PLANTILLA) };
+  }
+  const mapa = {};
+  for (const [nombre, datos] of Object.entries(raw)) {
+    if (nombre === PUNTOS_PRACTICA_KEY) continue; // no es un campeonato — se normaliza aparte, abajo
+    mapa[nombre] = normalizarUno(datos, PLANTILLA);
+  }
+  if (Object.keys(mapa).length === 0) return structuredCloneSafe(seed);
+  mapa[PUNTOS_PRACTICA_KEY] = normalizarPuntosPractica(raw[PUNTOS_PRACTICA_KEY]);
+  return mapa;
+}
+
+function structuredCloneSafe(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+// 70ª entrega: normaliza la configuración de puntos por torneo de práctica — vive bajo su propia llave
+// reservada (`PUNTOS_PRACTICA_KEY`, ver el comentario en src/lib/gamenight.js), a propósito AJENA a
+// `normalizarUno()`/la plantilla de un campeonato real, para que un torneo de práctica nunca herede
+// costos o límites que no le corresponden. Forma: `{ [fecha]: [{ pos, puntos }, ...] }` — un arreglo
+// propio de esa fecha exacta, con el número de lugares que decida el administrador.
+function normalizarPuntosPractica(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [fecha, lista] of Object.entries(raw)) {
+    if (!fecha || !Array.isArray(lista)) continue;
+    const limpio = lista
+      .map((p) => ({ pos: Number(p?.pos) || 0, puntos: Number(p?.puntos) || 0 }))
+      .filter((p) => p.pos > 0)
+      .sort((a, b) => a.pos - b.pos);
+    if (limpio.length) out[fecha] = limpio;
+  }
+  return out;
+}
+
+function validarUno(data) {
+  const pt = data.premios?.porTorneo;
+  if (!pt || !Array.isArray(pt.lugares) || pt.lugares.length < 1 || pt.lugares.length > 10) {
+    return "Premios por torneo: debe haber entre 1 y 10 lugares.";
+  }
+  if (typeof pt.pctAcumulado !== "number" || pt.pctAcumulado < 0 || pt.pctAcumulado > 100) {
+    return "Premios por torneo: el % al acumulado debe estar entre 0 y 100.";
+  }
+  if (Math.abs(sumPct(pt.lugares) - 100) > TOL) {
+    return "Premios por torneo: los lugares deben sumar 100%.";
+  }
+
+  const pc = data.premios?.porCampeonato;
+  if (!pc || !Array.isArray(pc.lugares) || pc.lugares.length < 1 || pc.lugares.length > 10) {
+    return "Premios por campeonato: debe haber entre 1 y 10 lugares.";
+  }
+  const reyKillers = pc.lugares.filter((l) => l.reyKiller);
+  if (reyKillers.length !== 1) {
+    return "Premios por campeonato: debe haber exactamente un lugar marcado como Rey Killer.";
+  }
+  if (Math.abs(sumPct(pc.lugares) - 100) > TOL) {
+    return "Premios por campeonato: los lugares (incluyendo Rey Killer) deben sumar 100%.";
+  }
+
+  const pos = data.puntos?.posiciones;
+  if (!Array.isArray(pos) || pos.length < 1 || pos.length > 15) {
+    return "Puntos: debe haber entre 1 y 15 posiciones.";
+  }
+  if (!data.puntos?.asistencia || typeof data.puntos.asistencia.regular !== "number" || typeof data.puntos.asistencia.main !== "number") {
+    return "Puntos: falta la asistencia (Regular / Main Event).";
+  }
+
+  if (typeof data.recomprasMax !== "number" || data.recomprasMax < 0) {
+    return "Falta el número máximo de recompras (Re-buys) por jugador.";
+  }
+  if (typeof data.cuotaInscripcion !== "number" || data.cuotaInscripcion < 0) {
+    return "Falta la cuota de inscripción por jugador.";
+  }
+  if (typeof data.toleranciaCheckinMin !== "number" || data.toleranciaCheckinMin < 0) {
+    return "Falta el tiempo de tolerancia de check-in (minutos) para Game Night.";
+  }
+  if (typeof data.castigoNoDeclarar !== "number" || data.castigoNoDeclarar < 0) {
+    return "Falta el castigo por no declarar Re-buys o Add-on.";
+  }
+
+  if (!Array.isArray(data.gastosCampeonato) || data.gastosCampeonato.length > 10) {
+    return "Gastos del campeonato: máximo 10 conceptos.";
+  }
+  if (!Array.isArray(data.cobrosPorTorneo) || data.cobrosPorTorneo.length > 10) {
+    return "Cobros por torneo: máximo 10 conceptos.";
+  }
+  const tieneBuyin = data.cobrosPorTorneo.some((c) => c.id === "buyin");
+  const tieneRebuy = data.cobrosPorTorneo.some((c) => c.id === "rebuy");
+  const tieneAddon = data.cobrosPorTorneo.some((c) => c.id === "addon");
+  if (!tieneBuyin || !tieneRebuy || !tieneAddon) {
+    return "Cobros por torneo: Buy-in, Re-buy y Add-on son obligatorios y no se pueden eliminar.";
+  }
+  if (!Array.isArray(data.pagosPorTorneo) || data.pagosPorTorneo.length > 10) {
+    return "Pagos por torneo: máximo 10 conceptos.";
+  }
+
+  return null;
+}
+
+// usada por campeonatos.js al renombrar un campeonato: mueve la llave del mapa de "de" a "a" (si "de"
+// no tenía datos guardados en el Tablero, no hace nada — no todos los campeonatos tienen configuración
+// propia todavía). Comparte la misma lógica que la acción "renombrar" del endpoint HTTP de abajo.
+export async function renombrarCampeonatoEnTablero(de, a) {
+  const store = getStore({ name: "tols-tablero", consistency: "strong" });
+  const raw = await store.get("data", { type: "json", consistency: "strong" });
+  const mapa = normalizarMapa(raw);
+  if (!mapa[de] || de === a) return;
+  if (!mapa[a]) mapa[a] = mapa[de];
+  delete mapa[de];
+  await store.setJSON("data", mapa);
+  await syncTablero(mapa);
+}
+
+// 132ª entrega: la sincronización a Excel ya no se espera dentro de la respuesta (ver
+// sync-tablero-background.js). Si no se pudiera disparar, el guardado en el sitio igual queda hecho.
+async function dispararSyncTablero(req, mapa) {
+  try {
+    const origin = new URL(req.url).origin;
+    await fetch(`${origin}/api/sync-tablero-background`, { method: "POST" });
+  } catch (e) {
+    try { await syncTablero(mapa); } catch (_) { /* best-effort */ }
+  }
+}
+
+export default async (req) => {
+  const store = getStore({ name: "tols-tablero", consistency: "strong" });
+
+  if (req.method === "GET") {
+    // 84ª entrega (bugfix "Exportar todo a Excel"): la pantalla consulta este parámetro cada pocos
+    // segundos mientras la exportación corre en segundo plano (ver exportar-excel-background.js), para
+    // enterarse de cuándo termina (y con qué resultado) sin tener que mantener abierta una sola
+    // respuesta larga — que era justo lo que agotaba el tiempo máximo de una función síncrona y
+    // disparaba el bug. No toca `tols-tablero` para nada.
+    if (new URL(req.url).searchParams.get("estadoExportarExcel") === "1") {
+      const estadoStore = getStore({ name: "tols-exportar-estado", consistency: "strong" });
+      const estado = (await estadoStore.get("data", { type: "json", consistency: "strong" }).catch(() => null)) || { estado: "idle" };
+      return new Response(JSON.stringify(estado), { headers: HEADERS });
+    }
+
+    const raw = await store.get("data", { type: "json", consistency: "strong" });
+    const normalizado = normalizarMapa(raw);
+    if (!raw || JSON.stringify(raw) !== JSON.stringify(normalizado)) {
+      await store.setJSON("data", normalizado);
+      await dispararSyncTablero(req, normalizado);
+    }
+    return new Response(JSON.stringify(normalizado), { headers: HEADERS });
+  }
+
+  if (req.method === "PUT" || req.method === "POST") {
+    let body;
+    try {
+      body = await req.json();
+    } catch (e) {
+      return new Response(JSON.stringify({ error: "JSON inválido." }), { status: 400, headers: HEADERS });
+    }
+
+    // 83ª entrega: "Exportar todo a Excel" — a pedido de Federico, regenera el archivo completo a
+    // demanda desde Blobs (ver lib/exportar-excel.js), en vez de depender de la sincronización
+    // automática silenciosa de siempre. Vive como una acción más de este endpoint (porque el botón se
+    // pidió puntualmente en la pantalla Tablero de Control) pero no toca `mapa` para nada — recorre
+    // TODOS los módulos del sitio, no solo el Tablero — así que se resuelve aparte, antes de leer/tocar
+    // el store de tols-tablero.
+    //
+    // 84ª entrega (bugfix): hasta la 83ª esta acción esperaba (`await exportarTodoDesdeBlobs()`) a que
+    // los 10 módulos terminaran de sincronizarse contra Microsoft Graph API antes de responder — eso
+    // superaba el tiempo máximo que Netlify permite para una función síncrona, y lo que llegaba de
+    // vuelta al navegador era una página de error HTML en vez de JSON (el bug que reportó Federico: "no
+    // se pudo completar la exportación... Unexpected token '<'..."). Ahora esta acción solo DISPARA la
+    // exportación real (que corre aparte, en segundo plano — ver exportar-excel-background.js) y
+    // responde de inmediato; la pantalla consulta el resultado con la acción de solo lectura
+    // "estadoExportarExcel" del GET de arriba, cada pocos segundos, hasta ver "listo" o "error".
+    if (body?.accion === "exportarExcel") {
+      const estadoStore = getStore({ name: "tols-exportar-estado", consistency: "strong" });
+      const actual = (await estadoStore.get("data", { type: "json", consistency: "strong" }).catch(() => null)) || null;
+      if (actual?.estado === "en-curso") {
+        // ya hay una exportación corriendo (ej. alguien la disparó y recargó la página) — no disparar
+        // una segunda en paralelo, devolver el estado actual para que la pantalla siga el mismo polling.
+        return new Response(JSON.stringify(actual), { headers: HEADERS });
+      }
+      await estadoStore.setJSON("data", { estado: "en-curso", iniciadoEn: new Date().toISOString() });
+      try {
+        const origin = new URL(req.url).origin;
+        await fetch(`${origin}/api/exportar-excel-background`, { method: "POST" });
+      } catch (e) {
+        await estadoStore.setJSON("data", { estado: "error", error: "No se pudo iniciar la exportación: " + (e?.message || e), terminadoEn: new Date().toISOString() });
+        return new Response(JSON.stringify({ error: "No se pudo iniciar la exportación." }), { status: 500, headers: HEADERS });
+      }
+      return new Response(JSON.stringify({ estado: "en-curso" }), { headers: HEADERS });
+    }
+
+    const raw = await store.get("data", { type: "json", consistency: "strong" });
+    const mapa = normalizarMapa(raw);
+
+    if (body?.accion === "guardar") {
+      const campeonato = String(body.campeonato || "").trim();
+      if (!campeonato) {
+        return new Response(JSON.stringify({ error: "Falta el nombre del campeonato." }), { status: 400, headers: HEADERS });
+      }
+      const datos = normalizarUno(body.data, mapa[campeonato] || PLANTILLA);
+      const problema = validarUno(datos);
+      if (problema) {
+        return new Response(JSON.stringify({ error: problema }), { status: 400, headers: HEADERS });
+      }
+      mapa[campeonato] = datos;
+    } else if (body?.accion === "renombrar") {
+      const de = String(body.de || "").trim();
+      const a = String(body.a || "").trim();
+      if (!de || !a) {
+        return new Response(JSON.stringify({ error: "Faltan los nombres para renombrar." }), { status: 400, headers: HEADERS });
+      }
+      if (!mapa[de]) {
+        return new Response(JSON.stringify({ error: `No hay datos guardados para "${de}".` }), { status: 400, headers: HEADERS });
+      }
+      if (mapa[a] && a !== de) {
+        return new Response(JSON.stringify({ error: `Ya existe un campeonato "${a}".` }), { status: 400, headers: HEADERS });
+      }
+      mapa[a] = mapa[de];
+      if (a !== de) delete mapa[de];
+    } else if (body?.accion === "guardarPuntosPractica") {
+      // 70ª entrega: guarda (o reemplaza) la configuración de puntos de UN torneo de práctica en
+      // particular — independiente entre torneos, incluyendo cuántos lugares otorgan puntos. Cada
+      // torneo de práctica se identifica por su fecha (única en el Calendario, ver `practica: true`).
+      const fecha = String(body.fecha || "").trim();
+      if (!fecha) {
+        return new Response(JSON.stringify({ error: "Falta la fecha del torneo de práctica." }), { status: 400, headers: HEADERS });
+      }
+      const lista = Array.isArray(body.lista) ? body.lista : [];
+      const limpio = lista
+        .map((p) => ({ pos: Number(p?.pos) || 0, puntos: Number(p?.puntos) || 0 }))
+        .filter((p) => p.pos > 0)
+        .sort((a, b) => a.pos - b.pos);
+      if (limpio.length < 1 || limpio.length > MAX_LUGARES_PRACTICA) {
+        return new Response(JSON.stringify({ error: `Puntos de práctica: debe haber entre 1 y ${MAX_LUGARES_PRACTICA} lugares.` }), { status: 400, headers: HEADERS });
+      }
+      const posicionesEsperadas = limpio.map((_, i) => i + 1);
+      if (limpio.some((p, i) => p.pos !== posicionesEsperadas[i])) {
+        return new Response(JSON.stringify({ error: "Puntos de práctica: los lugares deben numerarse 1, 2, 3… sin huecos ni repetidos." }), { status: 400, headers: HEADERS });
+      }
+      mapa[PUNTOS_PRACTICA_KEY] = { ...mapa[PUNTOS_PRACTICA_KEY], [fecha]: limpio };
+    } else if (body?.accion === "eliminarPuntosPractica") {
+      // quita la configuración propia de esa fecha — vuelve a caer en la tabla fija de respaldo
+      // (3/2/1, ver src/lib/gamenight.js) hasta que se configure de nuevo.
+      const fecha = String(body.fecha || "").trim();
+      if (!fecha) {
+        return new Response(JSON.stringify({ error: "Falta la fecha del torneo de práctica." }), { status: 400, headers: HEADERS });
+      }
+      const restante = { ...mapa[PUNTOS_PRACTICA_KEY] };
+      delete restante[fecha];
+      mapa[PUNTOS_PRACTICA_KEY] = restante;
+    } else if (body?.accion === "eliminar") {
+      const campeonato = String(body.campeonato || "").trim();
+      if (!campeonato || !mapa[campeonato]) {
+        return new Response(JSON.stringify({ error: "Ese campeonato no tiene datos guardados." }), { status: 400, headers: HEADERS });
+      }
+      // Object.keys(mapa) siempre incluye PUNTOS_PRACTICA_KEY (no es un campeonato) — se excluye del
+      // conteo para no permitir borrar el último campeonato real por error.
+      if (Object.keys(mapa).filter((k) => k !== PUNTOS_PRACTICA_KEY).length <= 1) {
+        return new Response(JSON.stringify({ error: "Debe quedar al menos un campeonato con datos." }), { status: 400, headers: HEADERS });
+      }
+      delete mapa[campeonato];
+    } else {
+      return new Response(JSON.stringify({ error: "Acción no reconocida." }), { status: 400, headers: HEADERS });
+    }
+
+    await store.setJSON("data", mapa);
+    await dispararSyncTablero(req, mapa);
+    return new Response(JSON.stringify(mapa), { headers: HEADERS });
+  }
+
+  return new Response(JSON.stringify({ error: "Método no permitido." }), { status: 405, headers: HEADERS });
+};
+
+export const config = { path: "/api/tablero" };
